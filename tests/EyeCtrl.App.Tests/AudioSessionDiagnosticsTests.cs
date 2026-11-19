@@ -1,13 +1,14 @@
 namespace EyeCtrl.App.Tests;
 
 using System.Globalization;
+using System.Runtime.InteropServices;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Settings;
 using NFluent;
 using Xunit;
 
 /// <summary>
-/// The exclusive collection for the F5 click-sound diagnostics tests: every attempted click
+/// The exclusive collection for the F5/F10 click-sound diagnostics tests: every attempted click
 /// funnels into AudioSessionDiagnostics' app-lifetime once-guard (a static), so the test classes
 /// that click — the latch tests, the service counters and the audio-diagnostics tests — must
 /// never interleave. DisableParallelization is also what the
@@ -67,32 +68,64 @@ public abstract class F5AudioDiagnosticsTestBase : IDisposable
 }
 
 /// <summary>
-/// F5's diagnostics half, all behind the <see cref="AudioSessionDiagnostics"/> seams (no real
-/// COM, no real audio — see <see cref="TheObserverAcquiresTheEnumeratorLazily"/> for the one
-/// deliberate in-process exception): the once-per-app-lifetime first-click guard, the show/hide
-/// baseline snapshots, the registration retry for a session that winmm has not created yet, and
-/// — the owner-safety rule — that a Core Audio failure can never throw into the typing path and
-/// never blocks a click. Source pins hold the coordinator forwarding and the LoadKeyboard wiring
-/// in place. Every test inherits the collection-wide park scheduler
+/// F5's diagnostics half plus F10's device-level instruments, all behind the
+/// <see cref="AudioSessionDiagnostics"/> seams (no real COM, no real audio): the
+/// once-per-app-lifetime first-click guard, the show/hide baseline snapshots, the registration
+/// retry for a session that winmm has not created yet, the endpoint master volume/mute in the
+/// snapshot, the per-show endpoint-meter verdicts (reached/silent/pending) with the
+/// first-silent line, the click→Active late-start count, the duck lines, and — the owner-safety
+/// rule — that a Core Audio failure can never throw into the typing path and never blocks a
+/// click. Source pins hold the coordinator forwarding and the LoadKeyboard wiring in place.
+/// Every test inherits the collection-wide park scheduler
 /// (<see cref="F5AudioDiagnosticsTestBase"/>).
 /// </summary>
 [Collection("KeyboardAudioDiagnostics")]
 public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
 {
+    [Fact]
+    public void BothRegistrationBodiesAcquireTheEnumeratorInsideTheComLock()
+    {
+        // Review 05 V3 (L2's pin, restored and adapted to F10's TryRegister body): the
+        // session-events acquisition is a CACHE HIT after TryRegister, so behaviour can never
+        // observe its removal — this source pin holds BOTH bodies' acquisition lines (L1 and L2
+        // each remove one → RED), and the production factory fallback stays NewEnumerator.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "CoreAudioInterop.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage("TryRegister no longer acquires the shared enumerator inside its _comLock")
+            .That(source.Contains(
+                "lock(_comLock){if(_shutDown)returnfalse;_enumerator??=AcquireSharedEnumerator();if(!_endpointAttached)"))
+            .IsTrue();
+        Check.WithCustomMessage("TryRegisterSessionEvents no longer acquires the shared enumerator inside its _comLock")
+            .That(source.Contains(
+                "lock(_comLock){if(_shutDown||_sessionAttached)return_sessionAttached;_enumerator??=AcquireSharedEnumerator();"))
+            .IsTrue();
+        Check.WithCustomMessage(
+                "the production enumerator factory no longer falls back to the real MMDeviceEnumerator "
+                + "coclass — the test seam must never replace the production path")
+            .That(source.Contains("_sharedEnumerator??=EnumeratorFactoryForTesting?.Invoke()??NewEnumerator()"))
+            .IsTrue();
+    }
+
     private sealed class FakeReader : AudioSessionDiagnostics.IAudioStateReader
     {
         public int Reads;
         public bool ThrowOnRead;
+        public AudioSessionDiagnostics.IAudioChangeListener? ListenerToCheck;
+        public bool SawListenerRegisteredWhenRead;
 
         public AudioSessionDiagnostics.AudioStateSnapshot? Read()
         {
             Reads++;
+            if (ListenerToCheck is FakeListener { RegisterCalls: > 0 }) SawListenerRegisteredWhenRead = true;
             if (ThrowOnRead) throw new InvalidOperationException("com gone");
             return Next;
         }
 
         public AudioSessionDiagnostics.AudioStateSnapshot? Next { get; set; } =
-            new("Speakers", true, 0.8, false, "Active");
+            new("Speakers", 0.65, false, true, 0.8, false, "Active");
     }
 
     private sealed class FakeListener : AudioSessionDiagnostics.IAudioChangeListener
@@ -100,12 +133,12 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         public int RegisterCalls, SessionRegisterCalls, ShutdownCalls;
         public bool RegisterResult = true;
         public Queue<bool> SessionResults = new([true]);
-        public Action<string>? Handler;
+        public Action<AudioSessionDiagnostics.AudioChange>? Handler;
 
-        public bool TryRegister(Action<string> onChangeLine)
+        public bool TryRegister(Action<AudioSessionDiagnostics.AudioChange> onChange)
         {
             RegisterCalls++;
-            Handler = onChangeLine;
+            Handler = onChange;
             return RegisterResult;
         }
 
@@ -116,6 +149,27 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         }
 
         public void Shutdown() => ShutdownCalls++;
+
+        /// <summary>Simulates a change the OS delivered on a WASAPI thread.</summary>
+        public void Emit(AudioSessionDiagnostics.AudioChange change) => Handler?.Invoke(change);
+    }
+
+    private sealed class FakeMeter : AudioSessionDiagnostics.IAudioMeterProbe
+    {
+        public const float Silent = 0f;
+        public const float Caught = 0.5f;
+
+        public Queue<float?> Results = new();
+        public float? Fallback;
+        public int Calls;
+        public Func<bool>? LastStop;
+
+        public float? SamplePeak(Func<bool> stop)
+        {
+            Calls++;
+            LastStop = stop;
+            return Results.Count > 0 ? Results.Dequeue() : Fallback;
+        }
     }
 
     private static (FakeReader Reader, FakeListener Listener) Configure()
@@ -126,27 +180,67 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         return (reader, listener);
     }
 
+    private static (FakeReader Reader, FakeListener Listener, FakeMeter Meter) ConfigureWithMeter(
+        params float?[] peaks)
+    {
+        var reader = new FakeReader();
+        var listener = new FakeListener();
+        var meter = new FakeMeter { Results = new Queue<float?>(peaks) };
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener, meter);
+        return (reader, listener, meter);
+    }
+
     // ---- formats ----
 
     [Fact]
     public void SnapshotLine_PresentSession_IsPinnedWordForWord()
     {
-        var line = new AudioSessionDiagnostics.AudioStateSnapshot("Speakers", true, 0.8, false, "Active").FormatLine();
-        Check.That(line).IsEqualTo("Keyboard audio: endpoint=\"Speakers\" session: volume=0.80 mute=False state=Active");
+        var line = new AudioSessionDiagnostics.AudioStateSnapshot(
+            "Speakers", 0.65, false, true, 0.8, false, "Active").FormatLine();
+        Check.That(line).IsEqualTo(
+            "Keyboard audio: endpoint=\"Speakers\" endpoint: volume=0.65 mute=False "
+            + "session: volume=0.80 mute=False state=Active");
     }
 
     [Fact]
     public void SnapshotLine_SessionNotCreatedYet_IsPinnedWordForWord()
     {
-        var line = new AudioSessionDiagnostics.AudioStateSnapshot("Speakers", false, null, null, null).FormatLine();
-        Check.That(line).IsEqualTo("Keyboard audio: endpoint=\"Speakers\" session: not created yet");
+        var line = new AudioSessionDiagnostics.AudioStateSnapshot(
+            "Speakers", 0.65, false, false, null, null, null).FormatLine();
+        Check.That(line).IsEqualTo(
+            "Keyboard audio: endpoint=\"Speakers\" endpoint: volume=0.65 mute=False session: not created yet");
     }
 
     [Fact]
     public void SnapshotLine_UnreadableEndpoint_IsMarkedUnavailable()
     {
-        var line = new AudioSessionDiagnostics.AudioStateSnapshot(null, true, 0.8, false, "Active").FormatLine();
+        var line = new AudioSessionDiagnostics.AudioStateSnapshot(
+            null, 0.65, false, true, 0.8, false, "Active").FormatLine();
         Check.That(line).Contains("<unavailable>");
+    }
+
+    [Fact]
+    public void SnapshotLine_UnreadableEndpointVolume_IsQuestionMarked()
+    {
+        // F10: a failed master-volume read must never render as 0 — "?" is not "muted".
+        var line = new AudioSessionDiagnostics.AudioStateSnapshot(
+            "Speakers", null, null, true, 0.8, false, "Active").FormatLine();
+        Check.That(line).IsEqualTo(
+            "Keyboard audio: endpoint=\"Speakers\" endpoint: volume=? mute=? "
+            + "session: volume=0.80 mute=False state=Active");
+    }
+
+    [Fact]
+    public void SilentClickLine_IsPinnedWordForWord_AndCarriesTheState()
+    {
+        var line = AudioSessionDiagnostics.FormatSilentClickLine(
+            new AudioSessionDiagnostics.AudioStateSnapshot("Speakers", 0.65, false, true, 0.8, false, "Active"));
+        Check.That(line).IsEqualTo(
+            "Keyboard click silent: no output peak during the play window; "
+            + "endpoint=\"Speakers\" endpoint: volume=0.65 mute=False "
+            + "session: volume=0.80 mute=False state=Active");
+        Check.That(AudioSessionDiagnostics.FormatSilentClickLine(null))
+            .IsEqualTo("Keyboard click silent: no output peak during the play window; audio state unavailable");
     }
 
     [Fact]
@@ -154,12 +248,18 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
     {
         Check.That(AudioSessionDiagnostics.FormatVolumeChange(0.5f, true))
             .IsEqualTo("Keyboard audio change: volume=0.50 mute=True");
+        Check.That(AudioSessionDiagnostics.FormatEndpointVolumeChange(0.65f, false))
+            .IsEqualTo("Keyboard audio change: endpoint volume=0.65 mute=False");
         Check.That(AudioSessionDiagnostics.FormatSessionStateChange("Expired"))
             .IsEqualTo("Keyboard audio change: session state=Expired");
         Check.That(AudioSessionDiagnostics.FormatSessionDisconnected("ServiceShutdown"))
             .IsEqualTo("Keyboard audio change: session disconnected: ServiceShutdown");
         Check.That(AudioSessionDiagnostics.FormatDefaultDeviceChanged("Headphones"))
             .IsEqualTo("Keyboard audio change: default device -> \"Headphones\"");
+        Check.That(AudioSessionDiagnostics.FormatDuckStart(2))
+            .IsEqualTo("Keyboard duck: communications ducking started (sessions=2)");
+        Check.That(AudioSessionDiagnostics.FormatDuckEnd())
+            .IsEqualTo("Keyboard duck: communications ducking ended");
     }
 
     [Fact]
@@ -169,10 +269,14 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         try
         {
             CultureInfo.CurrentCulture = new CultureInfo("de-DE");
-            Check.That(new AudioSessionDiagnostics.AudioStateSnapshot("Lautsprecher", true, 0.8, false, "Active").FormatLine())
-                .IsEqualTo("Keyboard audio: endpoint=\"Lautsprecher\" session: volume=0.80 mute=False state=Active");
+            Check.That(new AudioSessionDiagnostics.AudioStateSnapshot(
+                    "Lautsprecher", 0.65, false, true, 0.8, false, "Active").FormatLine())
+                .IsEqualTo("Keyboard audio: endpoint=\"Lautsprecher\" endpoint: volume=0.65 mute=False "
+                    + "session: volume=0.80 mute=False state=Active");
             Check.That(AudioSessionDiagnostics.FormatVolumeChange(0.5f, true))
                 .IsEqualTo("Keyboard audio change: volume=0.50 mute=True");
+            Check.That(AudioSessionDiagnostics.FormatEndpointVolumeChange(0.65f, false))
+                .IsEqualTo("Keyboard audio change: endpoint volume=0.65 mute=False");
         }
         finally { CultureInfo.CurrentCulture = previous; }
     }
@@ -192,6 +296,140 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         Check.That(reader.Reads).IsEqualTo(1);
         Check.That(listener.RegisterCalls).IsEqualTo(1);
         Check.That(listener.SessionRegisterCalls).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void TheFirstClickRegistersItsInstruments_BeforeItReadsTheState()
+    {
+        // F10 item 4 ("no blind first show"): the endpoint-volume callback and the ducking
+        // registration must exist BEFORE the first click's state is read — otherwise a change
+        // during the first show would have no observer. The first-click work registers first.
+        var reader = new FakeReader();
+        var listener = new FakeListener();
+        reader.ListenerToCheck = listener;
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
+        try
+        {
+            AudioSessionDiagnostics.OnClickAttempted();
+            RunParkedWork();
+
+            Check.WithCustomMessage(
+                    "the first click read the audio state before it registered its endpoint "
+                    + "instruments — a change during the first show would be blind (F10 item 4)")
+                .That(reader.SawListenerRegisteredWhenRead).IsTrue();
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
+    public void EveryClickRetriesTheSessionEvents_UntilTheyAttach()
+    {
+        // Review-01 F3: winmm creates our session on the first PlaySound, so the first click's
+        // work can find no session and leave the first show blind for session state/volume and
+        // for the late metric. The second click must retry (queued, off the typing path).
+        var reader = new FakeReader();
+        var listener = new FakeListener { SessionResults = new Queue<bool>([false, true]) };
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
+        try
+        {
+            AudioSessionDiagnostics.OnClickAttempted(); // click 1
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(1);
+            Check.That(AudioSessionDiagnostics.SessionEventsAttached).IsFalse();
+
+            AudioSessionDiagnostics.OnClickAttempted(); // click 2: the retry is queued
+            Check.That(Parked).HasSize(1);
+            Check.That(AudioSessionDiagnostics.SessionEventsAttached).IsFalse(); // never inline
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(2);
+            Check.WithCustomMessage(
+                    "the second click did not retry the session registration — the first show "
+                    + "stays blind for session state, volume and the late metric (review-01 F3)")
+                .That(AudioSessionDiagnostics.SessionEventsAttached).IsTrue();
+
+            AudioSessionDiagnostics.OnClickAttempted(); // attached: no further retry
+            Check.That(Parked).IsEmpty();
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
+    public void EveryClickRetriesTheSessionEvents_AfterASecondMiss_UntilTheyAttach()
+    {
+        // Review-02 N2/M1: the retry flag must be CLEARED even when the retry itself fails, or
+        // the retry is one-shot: a session still absent at click 2's attempt would leave the
+        // instrument blind until the next show transition.
+        var reader = new FakeReader();
+        var listener = new FakeListener { SessionResults = new Queue<bool>([false, false, true]) };
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
+        try
+        {
+            AudioSessionDiagnostics.OnClickAttempted(); // click 1: first-click work, session absent
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(1);
+
+            AudioSessionDiagnostics.OnClickAttempted(); // click 2: retry, session still absent
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(2);
+            Check.That(AudioSessionDiagnostics.SessionEventsAttached).IsFalse();
+
+            AudioSessionDiagnostics.OnClickAttempted(); // click 3: the flag must be free again
+            RunParkedWork();
+            Check.WithCustomMessage(
+                    "the retry flag was not cleared after a failed retry — the session "
+                    + "registration became one-shot and every later click stayed blind "
+                    + "(review-02 M1)")
+                .That(listener.SessionRegisterCalls).IsEqualTo(3);
+            Check.That(AudioSessionDiagnostics.SessionEventsAttached).IsTrue();
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
+    public void ATwoClicksBeforeTheParkedRetryRuns_QueueOnlyOneRetry()
+    {
+        // Review-02 N2/M4 (the at-most-one-in-flight cost guard): the click path only queues, so
+        // two clicks before the worker runs must not pile up two retries.
+        var reader = new FakeReader();
+        var listener = new FakeListener { SessionResults = new Queue<bool>([false, true]) };
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
+        try
+        {
+            AudioSessionDiagnostics.OnClickAttempted();
+            RunParkedWork();
+            AudioSessionDiagnostics.OnClickAttempted(); // queues the retry
+            AudioSessionDiagnostics.OnClickAttempted(); // must not queue a second
+            Check.That(Parked).HasSize(1);
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(2);
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
+    public void ARetryQueuedBeforeShutdown_RegistersNothingAfterTheLatch()
+    {
+        // Review-02 N2/M3: a retry parked before Shutdown must not register a COM callback in an
+        // exiting process. The listener counts every session-registration attempt.
+        var reader = new FakeReader();
+        var listener = new FakeListener { SessionResults = new Queue<bool>([false, false]) };
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
+        try
+        {
+            AudioSessionDiagnostics.OnClickAttempted();
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(1);
+
+            AudioSessionDiagnostics.OnClickAttempted(); // the retry is parked...
+            AudioSessionDiagnostics.Shutdown();         // ...then the app starts to exit
+            RunParkedWork();                            // the late retry runs now
+
+            Check.WithCustomMessage(
+                    "a retry parked before Shutdown registered the session events after the "
+                    + "latch — a COM callback in an exiting process (review-02 M3)")
+                .That(listener.SessionRegisterCalls).IsEqualTo(1);
+        }
+        finally { ResetStatics(); }
     }
 
     [Fact]
@@ -260,6 +498,282 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         Check.That(listener.SessionRegisterCalls).IsEqualTo(3);
     }
 
+    // ---- F10: the endpoint meter's per-show window ----
+
+    [Fact]
+    public void Meter_CountsReachedAndSilent_AndAReachedClickWritesNoSilentLine()
+    {
+        var (_, _, meter) = ConfigureWithMeter(FakeMeter.Caught, FakeMeter.Silent);
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed();
+        RunParkedWork();
+        AudioSessionDiagnostics.OnClickPlayed();
+        RunParkedWork();
+
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.That(counts.Reached).IsEqualTo(1);
+        Check.That(counts.Silent).IsEqualTo(1);
+        Check.That(counts.Pending).IsEqualTo(0);
+        Check.That(counts.Unmetered).IsEqualTo(0);
+        Check.That(meter.Calls).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void TheFirstSilentClickLine_IsEmittedOncePerShow()
+    {
+        // F10 item 2: ONE line at the first silent click of a show, never per click.
+        var (reader, _, _) = ConfigureWithMeter(
+            FakeMeter.Silent, FakeMeter.Silent, FakeMeter.Silent, FakeMeter.Silent);
+        try
+        {
+            AudioSessionDiagnostics.OnShowStarted();
+            for (var i = 0; i < 3; i++)
+            {
+                AudioSessionDiagnostics.OnClickPlayed();
+                RunParkedWork();
+            }
+            Check.That(AudioSessionDiagnostics.SilentClickReports).IsEqualTo(1);
+            Check.That(AudioSessionDiagnostics.TakeMeterCounts().Silent).IsEqualTo(3);
+            Check.That(reader.Reads).IsEqualTo(1); // the silent line cost exactly one state read
+
+            // A new show opens a new window: its first silent click reports again.
+            AudioSessionDiagnostics.OnShowStarted();
+            AudioSessionDiagnostics.OnClickPlayed();
+            RunParkedWork();
+            Check.That(AudioSessionDiagnostics.SilentClickReports).IsEqualTo(2);
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
+    public void AReachedClick_WritesNoSilentLine()
+    {
+        var (_, _, _) = ConfigureWithMeter(FakeMeter.Caught);
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed();
+        RunParkedWork();
+        Check.That(AudioSessionDiagnostics.SilentClickReports).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void AnUnreadableMeter_CountsNeitherAndWritesNoSilentLine()
+    {
+        var (_, _, _) = ConfigureWithMeter((float?)null);
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed();
+        RunParkedWork();
+
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.That(counts.Reached).IsEqualTo(0);
+        Check.That(counts.Silent).IsEqualTo(0);
+        Check.That(counts.Pending).IsEqualTo(0);
+        // Review-02 N1: the no-verdict click is counted as unmetered, so the hide line's
+        // reached + silent + pending + unmetered still equals the played clicks.
+        Check.That(counts.Unmetered).IsEqualTo(1);
+        Check.That(AudioSessionDiagnostics.SilentClickReports).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void TheShowWindowResets_SoAVerdictNeverLeaksIntoTheNextShow()
+    {
+        var (_, _, _) = ConfigureWithMeter(FakeMeter.Caught);
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed();
+        RunParkedWork();
+        Check.That(AudioSessionDiagnostics.TakeMeterCounts().Reached).IsEqualTo(1);
+
+        AudioSessionDiagnostics.OnShowStarted(); // show 2, no clicks
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.WithCustomMessage("a reached click of the previous show leaked into the next show's line")
+            .That(counts.Reached).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void APendingSample_IsReportedAsPending_NotAsReachedOrSilent()
+    {
+        var (_, _, _) = ConfigureWithMeter(FakeMeter.Caught);
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed(); // parked: the sampler has not run yet
+
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.That(counts.Pending).IsEqualTo(1);
+        Check.That(counts.Reached).IsEqualTo(0);
+        Check.That(counts.Silent).IsEqualTo(0);
+
+        RunParkedWork(); // the verdict lands late — the PENDING count is what the hide line saw
+        Check.That(AudioSessionDiagnostics.TakeMeterCounts().Reached).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void OnClickPlayed_DoesNotRunTheMeterSynchronously()
+    {
+        // F10's copy of review 01 F4: the sampler must be queued, never run on the key path.
+        var (_, _, meter) = ConfigureWithMeter(FakeMeter.Caught);
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed();
+        Check.That(meter.Calls).IsEqualTo(0); // nothing yet
+        Check.That(Parked).HasSize(1);
+        RunParkedWork();
+        Check.That(meter.Calls).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void ClickToActiveLatency_IsCountedAsLateAboveTheThreshold_AndBoundedByMax()
+    {
+        // The add-on: 13 clicks started ~0.4 s late after idle gaps. The delay comes from the
+        // session state callback, not from the meter, so it is measurable with no meter too.
+        var (_, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // attach the fake listener so Emit reaches it
+        RunParkedWork();
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed();
+        Thread.Sleep(AudioSessionDiagnostics.LateStartThresholdMs + 30);
+        listener.Emit(new AudioSessionDiagnostics.AudioChange(
+            AudioSessionDiagnostics.AudioChangeKind.SessionState,
+            AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.That(counts.Late).IsEqualTo(1);
+        Check.That(counts.MaxLateMs).IsStrictlyGreaterThan(AudioSessionDiagnostics.LateStartThresholdMs - 1);
+    }
+
+    [Fact]
+    public void AFastActiveTransition_IsMeasuredButNotLate()
+    {
+        var (_, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // attach the fake listener so Emit reaches it
+        RunParkedWork();
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed();
+        listener.Emit(new AudioSessionDiagnostics.AudioChange(
+            AudioSessionDiagnostics.AudioChangeKind.SessionState,
+            AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.That(counts.Late).IsEqualTo(0);
+        Check.That(counts.MaxLateMs).IsStrictlyLessThan(AudioSessionDiagnostics.LateStartThresholdMs);
+    }
+
+    [Fact]
+    public void AnActiveTransitionWithoutAClickRequest_IsNotMeasured()
+    {
+        // Another of the app's sessions could go Active (or the callback could arrive twice);
+        // a start without a pending click request must not invent a 0 ms measurement.
+        var (_, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // attach the fake listener so Emit reaches it
+        RunParkedWork();
+        AudioSessionDiagnostics.OnShowStarted();
+        listener.Emit(new AudioSessionDiagnostics.AudioChange(
+            AudioSessionDiagnostics.AudioChangeKind.SessionState,
+            AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.That(counts.Late).IsEqualTo(0);
+        Check.That(counts.MaxLateMs).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void OnShowStarted_DropsThePreviousShowsMeasuredClicks()
+    {
+        var (_, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // attach the fake listener so Emit reaches it
+        RunParkedWork();
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed(); // show 1, never went Active
+        AudioSessionDiagnostics.OnShowStarted(); // show 2 starts before that Active arrives
+        listener.Emit(new AudioSessionDiagnostics.AudioChange(
+            AudioSessionDiagnostics.AudioChangeKind.SessionState,
+            AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.That(counts.Late).IsEqualTo(0);
+        Check.That(counts.MaxLateMs).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void AClickWhileTheSessionIsAlreadyActive_QueuesNoUnmeasurableStart()
+    {
+        // Review-01 F4/R3: if the session is already Active (the previous click's tail, another
+        // sound), no new Active transition will arrive for THIS click. Queuing a stamp would make
+        // the next Active blame it — a phantom late.
+        var (_, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // attach the fake listener
+        RunParkedWork();
+        AudioSessionDiagnostics.OnShowStarted();
+        listener.Emit(new AudioSessionDiagnostics.AudioChange(
+            AudioSessionDiagnostics.AudioChangeKind.SessionState,
+            AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+
+        AudioSessionDiagnostics.OnClickPlayed(); // session already Active: no stamp may be queued
+        Thread.Sleep(AudioSessionDiagnostics.LateStartThresholdMs + 30);
+        listener.Emit(new AudioSessionDiagnostics.AudioChange(
+            AudioSessionDiagnostics.AudioChangeKind.SessionState,
+            AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.WithCustomMessage(
+                "a click made while the session was already Active was measured by a later Active "
+                + "— the phantom late review-01 R3 describes")
+            .That(counts.Late).IsEqualTo(0);
+        Check.That(counts.MaxLateMs).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ANewShowDropsTheOldStamp_SoItsOwnClickKeepsItsOwnLatency()
+    {
+        // Review-01 F4/R5: each stamp carries its own window, but an old UNCONSUMED stamp would be
+        // popped by show 2's first Active, shifting show 2's own measurement by one. With the
+        // clear, show 2's click measures ~250 ms; without it, ~850 ms.
+        var (_, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // attach the fake listener
+        RunParkedWork();
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed(); // show 1: never went Active
+        Thread.Sleep(600);
+        AudioSessionDiagnostics.OnShowStarted(); // show 2 must drop show 1's stamp
+        AudioSessionDiagnostics.OnClickPlayed(); // show 2's own click
+        Thread.Sleep(250);
+        listener.Emit(new AudioSessionDiagnostics.AudioChange(
+            AudioSessionDiagnostics.AudioChangeKind.SessionState,
+            AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+
+        var counts = AudioSessionDiagnostics.TakeMeterCounts();
+        Check.That(counts.Late).IsEqualTo(1);
+        Check.WithCustomMessage(
+                "show 2's Active measured show 1's stale stamp (review-01 R5: the show-start clear "
+                + "is gone)")
+            .That(counts.MaxLateMs).IsStrictlyLessThan(500);
+    }
+
+    [Fact]
+    public void AStampWhoseActiveWasNeverObserved_IsDroppedInsteadOfBlamingTheNextClick()
+    {
+        // Review-01 F4/R6: the stale-stamp guard, driven by the clock seam (no 3 s sleep).
+        var (_, listener) = Configure();
+        AudioSessionDiagnostics.OnClickAttempted(); // attach the fake listener
+        RunParkedWork();
+        long now = 0;
+        AudioSessionDiagnostics.TimestampProviderForTesting = () => now;
+        try
+        {
+            AudioSessionDiagnostics.OnShowStarted();
+            AudioSessionDiagnostics.OnClickPlayed(); // stamp at 0
+            now += System.Diagnostics.Stopwatch.Frequency * 4; // +4 s: its Active never came
+            listener.Emit(new AudioSessionDiagnostics.AudioChange(
+                AudioSessionDiagnostics.AudioChangeKind.SessionState,
+                AudioSessionDiagnostics.FormatSessionStateChange("Active"), "Active"));
+
+            var counts = AudioSessionDiagnostics.TakeMeterCounts();
+            Check.WithCustomMessage(
+                    "a 4 s stale stamp was measured instead of dropped (review-01 R6 guard gone)")
+                .That(counts.MaxLateMs).IsEqualTo(0);
+            Check.That(counts.Late).IsEqualTo(0);
+        }
+        finally
+        {
+            AudioSessionDiagnostics.TimestampProviderForTesting = null;
+        }
+    }
+
     // ---- the owner-safety rule: a COM failure can never throw into the click path ----
 
     [Fact]
@@ -291,13 +805,13 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
     }
 
     [Fact]
-    public void EnsureProductionWiring_RestoresTheCoreAudioPair_AfterTestsUnsetIt()
+    public void EnsureProductionWiring_RestoresTheCoreAudioSet_AfterTestsUnsetIt()
     {
         // Review 01 F1 (inverted — the old Unconfigured_DoesNothing pinned the broken state):
         // production must NEVER run unwired. KeyboardCoordinator.LoadKeyboard calls
         // EnsureProductionWiring before it builds the sound service; this is that call's contract.
         // The unwired first click must not throw (the observer-side line is emitted honestly).
-        // The parked work is completed only AFTER the pair is reset again, so no real COM runs
+        // The parked work is completed only AFTER the set is reset again, so no real COM runs
         // in the testhost (review 04 T5/T4).
         AudioSessionDiagnostics.ConfigureForTesting(null, null);
         try
@@ -311,8 +825,9 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
 
             AudioSessionDiagnostics.EnsureProductionWiring();
             Check.WithCustomMessage(
-                    "EnsureProductionWiring must install the REAL Core Audio reader and observer — "
-                    + "production without them would never read state or register listeners")
+                    "EnsureProductionWiring must install the REAL Core Audio reader, observer and "
+                    + "meter — production without them would never read state, register listeners "
+                    + "or meter a click")
                 .That(AudioSessionDiagnostics.ProductionWired).IsTrue();
 
             // Reset to unwired BEFORE the parked work runs: then the work emits the honest
@@ -410,6 +925,40 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
     }
 
     [Fact]
+    public void QueuedMeterSample_AfterShutdown_CountsNothing()
+    {
+        var (_, _, meter) = ConfigureWithMeter(FakeMeter.Caught);
+        AudioSessionDiagnostics.OnShowStarted();
+        AudioSessionDiagnostics.OnClickPlayed(); // parked sampler
+        AudioSessionDiagnostics.Shutdown(); // latch
+        RunParkedWork();
+
+        Check.That(meter.Calls).IsEqualTo(0); // the sampler never touched COM after the latch
+        Check.That(AudioSessionDiagnostics.TakeMeterCounts().Reached).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ASamplerThatFinishesAfterShutdown_CountsNothingAndWritesNoSilentLine()
+    {
+        // Review-01 F5: the latch is checked before sampling, but a sample already in flight can
+        // finish after it. A real 0 from that sample must be dropped, not counted as silent and
+        // never turned into a COM read plus a silent line in a dying process.
+        var reader = new FakeReader();
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener: null, new ShutdownDuringSampleMeter());
+        try
+        {
+            AudioSessionDiagnostics.OnShowStarted();
+            AudioSessionDiagnostics.OnClickPlayed();
+            RunParkedWork();
+
+            Check.That(AudioSessionDiagnostics.SilentClickReports).IsEqualTo(0);
+            Check.That(AudioSessionDiagnostics.TakeMeterCounts().Silent).IsEqualTo(0);
+            Check.That(reader.Reads).IsEqualTo(0);
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
     public void Shutdown_ForwardsToTheListener()
     {
         // Review 02 R3/R4: Shutdown is SIGNAL-AND-RETURN — it latches, hands the teardown to the
@@ -421,6 +970,20 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         while (listener.ShutdownCalls == 0 && Environment.TickCount64 < deadline) Thread.Sleep(10);
         Check.WithCustomMessage("Shutdown did not forward the teardown to the listener within 2 s")
             .That(listener.ShutdownCalls).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void Shutdown_Twice_ForwardsOnce()
+    {
+        // F10: a second app-level shutdown must be a no-op — nothing to unregister twice and no
+        // second pool teardown in a dying process.
+        var (_, listener) = Configure();
+        AudioSessionDiagnostics.Shutdown();
+        AudioSessionDiagnostics.Shutdown();
+        var deadline = Environment.TickCount64 + 2000;
+        while (listener.ShutdownCalls == 0 && Environment.TickCount64 < deadline) Thread.Sleep(10);
+        Thread.Sleep(100); // give a wrongly queued second teardown time to land
+        Check.That(listener.ShutdownCalls).IsEqualTo(1);
     }
 
     [Fact]
@@ -503,8 +1066,8 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         // Review 02 R1/R2's discipline pin: the previous release bugs were FinalReleaseComObject
         // calls on RCWs shared between the reader, the observer and the device-change callback.
         // The file must contain NO eager COM release at all — shared RCWs (the enumerator, the
-        // session control) simply go out of scope; only native memory is cleared explicitly.
-        // Comments are stripped first (the release discipline is DOCUMENTED in them).
+        // endpoint volume registration, the meter, the session control) simply go out of scope;
+        // only native memory is cleared explicitly. Comments are stripped first.
         var source = SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
             SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "CoreAudioInterop.cs")));
@@ -544,13 +1107,14 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
     }
 
     [Fact]
-    public void AWorkerRegistrationAcquiresTheEnumerator_AndRegistersExactlyOnce()
+    public void AWorkerRegistrationAcquiresTheEnumerator_AndRegistersEveryInstrument()
     {
-        // Review 05 V3: WITHOUT real COM — a managed fake IMMDeviceEnumerator through the factory
-        // seam proves TryRegister ACQUIRES the shared enumerator (lazily) and registers exactly
-        // once. Mutant L1 (the `_enumerator ??=` removed from TryRegister) throws here → RED.
-        var fake = new FakeDeviceEnumerator();
-        CoreAudioInterop.EnumeratorFactoryForTesting = () => fake;
+        // Review 05 V3 + F10: WITHOUT real COM — managed fakes through the factory seam prove
+        // TryRegister ACQUIRES the shared enumerator and attaches all THREE endpoint-level
+        // instruments (device notifications, master volume/mute, ducking). Mutant L1 (the
+        // `_enumerator ??=` removed) throws here; dropping any registration turns this red.
+        var world = new FakeComWorld();
+        CoreAudioInterop.EnumeratorFactoryForTesting = () => world.Enumerator;
         CoreAudioInterop.ResetSharedEnumeratorForTesting();
         try
         {
@@ -559,13 +1123,17 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
 
             Check.That(observer.TryRegister(_ => { })).IsTrue();
             Check.WithCustomMessage(
-                    "a worker registration did not acquire the enumerator — the endpoint callback "
+                    "a worker registration did not acquire the enumerator — the endpoint callbacks "
                     + "would never register (review 05 V3, mutant L1)")
                 .That(observer.HasEnumerator).IsTrue();
-            Check.That(fake.Registrations).IsEqualTo(1); // exactly one registration
+            Check.That(world.Enumerator.Registrations).IsEqualTo(1); // idempotent: one
+            Check.That(world.EndpointVolume.Registrations).IsEqualTo(1);
+            Check.That(world.Manager.DuckRegistrations).IsEqualTo(1);
 
             Check.That(observer.TryRegister(_ => { })).IsTrue();
-            Check.That(fake.Registrations).IsEqualTo(1); // idempotent: still one
+            Check.That(world.Enumerator.Registrations).IsEqualTo(1);
+            Check.That(world.EndpointVolume.Registrations).IsEqualTo(1);
+            Check.That(world.Manager.DuckRegistrations).IsEqualTo(1);
         }
         finally
         {
@@ -575,34 +1143,126 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
     }
 
     [Fact]
-    public void BothRegistrationBodiesAcquireTheEnumeratorInsideTheComLock()
+    public void Shutdown_UnregistersEveryCallback_AndASecondShutdownIsANoOp()
     {
-        // Review 05 V3 (L2's pin): TryRegisterSessionEvents' acquisition is a CACHE HIT after
-        // TryRegister (its _onChange guard returns before the lock when unset), so behaviour can
-        // never observe its removal — this source pin holds BOTH bodies' acquisition lines (L1
-        // and L2 each remove one → RED), and the production factory fallback stays NewEnumerator.
-        var source = System.Text.RegularExpressions.Regex.Replace(
-            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
-                SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "CoreAudioInterop.cs"))),
-            @"\s+", string.Empty);
+        // F10's hard COM rule: every registration is unregistered on shutdown, and a second
+        // shutdown touches nothing.
+        var world = new FakeComWorld();
+        CoreAudioInterop.EnumeratorFactoryForTesting = () => world.Enumerator;
+        CoreAudioInterop.ResetSharedEnumeratorForTesting();
+        try
+        {
+            var observer = new CoreAudioInterop.CoreAudioChangeObserver();
+            Check.That(observer.TryRegister(_ => { })).IsTrue();
+            // Review-01 F4/R2: register ALL FOUR, the session events included, so the unregister
+            // pin covers the session quarter too (it survived when only three were asserted).
+            Check.That(observer.TryRegisterSessionEvents()).IsTrue();
+            Check.That(world.Session.SessionRegistrations).IsEqualTo(1);
 
-        Check.WithCustomMessage("TryRegister no longer acquires the shared enumerator inside its _comLock")
-            .That(source.Contains(
-                "lock(_comLock){if(_shutDown||_endpointAttached)return_endpointAttached;_enumerator??=AcquireSharedEnumerator();"))
-            .IsTrue();
-        Check.WithCustomMessage("TryRegisterSessionEvents no longer acquires the shared enumerator inside its _comLock")
-            .That(source.Contains(
-                "lock(_comLock){if(_shutDown||_sessionAttached)return_sessionAttached;_enumerator??=AcquireSharedEnumerator();"))
-            .IsTrue();
-        Check.WithCustomMessage(
-                "the production enumerator factory no longer falls back to the real MMDeviceEnumerator "
-                + "coclass — the test seam must never replace the production path")
-            .That(source.Contains("_sharedEnumerator??=EnumeratorFactoryForTesting?.Invoke()??NewEnumerator()"))
-            .IsTrue();
+            observer.Shutdown();
+            Check.That(world.Enumerator.Unregistrations).IsEqualTo(1);
+            Check.That(world.EndpointVolume.Unregistrations).IsEqualTo(1);
+            Check.That(world.Manager.DuckUnregistrations).IsEqualTo(1);
+            Check.That(world.Session.SessionUnregistrations).IsEqualTo(1);
+
+            observer.Shutdown(); // second: no-op
+            Check.That(world.Enumerator.Unregistrations).IsEqualTo(1);
+            Check.That(world.EndpointVolume.Unregistrations).IsEqualTo(1);
+            Check.That(world.Manager.DuckUnregistrations).IsEqualTo(1);
+            Check.That(world.Session.SessionUnregistrations).IsEqualTo(1);
+        }
+        finally
+        {
+            CoreAudioInterop.EnumeratorFactoryForTesting = null;
+            CoreAudioInterop.ResetSharedEnumeratorForTesting();
+        }
+    }
+
+    [Fact]
+    public void TheEndpointVolumeCallback_LogsOneLinePerActualChange()
+    {
+        // F10 item 1: a line whenever the master volume OR mute changes — and nothing for the
+        // duplicate notifications Windows sends for the same state. Driven directly with a
+        // native-shaped payload; no COM, no device.
+        var lines = new List<string>();
+        var callback = new CoreAudioInterop.EndpointVolumeCallback(
+            change => lines.Add(change.Line));
+
+        NotifyVolume(callback, 0.65f, mute: false);
+        Check.That(lines).ContainsExactly("Keyboard audio change: endpoint volume=0.65 mute=False");
+
+        NotifyVolume(callback, 0.65f, mute: false); // duplicate: swallowed
+        Check.That(lines).HasSize(1);
+
+        NotifyVolume(callback, 0.40f, mute: false);
+        Check.That(lines).HasSize(2);
+        Check.That(lines[1]).IsEqualTo("Keyboard audio change: endpoint volume=0.40 mute=False");
+
+        NotifyVolume(callback, 0.40f, mute: true);
+        Check.That(lines).HasSize(3);
+        Check.That(lines[2]).IsEqualTo("Keyboard audio change: endpoint volume=0.40 mute=True");
+    }
+
+    [Fact]
+    public void TheDuckNotification_LogsDuckAndUnduck()
+    {
+        // F10 item 3. Driven directly; in production Windows calls this on a WASAPI thread.
+        var lines = new List<string>();
+        var callback = new CoreAudioInterop.DuckNotification(change => lines.Add(change.Line));
+
+        callback.OnVolumeDuckNotification("session-id", 2);
+        callback.OnVolumeUnduckNotification("session-id");
+
+        Check.That(lines).ContainsExactly(
+            "Keyboard duck: communications ducking started (sessions=2)",
+            "Keyboard duck: communications ducking ended");
+    }
+
+    /// <summary>Builds the native AUDIO_VOLUME_NOTIFICATION_DATA prefix, calls OnNotify, and frees
+    /// it — the callback copies what it needs synchronously.</summary>
+    private static void NotifyVolume(
+        CoreAudioInterop.EndpointVolumeCallback callback, float volume, bool mute)
+    {
+        var data = new CoreAudioInterop.AudioVolumeNotificationData
+        {
+            EventContext = Guid.Empty,
+            Muted = mute,
+            MasterVolume = volume,
+            ChannelCount = 1,
+        };
+        var ptr = Marshal.AllocHGlobal(Marshal.SizeOf<CoreAudioInterop.AudioVolumeNotificationData>());
+        try
+        {
+            Marshal.StructureToPtr(data, ptr, false);
+            callback.OnNotify(ptr);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(ptr);
+        }
+    }
+
+    // ---- managed fakes for the COM graph the observer walks (no real COM) ----
+
+    private sealed class FakeComWorld
+    {
+        public readonly FakeDeviceEnumerator Enumerator = new();
+        public readonly FakeDevice Device;
+        public readonly FakeEndpointVolume EndpointVolume = new();
+        public readonly FakeSessionControl2 Session = new();
+        public readonly FakeSessionManager Manager;
+
+        public FakeComWorld()
+        {
+            Manager = new FakeSessionManager(Session);
+            Device = new FakeDevice(EndpointVolume, Manager);
+            Enumerator.Device = Device;
+        }
     }
 
     private sealed class FakeDeviceEnumerator : CoreAudioInterop.IMMDeviceEnumerator
     {
+        public FakeDevice? Device;
         public int Registrations;
         public int Unregistrations;
 
@@ -614,14 +1274,14 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
 
         public int GetDefaultAudioEndpoint(int dataFlow, int role, out CoreAudioInterop.IMMDevice device)
         {
-            device = null!;
-            return unchecked((int)0x80004005);
+            device = Device!;
+            return Device is null ? unchecked((int)0x80004005) : 0;
         }
 
         public int GetDevice(string deviceId, out CoreAudioInterop.IMMDevice device)
         {
-            device = null!;
-            return unchecked((int)0x80004005);
+            device = Device!;
+            return Device is null ? unchecked((int)0x80004005) : 0;
         }
 
         public int RegisterEndpointNotificationCallback(CoreAudioInterop.IMMNotificationClient client)
@@ -637,16 +1297,161 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         }
     }
 
+    private sealed class FakeDevice(
+        FakeEndpointVolume endpointVolume, FakeSessionManager manager) : CoreAudioInterop.IMMDevice
+    {
+        public int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, out object iface)
+        {
+            if (iid == CoreAudioInterop.IidIAudioEndpointVolume) { iface = endpointVolume; return 0; }
+            if (iid == CoreAudioInterop.IidIAudioSessionManager2) { iface = manager; return 0; }
+            iface = null!;
+            return unchecked((int)0x80004002); // E_NOINTERFACE
+        }
+
+        public int OpenPropertyStore(int stgmAccess, out CoreAudioInterop.IPropertyStore properties)
+        {
+            properties = null!;
+            return unchecked((int)0x80004005);
+        }
+
+        public int GetId(out string deviceId)
+        {
+            deviceId = "fake";
+            return 0;
+        }
+
+        public int GetState(out int state)
+        {
+            state = 1; // DEVICE_STATE_ACTIVE
+            return 0;
+        }
+    }
+
+    private sealed class FakeEndpointVolume : CoreAudioInterop.IAudioEndpointVolume
+    {
+        public int Registrations;
+        public int Unregistrations;
+
+        public int RegisterControlChangeNotify(CoreAudioInterop.IAudioEndpointVolumeCallback pNotify)
+        {
+            Registrations++;
+            return 0;
+        }
+
+        public int UnregisterControlChangeNotify(CoreAudioInterop.IAudioEndpointVolumeCallback pNotify)
+        {
+            Unregistrations++;
+            return 0;
+        }
+
+        public int GetMasterVolumeLevelScalar(out float level) { level = 0.65f; return 0; }
+        public int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute) { mute = false; return 0; }
+        public int GetChannelCount(out int channelCount) { channelCount = 2; return 0; }
+        public int SetMasterVolumeLevel(float levelDb, ref Guid eventContext) => unchecked((int)0x80004005);
+        public int SetMasterVolumeLevelScalar(float level, ref Guid eventContext) => unchecked((int)0x80004005);
+        public int GetMasterVolumeLevel(out float levelDb) { levelDb = 0; return unchecked((int)0x80004005); }
+        public int SetChannelVolumeLevel(int channel, float levelDb, ref Guid eventContext) => unchecked((int)0x80004005);
+        public int SetChannelVolumeLevelScalar(int channel, float level, ref Guid eventContext) => unchecked((int)0x80004005);
+        public int GetChannelVolumeLevel(int channel, out float levelDb) { levelDb = 0; return unchecked((int)0x80004005); }
+        public int GetChannelVolumeLevelScalar(int channel, out float level) { level = 0; return unchecked((int)0x80004005); }
+        public int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid eventContext) => unchecked((int)0x80004005);
+        public int GetVolumeStepInfo(out int step, out int stepCount) { step = 0; stepCount = 0; return unchecked((int)0x80004005); }
+        public int VolumeStepUp(ref Guid eventContext) => unchecked((int)0x80004005);
+        public int VolumeStepDown(ref Guid eventContext) => unchecked((int)0x80004005);
+        public int QueryHardwareSupport(out int hardwareSupportMask) { hardwareSupportMask = 0; return unchecked((int)0x80004005); }
+        public int GetVolumeRange(out float minDb, out float maxDb, out float incrementDb)
+        { minDb = 0; maxDb = 0; incrementDb = 0; return unchecked((int)0x80004005); }
+    }
+
+    private sealed class FakeSessionManager(FakeSessionControl2 session) : CoreAudioInterop.IAudioSessionManager2
+    {
+        public int DuckRegistrations;
+        public int DuckUnregistrations;
+
+        public int GetAudioSessionControl(IntPtr audioSessionGuid, int streamFlags, out IntPtr sessionControl)
+        { sessionControl = IntPtr.Zero; return unchecked((int)0x80004005); }
+
+        public int GetSimpleAudioVolume(ref Guid audioSessionGuid, int streamFlags,
+            out CoreAudioInterop.ISimpleAudioVolume audioVolume)
+        { audioVolume = null!; return unchecked((int)0x80004005); }
+
+        // Review-01 F4/R2: a reachable session, so TryRegisterSessionEvents attaches and the
+        // shutdown pin can assert its unregistration too (the session quarter was unpinned).
+        public int GetSessionEnumerator(out CoreAudioInterop.IAudioSessionEnumerator sessionEnumerator)
+        { sessionEnumerator = new FakeSessionEnumerator(session); return 0; }
+
+        public int RegisterSessionNotification(IntPtr sessionNotification) => unchecked((int)0x80004005);
+        public int UnregisterSessionNotification(IntPtr sessionNotification) => unchecked((int)0x80004005);
+
+        public int RegisterDuckNotification(string? sessionId,
+            CoreAudioInterop.IAudioVolumeDuckNotification duckNotification)
+        { DuckRegistrations++; return 0; }
+
+        public int UnregisterDuckNotification(CoreAudioInterop.IAudioVolumeDuckNotification duckNotification)
+        { DuckUnregistrations++; return 0; }
+    }
+
+    private sealed class FakeSessionEnumerator(FakeSessionControl2 control) : CoreAudioInterop.IAudioSessionEnumerator
+    {
+        public int GetCount(out int sessionCount) { sessionCount = 1; return 0; }
+
+        public int GetSession(int sessionIndex, out CoreAudioInterop.IAudioSessionControl session)
+        { session = control; return 0; }
+    }
+
+    /// <summary>Our own session, as FindOwnSessionControl sees it: the process id matches and it
+    /// is not the system-sounds session. Records the session-events register/unregister pair.</summary>
+    private sealed class FakeSessionControl2
+        : CoreAudioInterop.IAudioSessionControl, CoreAudioInterop.IAudioSessionControl2
+    {
+        public int SessionRegistrations;
+        public int SessionUnregistrations;
+
+        public int GetState(out int state) { state = 1; return 0; }
+        public int GetDisplayName(out string displayName) { displayName = "EyeCtrl"; return 0; }
+        public int SetDisplayName(string displayName, ref Guid eventContext) => unchecked((int)0x80004001);
+        public int GetIconPath(out string iconPath) { iconPath = string.Empty; return 0; }
+        public int SetIconPath(string iconPath, ref Guid eventContext) => unchecked((int)0x80004001);
+        public int GetGroupingParam(out Guid groupingParam) { groupingParam = Guid.Empty; return 0; }
+        public int SetGroupingParam(ref Guid groupingParam, ref Guid eventContext) => unchecked((int)0x80004001);
+
+        public int RegisterAudioSessionNotification(CoreAudioInterop.IAudioSessionEvents events)
+        { SessionRegistrations++; return 0; }
+
+        public int UnregisterAudioSessionNotification(CoreAudioInterop.IAudioSessionEvents events)
+        { SessionUnregistrations++; return 0; }
+
+        public int GetSessionIdentifier(out string retVal) { retVal = "fake-session"; return 0; }
+        public int GetSessionInstanceIdentifier(out string retVal) { retVal = "fake-instance"; return 0; }
+        public int GetProcessId(out int processId) { processId = Environment.ProcessId; return 0; }
+
+        // S_FALSE: not the system-sounds session, so FindOwnSessionControl returns it.
+        public int IsSystemSoundsSession() => 1;
+
+        public int SetDuckingPreference(bool optOut) => unchecked((int)0x80004001);
+    }
+
     private sealed class ThrowingListener : AudioSessionDiagnostics.IAudioChangeListener
     {
-        public bool TryRegister(Action<string> onChangeLine) => throw new InvalidOperationException("com gone");
+        public bool TryRegister(Action<AudioSessionDiagnostics.AudioChange> onChangeLine) => throw new InvalidOperationException("com gone");
         public bool TryRegisterSessionEvents() => throw new InvalidOperationException("com gone");
         public void Shutdown() { }
     }
 
+    /// <summary>Review-01 F5: a sampler that finishes AFTER the shutdown latch landed, with a
+    /// real 0 reading — the post-sample latch check is what keeps it out of the counts.</summary>
+    private sealed class ShutdownDuringSampleMeter : AudioSessionDiagnostics.IAudioMeterProbe
+    {
+        public float? SamplePeak(Func<bool> stop)
+        {
+            AudioSessionDiagnostics.Shutdown();
+            return 0f;
+        }
+    }
+
     private sealed class BlockingListener(ManualResetEventSlim release) : AudioSessionDiagnostics.IAudioChangeListener
     {
-        public bool TryRegister(Action<string> onChangeLine)
+        public bool TryRegister(Action<AudioSessionDiagnostics.AudioChange> onChangeLine)
         {
             release.Wait(30_000);
             return true;

@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests;
 
+using System.IO;
 using NFluent;
 using Xunit;
 
@@ -38,7 +39,75 @@ public class CoreAudioInteropPinTests
         PinIid<CoreAudioInterop.IAudioSessionEvents>("24918ACC-64B3-37C1-8CA9-74A66E9957A8", "audiopolicy.h:151");
         // Audioclient.h
         PinIid<CoreAudioInterop.ISimpleAudioVolume>("87CE5498-68D6-44E5-9215-6DA47EF883D8", "Audioclient.h:1642");
+        // endpointvolume.h / audiopolicy.h (F10). Each expected value is the header's own line,
+        // pasted here so a literal can never again be "pinned" from the code by copy-paste
+        // (review-01 F1: the first version pinned the code's own wrong …4F95):
+        //   endpointvolume.h:207  MIDL_INTERFACE("5CDF2C82-841E-4546-9722-0CF74078229A")
+        //   endpointvolume.h:123  MIDL_INTERFACE("657804FA-D6AD-4496-8A60-352752AF4F89")
+        //   endpointvolume.h:842  MIDL_INTERFACE("C02216F6-8C67-4B5B-9D00-D008E73E0064")
+        //   audiopolicy.h:877     MIDL_INTERFACE("C3B284D4-6D39-4359-B3CF-B56DDB3BB39C")
+        PinIid<CoreAudioInterop.IAudioEndpointVolume>("5CDF2C82-841E-4546-9722-0CF74078229A", "endpointvolume.h:207");
+        PinIid<CoreAudioInterop.IAudioEndpointVolumeCallback>("657804FA-D6AD-4496-8A60-352752AF4F89", "endpointvolume.h:123");
+        PinIid<CoreAudioInterop.IAudioMeterInformation>("C02216F6-8C67-4B5B-9D00-D008E73E0064", "endpointvolume.h:842");
+        // audiopolicy.h (F10)
+        PinIid<CoreAudioInterop.IAudioVolumeDuckNotification>("C3B284D4-6D39-4359-B3CF-B56DDB3BB39C", "audiopolicy.h:877");
         PinIid<CoreAudioInterop.MMDeviceEnumeratorComObject>("BCDE0395-E52F-467C-8E3D-C4579291692E", "mmdeviceapi.h:1541 (CLSID)");
+    }
+
+    [Fact]
+    public void TheActivationIids_MatchTheirInterfaceGuids()
+    {
+        // F10's answer to the F5 review-01 F2 defect class: IMMDevice.Activate takes a Guid
+        // CONSTANT, not the interface's metadata. A typo in the constant is an E_NOINTERFACE the
+        // IID pin above cannot see (the pin reads typeof(T).GUID), so the two must be tied here.
+        // Mutant X8 (one hex digit changed in IidIAudioEndpointVolume) goes red.
+        Check.That(CoreAudioInterop.IidIAudioSessionManager2)
+            .IsEqualTo(typeof(CoreAudioInterop.IAudioSessionManager2).GUID);
+        Check.That(CoreAudioInterop.IidIAudioEndpointVolume)
+            .IsEqualTo(typeof(CoreAudioInterop.IAudioEndpointVolume).GUID);
+        Check.That(CoreAudioInterop.IidIAudioMeterInformation)
+            .IsEqualTo(typeof(CoreAudioInterop.IAudioMeterInformation).GUID);
+    }
+
+    [Fact]
+    public void TheNewIids_MatchTheInstalledSdkHeaders()
+    {
+        // Review-01 F1's root cause: the literal pin agreed with the code because both were
+        // copied from the same (wrong) value. This reads the installed SDK header instead, and
+        // is skipped where no SDK exists (CI). The literal pins above stay the CI gate; this one
+        // makes "the literal was copied from the header" checkable on the owner's machine.
+        var include = NewestSdkIncludeDirectory();
+        Assert.SkipWhen(include is null, "No Windows SDK headers installed on this machine.");
+        Check.That(typeof(CoreAudioInterop.IAudioEndpointVolume).GUID)
+            .IsEqualTo(HeaderIid(include!, "endpointvolume.h", "IAudioEndpointVolume"));
+        Check.That(typeof(CoreAudioInterop.IAudioEndpointVolumeCallback).GUID)
+            .IsEqualTo(HeaderIid(include!, "endpointvolume.h", "IAudioEndpointVolumeCallback"));
+        Check.That(typeof(CoreAudioInterop.IAudioMeterInformation).GUID)
+            .IsEqualTo(HeaderIid(include!, "endpointvolume.h", "IAudioMeterInformation"));
+        Check.That(typeof(CoreAudioInterop.IAudioVolumeDuckNotification).GUID)
+            .IsEqualTo(HeaderIid(include!, "audiopolicy.h", "IAudioVolumeDuckNotification"));
+    }
+
+    private static string? NewestSdkIncludeDirectory()
+    {
+        var root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            "Windows Kits", "10", "Include");
+        if (!Directory.Exists(root)) return null;
+        return Directory.GetDirectories(root)
+            .OrderByDescending(d => d, StringComparer.OrdinalIgnoreCase)
+            .Select(d => Path.Combine(d, "um"))
+            .FirstOrDefault(Directory.Exists);
+    }
+
+    private static Guid HeaderIid(string include, string header, string interfaceName)
+    {
+        var text = File.ReadAllText(Path.Combine(include, header));
+        var match = System.Text.RegularExpressions.Regex.Match(
+            text,
+            @"MIDL_INTERFACE\(""(?<guid>[0-9A-Fa-f-]{36})""\)\s*" + System.Text.RegularExpressions.Regex.Escape(interfaceName) + @"\s*:");
+        Assert.True(match.Success, $"{header} has no MIDL_INTERFACE for {interfaceName}");
+        return Guid.Parse(match.Groups["guid"].Value);
     }
 
     private static void PinOrder<T>(string[] expected, string citation) =>
@@ -84,5 +153,33 @@ public class CoreAudioInteropPinTests
         PinOrder<CoreAudioInterop.IAudioSessionEnumerator>(
             new[] { "GetCount", "GetSession" },
             "audiopolicy.h:1062-1065");
+        // audiopolicy.h:1159-1175 — IAudioSessionManager2: the two inherited manager slots first,
+        // then the five Manager2 slots; the duck pair at the end (whose signatures F10 uses).
+        PinOrder<CoreAudioInterop.IAudioSessionManager2>(
+            new[] { "GetAudioSessionControl", "GetSimpleAudioVolume",
+                    "GetSessionEnumerator", "RegisterSessionNotification", "UnregisterSessionNotification",
+                    "RegisterDuckNotification", "UnregisterDuckNotification" },
+            "audiopolicy.h:1134-1175");
+        // endpointvolume.h:127 — the one-slot endpoint volume callback.
+        PinOrder<CoreAudioInterop.IAudioEndpointVolumeCallback>(
+            new[] { "OnNotify" },
+            "endpointvolume.h:127");
+        // audiopolicy.h:881-886 — the two-slot duck callback.
+        PinOrder<CoreAudioInterop.IAudioVolumeDuckNotification>(
+            new[] { "OnVolumeDuckNotification", "OnVolumeUnduckNotification" },
+            "audiopolicy.h:881-886");
+        // endpointvolume.h:846-860.
+        PinOrder<CoreAudioInterop.IAudioMeterInformation>(
+            new[] { "GetPeakValue", "GetMeteringChannelCount", "GetChannelsPeakValues", "QueryHardwareSupport" },
+            "endpointvolume.h:846-860");
+        // endpointvolume.h:210-300 — the full eighteen-slot endpoint-volume vtable.
+        PinOrder<CoreAudioInterop.IAudioEndpointVolume>(
+            new[] { "RegisterControlChangeNotify", "UnregisterControlChangeNotify", "GetChannelCount",
+                    "SetMasterVolumeLevel", "SetMasterVolumeLevelScalar", "GetMasterVolumeLevel",
+                    "GetMasterVolumeLevelScalar", "SetChannelVolumeLevel", "SetChannelVolumeLevelScalar",
+                    "GetChannelVolumeLevel", "GetChannelVolumeLevelScalar", "SetMute", "GetMute",
+                    "GetVolumeStepInfo", "VolumeStepUp", "VolumeStepDown", "QueryHardwareSupport",
+                    "GetVolumeRange" },
+            "endpointvolume.h:210-300");
     }
 }

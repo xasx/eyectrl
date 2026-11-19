@@ -202,7 +202,7 @@ public class KeyboardSoundServiceLatchTests : F5AudioDiagnosticsTestBase
                     + "F5 moved the validation so a failed play is winmm's verdict, not SoundPlayer's throw")
                 .That(PlayerField()!.GetValue(svc)).IsNull();
             svc.OnKeyboardHidden();
-            Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=0 failed=0 skipped=2");
+            Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=0 failed=0 skipped=2 reached=0 silent=0 pending=0 unmetered=0 late=0 maxlatems=0");
         }
         finally { File.Delete(bad); }
     }
@@ -240,7 +240,7 @@ public class KeyboardSoundServiceLatchTests : F5AudioDiagnosticsTestBase
         Check.That(player.Calls).IsEqualTo(1);
 
         svc.OnKeyboardHidden();
-        Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=0 failed=1 skipped=1");
+        Check.That(lines).ContainsExactly("Keyboard click: requested=2 played=0 failed=1 skipped=1 reached=0 silent=0 pending=0 unmetered=0 late=0 maxlatems=0");
         // The click queued first-click diagnostics work: the collection-wide park scheduler holds
         // it — run it deterministically, then ASSERT the drain (review 03 S3).
         RunParkedWork();

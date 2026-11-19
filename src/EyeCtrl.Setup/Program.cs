@@ -40,8 +40,11 @@ public static class Program
 
         // The profile line, before anything reads or writes the profile: the log file above is the
         // first profile write, and its folder already IS the resolved profile's. On record before
-        // the composition touches settings or the record.
-        var profile = ProfileLocation.Current;
+        // the composition touches settings or the record. The SETUP rule (see
+        // ProfileLocation.CurrentSetup): a Release Setup maintains the installed product, so its
+        // profile is the installed App's wherever this exe runs from; only a Debug Setup without
+        // the flag is dev.
+        var profile = ProfileLocation.CurrentSetup;
         log.Info($"Profile: {profile.ModeToken} dir={profile.Directory} reason={profile.Reason}");
 
         try

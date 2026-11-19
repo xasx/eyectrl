@@ -28,7 +28,8 @@ public class SelfRestartStrategyTests
         bool launchThrows = false,
         bool readySignalled = true,
         List<string>? launchLog = null,
-        Action<ProcessStartInfo>? capture = null) =>
+        Action<ProcessStartInfo>? capture = null,
+        bool forwardRealProfile = false) =>
         new(
             resolveExePath: () => exePath,
             launch: psi =>
@@ -43,7 +44,8 @@ public class SelfRestartStrategyTests
             // real named event — exercising it headlessly would mean standing up a second
             // process, so the outcome is made injectable instead.
             waitForReady: (_, _) => readySignalled,
-            readyWait: TimeSpan.FromSeconds(1));
+            readyWait: TimeSpan.FromSeconds(1),
+            forwardRealProfile: () => forwardRealProfile);
 
     [Fact]
     public void LaunchesThroughShellExecute_WithTheSameExePathAndHandoffArgument()
@@ -66,6 +68,32 @@ public class SelfRestartStrategyTests
     public void Succeeds_WhenTheChildSignalsReady()
     {
         Check.That(Build().Begin()).IsEqualTo(RestartOutcome.Started);
+    }
+
+    [Fact]
+    public void ANonDevParent_ForwardsTheRealProfileFlag_ToTheReplacement()
+    {
+        // F3 of fixup 01: a real-by-flag parent holds the unsuffixed ready event and singleton.
+        // Without the forwarded flag the child resolves dev, signals the .Dev event, and the
+        // parent waits out the full 30 s while a dev child runs beside it.
+        ProcessStartInfo? captured = null;
+
+        Build(capture: psi => captured = psi, forwardRealProfile: true).Begin();
+
+        Check.That(captured).IsNotNull();
+        Check.That(captured!.Arguments)
+            .IsEqualTo(RestartHandoff.Argument + " " + EyeCtrl.Core.Services.ProfileLocation.RealProfileArgument);
+        Check.That(captured.UseShellExecute).IsTrue();
+    }
+
+    [Fact]
+    public void ADevParent_RestartsWithoutTheFlag()
+    {
+        ProcessStartInfo? captured = null;
+
+        Build(capture: psi => captured = psi, forwardRealProfile: false).Begin();
+
+        Check.That(captured!.Arguments).IsEqualTo(RestartHandoff.Argument);
     }
 
     [Fact]

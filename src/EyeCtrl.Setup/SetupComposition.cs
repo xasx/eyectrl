@@ -171,16 +171,17 @@ public sealed class SetupComposition
     };
 
     /// <summary>
-    /// The one install layout, from the RUNNING process's resolved profile (see
-    /// <see cref="ProfileLocation"/> — the only file allowed to name the OS folders): the same
-    /// roots as before for the installed build, and <c>EyeCtrl.Dev</c> for a dev build, so a dev
-    /// Setup's record, logs and settings reads stay out of the owner's profile. The owner's real
-    /// update flow runs the inbox Setup with <c>--real-profile</c> (Install-EyeCtrl.ps1), which
-    /// resolves the real profile; the elevated run copy under <c>EyeCtrl.run\</c> resolves
-    /// installed on its own. Shared by the composition and the file log so both name exactly the
-    /// same paths.
+    /// The one install layout, from the SETUP rule of the running process's resolver (see
+    /// <see cref="ProfileLocation.CurrentSetup"/> — the only file allowed to name the OS
+    /// folders): the installed product's real profile for every Release Setup, wherever its exe
+    /// runs from (Program Files, a run copy under <c>EyeCtrl.run\</c>, the inbox), and
+    /// <c>EyeCtrl.Dev</c> only for a Debug Setup without <c>--real-profile</c>. The path set is
+    /// the installed App's by construction: the pass rule reads that App's startup line from
+    /// <c>LogsRoot</c>, the record and session mutex belong to the installed product, and the
+    /// uninstall delete target is its <c>AppDataRoot</c>. Shared by the composition and the file
+    /// log so both name exactly the same paths.
     /// </summary>
-    internal static SetupPaths ProductionPaths() => SetupPaths.FromProfile(ProfileLocation.Current);
+    internal static SetupPaths ProductionPaths() => SetupPaths.FromProfile(ProfileLocation.CurrentSetup);
 
     /// <summary>
     /// Records an unhandled exception as a failed result, built from the OS layout alone so it

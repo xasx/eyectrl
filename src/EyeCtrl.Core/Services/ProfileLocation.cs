@@ -3,6 +3,8 @@ namespace EyeCtrl.Core.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
 using EyeCtrl.Core.Models;
 
 /// <summary>How the running build resolved its per-user profile.</summary>
@@ -10,11 +12,13 @@ public enum ProfileMode
 {
     /// <summary>A Release exe running from a folder directly under <c>%ProgramFiles%</c> whose
     /// name starts with <c>EyeCtrl</c> (today <c>EyeCtrl</c> and <c>EyeCtrl.previous</c>, and the
-    /// swap folders <c>EyeCtrl.run</c>/<c>EyeCtrl.staging</c>/<c>EyeCtrl.failed</c>).</summary>
+    /// swap folders <c>EyeCtrl.run</c>/<c>EyeCtrl.staging</c>/<c>EyeCtrl.failed</c>), or a
+    /// Release SETUP wherever it runs (its profile belongs to the installed product).</summary>
     Installed,
 
-    /// <summary>Everything else: a Debug build anywhere, or any exe outside the installed
-    /// location (an agent worktree's <c>bin\</c>, a copied exe, the update inbox).</summary>
+    /// <summary>Everything else: a Debug build anywhere (Setup included), or an App/Supervisor
+    /// exe outside the installed location (an agent worktree's <c>bin\</c>, a copied exe, the
+    /// update inbox).</summary>
     Dev,
 
     /// <summary>Started with <c>--real-profile</c>: the real profile by explicit request.</summary>
@@ -42,10 +46,19 @@ public enum ProfileMode
 /// interfere with the other. Installed names are unchanged.
 /// </para>
 /// <para>
-/// <b>The App, the Supervisor and Setup must all resolve the same profile.</b> They do,
-/// because each resolves from its own exe path under the same rules, and every parent that
-/// launches another EyeCtrl process passes <see cref="RealProfileArgument"/> through only if
-/// it was itself started with it.
+/// <b>The App, the Supervisor and Setup must all resolve the same profile.</b> The App and the
+/// Supervisor resolve from their own exe path under the location rule below. Setup does not: a
+/// Release Setup resolves the INSTALLED product's real profile wherever it runs from (the inbox,
+/// a run copy under <c>EyeCtrl.run\</c>, Program Files), because every path it computes — the
+/// pass rule's log root, <c>setup-last.json</c>, the session mutex, the uninstall delete target —
+/// belongs to the installed product it installs and starts. Only a Debug Setup stays dev unless
+/// it is started with <see cref="RealProfileArgument"/>. See <see cref="CurrentSetup"/>.
+/// </para>
+/// <para>
+/// Every parent that resolved non-dev (installed or real-by-flag) forwards
+/// <see cref="RealProfileArgument"/> to the EyeCtrl children it starts (Setup → run copy and
+/// elevated children, Supervisor → App, App → Supervisor and Setup, self-restart), so a pair is
+/// always dev+dev or real+real, never split.
 /// </para>
 /// <para>
 /// <b>This is the only file in the tree</b> that may name <c>SpecialFolder.ApplicationData</c>,
@@ -60,14 +73,26 @@ public sealed class ProfileLocation
     public const string RealProfileArgument = "--real-profile";
 
     /// <summary>Resolved for the current process, once per process (the mutex names and the
-    /// profile dir must never change mid-run).</summary>
-    public static ProfileLocation Current { get; } = Resolve(
+    /// profile dir must never change mid-run). The App/Supervisor rule: the installed location
+    /// decides, so a Release App or Supervisor in a worktree or the inbox is dev.</summary>
+    public static ProfileLocation Current { get; } = ResolveCurrent(isSetupProcess: false);
+
+    /// <summary>Resolved for the current process under the SETUP rule, once per process. A
+    /// Release Setup is the installed product's maintenance tool wherever its exe sits: it must
+    /// read and write the installed App's profile (its pass rule reads that App's startup line,
+    /// its record, session mutex and delete target all belong to the installed product). Only a
+    /// Debug Setup stays dev unless it carries <see cref="RealProfileArgument"/> — agents never
+    /// run Setup, and a Debug Setup is never the owner's.</summary>
+    public static ProfileLocation CurrentSetup { get; } = ResolveCurrent(isSetupProcess: true);
+
+    private static ProfileLocation ResolveCurrent(bool isSetupProcess) => Resolve(
         Environment.ProcessPath,
         IsDebugBuild,
         Environment.GetCommandLineArgs(),
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        isSetupProcess);
 
     /// <summary>
     /// Whether this assembly was built in the Debug configuration. A Debug build is ALWAYS a
@@ -187,13 +212,21 @@ public sealed class ProfileLocation
     /// <param name="programFilesRoot">The <c>%ProgramFiles%</c> root.</param>
     /// <param name="roamingRoot">The <c>%APPDATA%</c> root.</param>
     /// <param name="localAppDataRoot">The <c>%LOCALAPPDATA%</c> root.</param>
+    /// <param name="isSetupProcess">True for the Setup exe: a Release Setup resolves the installed
+    /// product's real profile regardless of where its own exe sits (see
+    /// <see cref="CurrentSetup"/>). The App and the Supervisor pass false and keep the location
+    /// rule.</param>
+    /// <param name="toLongPath">The 8.3 → long path expansion, injectable for tests; the default
+    /// is one <c>GetLongPathNameW</c> call with a fall back to the input.</param>
     public static ProfileLocation Resolve(
         string? exePath,
         bool isDebugBuild,
         IReadOnlyList<string> args,
         string programFilesRoot,
         string roamingRoot,
-        string localAppDataRoot)
+        string localAppDataRoot,
+        bool isSetupProcess = false,
+        Func<string, string>? toLongPath = null)
     {
         if (args is null) throw new ArgumentNullException(nameof(args));
 
@@ -207,7 +240,8 @@ public sealed class ProfileLocation
         }
 
         // A Debug build is always a dev build, wherever it sits — the installed-location rule
-        // below would otherwise let an accidentally-copied Debug binary pass as installed.
+        // below would otherwise let an accidentally-copied Debug binary pass as installed. A
+        // Debug SETUP is no exception: only the flag makes it real.
         if (isDebugBuild)
         {
             return new ProfileLocation(
@@ -215,7 +249,20 @@ public sealed class ProfileLocation
                 programFilesRoot, roamingRoot, localAppDataRoot);
         }
 
-        if (IsInEyeCtrlFolderUnderProgramFiles(exePath, programFilesRoot, out var folderName))
+        // The Setup rule (D1): a Release Setup maintains the installed product, so every profile
+        // path it computes must be the installed App's — wherever this Setup itself runs from
+        // (Program Files, a run copy under EyeCtrl.run\, the inbox under %LOCALAPPDATA%). Its
+        // location is NOT evidence about the profile: the pass rule, setup-last.json, the session
+        // mutex and the uninstall delete target all concern %ProgramFiles%\EyeCtrl, whose App is
+        // always Release-in-Program-Files and therefore real.
+        if (isSetupProcess)
+        {
+            return new ProfileLocation(
+                ProfileMode.Installed, "EyeCtrl", "release setup: the installed product's profile",
+                programFilesRoot, roamingRoot, localAppDataRoot);
+        }
+
+        if (IsInEyeCtrlFolderUnderProgramFiles(exePath, programFilesRoot, out var folderName, toLongPath))
         {
             return new ProfileLocation(
                 ProfileMode.Installed, "EyeCtrl", $"release exe in '{folderName}' directly under Program Files",
@@ -245,15 +292,14 @@ public sealed class ProfileLocation
     /// <summary>
     /// The installed-location rule: the exe's PARENT directory is the Program Files root itself,
     /// and that parent's one folder name starts with "EyeCtrl". Comparisons are ordinal
-    /// case-insensitive and trailing separators on the root change nothing.
-    /// </summary>
-    /// <summary>
-    /// The installed-location rule: the exe's PARENT directory is the Program Files root itself,
-    /// and that parent's one folder name starts with "EyeCtrl". Comparisons are ordinal
-    /// case-insensitive and trailing separators on the root change nothing.
+    /// case-insensitive and trailing separators on the root change nothing. Both paths are
+    /// canonicalised first — <see cref="Path.GetFullPath"/> plus one 8.3→long
+    /// <c>GetLongPathNameW</c> call — so <c>C:\PROGRA~1\EyeCtrl\…</c> matches
+    /// <c>C:\Program Files</c>.
     /// </summary>
     private static bool IsInEyeCtrlFolderUnderProgramFiles(
-        string? exePath, string programFilesRoot, out string folderName)
+        string? exePath, string programFilesRoot, out string folderName,
+        Func<string, string>? toLongPath = null)
     {
         folderName = string.Empty;
         if (string.IsNullOrWhiteSpace(exePath) || string.IsNullOrWhiteSpace(programFilesRoot))
@@ -262,7 +308,7 @@ public sealed class ProfileLocation
         string parent;
         try
         {
-            parent = Path.GetDirectoryName(Path.GetFullPath(exePath)) ?? string.Empty;
+            parent = Path.GetDirectoryName(Canonicalize(exePath, toLongPath)) ?? string.Empty;
         }
         catch
         {
@@ -271,7 +317,7 @@ public sealed class ProfileLocation
         if (string.IsNullOrEmpty(parent))
             return false;
 
-        var root = NormalizeRoot(programFilesRoot);
+        var root = NormalizeRoot(Canonicalize(programFilesRoot, toLongPath));
         if (!parent.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
             parent += Path.DirectorySeparatorChar;
         var rootWithSeparator = root + Path.DirectorySeparatorChar;
@@ -288,6 +334,61 @@ public sealed class ProfileLocation
         folderName = trimmed;
         return folderName.StartsWith("EyeCtrl", StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// Full path plus the long (non-8.3) form: <c>GetLongPathNameW</c> is one call, and any
+    /// failure (a path that does not exist, a non-NTFS volume) falls back to the full path, so
+    /// canonicalisation can never turn a resolvable path into a dev decision by itself.
+    /// </summary>
+    private static string Canonicalize(string path, Func<string, string>? toLongPath)
+    {
+        string full;
+        try
+        {
+            full = Path.GetFullPath(path);
+        }
+        catch
+        {
+            return path; // an unparseable path keeps its shape; the caller's checks decide
+        }
+
+        if (toLongPath is not null)
+        {
+            try
+            {
+                return toLongPath(full);
+            }
+            catch
+            {
+                return full;
+            }
+        }
+
+        try
+        {
+            const int Initial = 260;
+            var buffer = new StringBuilder(Initial);
+            var length = GetLongPathName(full, buffer, (uint)buffer.Capacity);
+            if (length == 0)
+                return full;
+            if (length >= buffer.Capacity)
+            {
+                buffer = new StringBuilder((int)length + 1);
+                length = GetLongPathName(full, buffer, (uint)buffer.Capacity);
+                if (length == 0 || length >= buffer.Capacity)
+                    return full;
+            }
+
+            return buffer.ToString();
+        }
+        catch
+        {
+            return full;
+        }
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = false)]
+    private static extern uint GetLongPathName(string shortPath, StringBuilder longPath, uint bufferLength);
 
     private static string NormalizeRoot(string root)
     {

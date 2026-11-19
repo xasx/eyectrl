@@ -29,9 +29,9 @@ internal static class Program
     {
         // The one profile resolution for this process, before any mutex is taken or any file is
         // read: the guard below and Initialize() below must agree, and the flag captured here is
-        // what Launch forwards to the App ("pass --real-profile through only if we were started
-        // with it").
-        var realProfileRequested = ProfileLocation.HasRealProfileFlag(args);
+        // what Launch forwards to the App. A parent that resolved non-dev (installed or
+        // real-by-flag) forwards --real-profile; only a dev supervisor stays silent.
+        var forwardRealProfile = ShouldForwardRealProfile(ProfileLocation.Current);
 
         // C4: only one supervisor per session. A stray double-launch (or the Scheduled Task firing
         // while one is already running) exits fast here. AbandonedMutexException (a prior holder
@@ -43,10 +43,17 @@ internal static class Program
             return 0;
         }
 
-        var app = new SupervisorApp(realProfileRequested);
+        var app = new SupervisorApp(forwardRealProfile);
         app.Initialize();
         return app.Run();
     }
+
+    /// <summary>
+    /// The forwarding rule: a parent that resolved non-dev forwards <c>--real-profile</c> to the
+    /// App it starts, so the supervised pair is dev+dev or real+real, never split. An installed
+    /// supervisor is non-dev by its location; a real-by-flag one is non-dev by the flag.
+    /// </summary>
+    internal static bool ShouldForwardRealProfile(ProfileLocation profile) => !profile.IsDev;
 }
 
 /// <summary>
@@ -141,15 +148,16 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     // Clock-tick: drives HeartbeatStale / SurvivedWindow / DeadlineElapsed / StartupGrace detection.
     private DispatcherTimer? _tickTimer;
 
-    /// <summary>Whether this supervisor was started with --real-profile: the one fact Launch must
-    /// forward so the App it starts resolves the same profile this process did.</summary>
-    private readonly bool _realProfileRequested;
+    /// <summary>Whether Launch must forward --real-profile: true whenever this supervisor
+    /// resolved non-dev (installed or real-by-flag), so the App it starts resolves the same
+    /// profile this process did.</summary>
+    private readonly bool _forwardRealProfile;
 
-    /// <param name="realProfileRequested">Whether the command line carried
-    /// <see cref="ProfileLocation.RealProfileArgument"/>; forwarded to every App launch.</param>
-    public SupervisorApp(bool realProfileRequested = false)
+    /// <param name="forwardRealProfile">Whether this supervisor resolved non-dev (see
+    /// <c>Program.ShouldForwardRealProfile</c>); forwarded to every App launch.</param>
+    public SupervisorApp(bool forwardRealProfile = false)
     {
-        _realProfileRequested = realProfileRequested;
+        _forwardRealProfile = forwardRealProfile;
     }
 
     // Guards against reentrancy if a pipe event fires while a tick is draining on the dispatcher.
@@ -489,12 +497,13 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             // A language chosen while the App was down rides along as --ui-language (T05b), at
             // most once per choice: a later relaunch must not override a newer choice the user
             // made in the App. Both deliveries retry on the launched App's first heartbeat.
-            // --real-profile rides along only when WE were started with it, so the App resolves
-            // the same profile this supervisor did (dev+dev or real+real — never a split pair).
+            // --real-profile rides along whenever this supervisor resolved non-dev (installed or
+            // real-by-flag), so the App resolves the same profile this supervisor did
+            // (dev+dev or real+real — never a split pair).
             _pc.Launch(
                 _appExePath, paused: false,
                 uiLanguage: _languageDelivery.LaunchArgument(),
-                realProfile: _realProfileRequested);
+                realProfile: _forwardRealProfile);
             _languageDelivery.AppLaunched();
             _startOnBootDelivery.AppLaunched();
             EnsurePipeStarted(); // adoption-mode pipe starts eagerly at startup; this is an idempotent no-op.
@@ -768,7 +777,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                 _pc.Launch(
                     _appExePath, paused,
                     uiLanguage: _languageDelivery.LaunchArgument(),
-                    realProfile: _realProfileRequested);
+                    realProfile: _forwardRealProfile);
                 _languageDelivery.AppLaunched();
                 _startOnBootDelivery.AppLaunched();
                 WireProcessExited();

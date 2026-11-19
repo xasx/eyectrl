@@ -25,9 +25,10 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
 
     /// <summary>Creates the broker.</summary>
     /// <param name="forwardRealProfile">Whether <c>--real-profile</c> is appended to every child
-    /// argv. Defaults to "this process resolved real-by-flag" (see
-    /// <see cref="ProfileLocation"/>); injectable so tests can drive both arms — the resolver is
-    /// static per process and a test host is always a dev build.</param>
+    /// argv. Defaults to "this process resolved non-dev" under the SETUP rule (see
+    /// <see cref="ProfileLocation.CurrentSetup"/>), so every Release Setup forwards the flag and
+    /// a Debug one without the flag does not; injectable so tests can drive both arms — the
+    /// resolver is static per process and a test host is always a dev build.</param>
     public ShellExecuteElevationBroker(
         SetupPaths paths, ElevatedOperations operations, ISetupEnvironment environment,
         IElevationState elevationState, IElevationPolicy policy, IElevatedLauncher launcher,
@@ -43,7 +44,7 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
         _phaseResults = phaseResults;
         _log = log;
         _forwardRealProfile = forwardRealProfile
-            ?? (() => ProfileLocation.Current.Mode == ProfileMode.RealByFlag);
+            ?? (() => !ProfileLocation.CurrentSetup.IsDev);
     }
 
     /// <inheritdoc />
@@ -99,9 +100,9 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
     /// <summary>
     /// The exe and argv for one request. Internal so the round-trip test can prove that every
     /// argv the broker builds parses back through <see cref="SetupCommandLine"/> into the same job.
-    /// <c>--real-profile</c> is appended to every child argv when THIS process was started with
-    /// it, so the owner's real update keeps the real profile through the elevated phases (the
-    /// children resolve installed by location anyway; this is the belt-and-braces direction).
+    /// <c>--real-profile</c> is appended to every child argv when THIS process resolved non-dev
+    /// (every Release Setup does, and a Debug Setup started with the flag); a child of a real
+    /// parent therefore always resolves real, by flag and not by its location.
     /// </summary>
     internal (string ExePath, IReadOnlyList<string> Arguments) BuildLaunch(ElevatedRequest request)
     {
@@ -142,8 +143,8 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
         };
     }
 
-    /// <summary>Appends the flag only when this process resolved real-by-flag (or the injected
-    /// test seam says so).</summary>
+    /// <summary>Appends the flag only when this process resolved non-dev (or the injected test
+    /// seam says so).</summary>
     private IReadOnlyList<string> AppendRealProfile(string[] arguments) =>
         _forwardRealProfile()
             ? arguments.Concat(new[] { ProfileLocation.RealProfileArgument }).ToArray()

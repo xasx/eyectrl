@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests;
 using System;
 using System.IO;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Services;
 using NFluent;
 using Xunit;
 
@@ -76,5 +77,26 @@ public class SupervisorLauncherTests : IDisposable
 
         Check.That(SupervisorLauncher.ResolveExePath(baseDirectory: _dir))
              .IsEqualTo(Path.GetFullPath(sibling));
+    }
+
+    [Fact]
+    public void ANonDevParent_ForwardsTheRealProfileFlag_ToTheSupervisor()
+    {
+        // D2 (fixup 01): an installed (or real-by-flag) App forwards the flag, so the supervisor it
+        // starts resolves the same profile — a supervised pair is dev+dev or real+real.
+        var psi = SupervisorLauncher.BuildStartInfo(
+            @"C:\Program Files\EyeCtrl\EyeCtrl.Supervisor.exe", forwardRealProfile: true);
+
+        Check.That(psi.FileName).IsEqualTo(@"C:\Program Files\EyeCtrl\EyeCtrl.Supervisor.exe");
+        Check.That(psi.ArgumentList).ContainsExactly(ProfileLocation.RealProfileArgument);
+        Check.That(psi.UseShellExecute).IsFalse();
+    }
+
+    [Fact]
+    public void ADevParent_StartsTheSupervisor_WithoutTheFlag()
+    {
+        var psi = SupervisorLauncher.BuildStartInfo(@"C:\w\bin\EyeCtrl.Supervisor.exe", forwardRealProfile: false);
+
+        Check.That(psi.ArgumentList).IsEmpty();
     }
 }

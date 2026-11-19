@@ -20,8 +20,12 @@ public class ProfileLocationTests
         string[]? args = null,
         string? programFilesRoot = Pf,
         string? roamingRoot = Roaming,
-        string? localAppDataRoot = Local) =>
-        ProfileLocation.Resolve(exePath, isDebugBuild, args ?? [], programFilesRoot!, roamingRoot!, localAppDataRoot!);
+        string? localAppDataRoot = Local,
+        bool isSetupProcess = false,
+        Func<string, string>? toLongPath = null) =>
+        ProfileLocation.Resolve(
+            exePath, isDebugBuild, args ?? [], programFilesRoot!, roamingRoot!, localAppDataRoot!,
+            isSetupProcess, toLongPath);
 
     // ── The behaviour table, row by row ─────────────────────────────────────────────────
 
@@ -46,21 +50,18 @@ public class ProfileLocationTests
     }
 
     [Fact]
-    public void ReleaseExe_InARunCopy_IsDevByLocation_RealByTheForwardedFlag()
+    public void ReleaseApp_InARunCopy_IsDevByLocation()
     {
-        // Setup's elevated run copies live in EyeCtrl.run\<id>\ — TWO levels under Program Files,
-        // so the "directly under" rule does not reach them: by location they are dev, exactly like
-        // the ticket's %ProgramFiles%\Other\EyeCtrl edge case. The owner's real update therefore
-        // does not rely on location: the medium Setup forwards --real-profile to every child, and
-        // the flagged run copy resolves the real profile (the second half of this test).
-        var byLocation = Resolve(@"C:\Program Files\EyeCtrl.run\abc123\EyeCtrl.Setup.exe");
+        // The location rule for the App and the Supervisor: EyeCtrl.run\<id>\ is TWO levels under
+        // Program Files, so "directly under" does not reach it and the exe is dev by location.
+        // Setup is the one exception, with its own rule (see the Setup-rule section below): the
+        // same run-copy SETUP exe resolves the installed product's real profile, because its
+        // pass rule, record and delete target all belong to the installed App.
+        var byLocation = Resolve(@"C:\Program Files\EyeCtrl.run\abc123\EyeCtrl.App.exe");
         Check.That(byLocation.Mode).IsEqualTo(ProfileMode.Dev);
 
-        var flagged = Resolve(
-            @"C:\Program Files\EyeCtrl.run\abc123\EyeCtrl.Setup.exe",
-            args: ["--internal", "apply-update", "--run-id", "abc123", "--real-profile"]);
-        Check.That(flagged.Mode).IsEqualTo(ProfileMode.RealByFlag);
-        Check.That(flagged.Directory).IsEqualTo(Path.Combine(Roaming, "EyeCtrl"));
+        var setup = Resolve(@"C:\Program Files\EyeCtrl.run\abc123\EyeCtrl.Setup.exe", isSetupProcess: true);
+        Check.That(setup.Mode).IsEqualTo(ProfileMode.Installed);
     }
 
     [Fact]
@@ -119,6 +120,45 @@ public class ProfileLocationTests
     }
 
     [Fact]
+    public void AForeignFolderUnderProgramFiles_IsNotInstalled_EvenWithTheEyeCtrlExeName()
+    {
+        // F2b of fixup 01: the "name starts with EyeCtrl" half of the rule, on its own. Without
+        // it ANY Release exe one folder under Program Files (here C:\Program Files\Foo) resolves
+        // installed and takes the owner's real profile and names.
+        var p = Resolve(@"C:\Program Files\Foo\EyeCtrl.App.exe");
+
+        Check.That(p.Mode).IsEqualTo(ProfileMode.Dev);
+        Check.That(p.Directory).IsEqualTo(Path.Combine(Roaming, "EyeCtrl.Dev"));
+    }
+
+    [Fact]
+    public void ShortPathForm_IsExpandedBeforeTheLocationCheck()
+    {
+        // F4 of fixup 01: C:\PROGRA~1\EyeCtrl\… is the installed folder. The expansion is one
+        // Win32 call (GetLongPathNameW) in production; the seam drives it here so the row does
+        // not depend on the test volume's 8.3 setting.
+        var p = Resolve(
+            @"C:\PROGRA~1\EyeCtrl\EyeCtrl.App.exe",
+            toLongPath: path => path.Replace(
+                @"C:\PROGRA~1", @"C:\Program Files", StringComparison.OrdinalIgnoreCase));
+
+        Check.That(p.Mode).IsEqualTo(ProfileMode.Installed);
+        Check.That(p.Directory).IsEqualTo(Path.Combine(Roaming, "EyeCtrl"));
+    }
+
+    [Fact]
+    public void TheLongPathExpansion_IsWhatDecides_NotTheRawString()
+    {
+        // The seam is load-bearing in both directions: re-pointing the expansion moves the
+        // decision, so a mutant that skips it goes back to the short-path dev answer.
+        var p = Resolve(
+            @"C:\PROGRA~1\EyeCtrl\EyeCtrl.App.exe",
+            toLongPath: _ => @"D:\Elsewhere\EyeCtrl\EyeCtrl.App.exe");
+
+        Check.That(p.Mode).IsEqualTo(ProfileMode.Dev);
+    }
+
+    [Fact]
     public void Matching_IsCaseInsensitive()
     {
         var p = Resolve(@"c:\program files\eyectrl\EyeCtrl.App.exe");
@@ -153,6 +193,77 @@ public class ProfileLocationTests
             .IsEqualTo(ProfileMode.RealByFlag);
         Check.That(Resolve(@"C:\w\EyeCtrl.App.exe", args: ["--real-profiles"]).Mode)
             .IsEqualTo(ProfileMode.Dev);
+    }
+
+    // ── The Setup rule (fixup 01 D1) ────────────────────────────────────────────────────
+
+    [Fact]
+    public void ReleaseSetup_InARunCopyResolvesTheInstalledProductsRealProfile()
+    {
+        // The blocker: the run copy is TWO levels under Program Files (EyeCtrl.run\<id>\), so the
+        // location rule says dev — while the App Setup starts lives in EyeCtrl\ and is real. The
+        // pass rule then reads EyeCtrl.Dev\logs, never finds the App's startup line and kills it.
+        // A Release Setup must resolve the installed product's profile wherever it runs from.
+        var p = Resolve(
+            @"C:\Program Files\EyeCtrl.run\abc123\EyeCtrl.Setup.exe",
+            isSetupProcess: true);
+
+        Check.That(p.Mode).IsEqualTo(ProfileMode.Installed);
+        Check.That(p.Directory).IsEqualTo(Path.Combine(Roaming, "EyeCtrl"));
+        Check.That(p.NameSuffix).IsEmpty();
+        Check.That(p.SetupSessionMutexName).IsEqualTo(@"Local\EyeCtrl.Setup.Session");
+    }
+
+    [Fact]
+    public void ReleaseSetup_InTheInbox_AlsoResolvesTheInstalledProductsRealProfile()
+    {
+        // The second owner flow: the OLD App's Settings→Update starts the NEW inbox Setup with no
+        // flag it cannot know. A Release Setup resolves real from its rule, not from its parent.
+        var p = Resolve(
+            @"C:\Users\test\AppData\Local\EyeCtrl\updates\2.0.0\EyeCtrl.Setup.exe",
+            isSetupProcess: true);
+
+        Check.That(p.Mode).IsEqualTo(ProfileMode.Installed);
+        Check.That(p.Directory).IsEqualTo(Path.Combine(Roaming, "EyeCtrl"));
+    }
+
+    [Fact]
+    public void DebugSetup_WithoutTheFlag_IsDev()
+    {
+        // Agents never run Setup, and a Debug Setup is never the owner's: it stays fenced.
+        var p = Resolve(
+            @"C:\Program Files\EyeCtrl\EyeCtrl.Setup.exe",
+            isDebugBuild: true,
+            isSetupProcess: true);
+
+        Check.That(p.Mode).IsEqualTo(ProfileMode.Dev);
+        Check.That(p.Directory).IsEqualTo(Path.Combine(Roaming, "EyeCtrl.Dev"));
+    }
+
+    [Fact]
+    public void DebugSetup_WithTheFlag_IsReal()
+    {
+        // The one documented manual override keeps working for Setup too.
+        var p = Resolve(
+            @"C:\w\bin\EyeCtrl.Setup.exe",
+            isDebugBuild: true,
+            args: ["repair", "--real-profile"],
+            isSetupProcess: true);
+
+        Check.That(p.Mode).IsEqualTo(ProfileMode.RealByFlag);
+        Check.That(p.Directory).IsEqualTo(Path.Combine(Roaming, "EyeCtrl"));
+    }
+
+    [Fact]
+    public void TheSetupRule_DoesNotLeakIntoTheAppOrSupervisorRule()
+    {
+        // The same run-copy exe is dev when it is an APP or SUPERVISOR (their location decides),
+        // and real when it is Setup. One resolver, two process rules, no shared drift.
+        var app = Resolve(@"C:\Program Files\EyeCtrl.run\abc123\EyeCtrl.App.exe");
+        var setup = Resolve(@"C:\Program Files\EyeCtrl.run\abc123\EyeCtrl.Setup.exe", isSetupProcess: true);
+
+        Check.That(app.Mode).IsEqualTo(ProfileMode.Dev);
+        Check.That(setup.Mode).IsEqualTo(ProfileMode.Installed);
     }
 
     // ── Machine-global names ────────────────────────────────────────────────────────────

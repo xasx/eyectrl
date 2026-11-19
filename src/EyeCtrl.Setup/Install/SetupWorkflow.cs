@@ -30,9 +30,10 @@ public sealed class SetupWorkflow
 
     /// <summary>Creates the workflow.</summary>
     /// <param name="forwardRealProfile">Whether <c>--real-profile</c> rides along to the run
-    /// copy. Defaults to "this process resolved real-by-flag" (see <see cref="ProfileLocation"/>);
-    /// injectable so tests can drive both arms — the resolver is static per process and a test
-    /// host is always a dev build.</param>
+    /// copy. Defaults to "this process resolved non-dev" under the SETUP rule (see
+    /// <see cref="ProfileLocation.CurrentSetup"/>), so every Release Setup forwards the flag and
+    /// a Debug one without the flag does not; injectable so tests can drive both arms — the
+    /// resolver is static per process and a test host is always a dev build.</param>
     public SetupWorkflow(
         SetupPaths paths, IElevationPolicy policy, IElevationBroker broker, AppStartService appStart,
         SupervisionStartPlanner planner,
@@ -58,7 +59,7 @@ public sealed class SetupWorkflow
         _log = log;
         _displayFactory = displayFactory ?? NullSetupDisplayFactory.Instance;
         _forwardRealProfile = forwardRealProfile
-            ?? (() => ProfileLocation.Current.Mode == ProfileMode.RealByFlag);
+            ?? (() => !ProfileLocation.CurrentSetup.IsDev);
     }
 
     /// <summary>Installs the package and applies the three-part pass rule, rolling back on a
@@ -438,10 +439,12 @@ public sealed class SetupWorkflow
 
         var runCopy = _paths.RunSetupExePath(runId);
 
-        // --real-profile rides along to the run copy ONLY when this process was started with it,
-        // so the owner's real update (Install-EyeCtrl.ps1 → inbox Setup with the flag) keeps the
-        // real profile in the child too. The run copy sits in EyeCtrl.run\ under Program Files
-        // and would resolve installed by location anyway; this is the belt-and-braces direction.
+        // --real-profile rides along to the run copy whenever this Setup resolved non-dev (the
+        // SETUP rule: every Release Setup does, wherever it runs from). That is belt and braces
+        // next to D1 — the run copy would resolve the installed product's real profile on its own
+        // — and it is what keeps a Debug Setup started with --real-profile real in the child too.
+        // Always forwarding a non-dev parent's flag also means a future Setup-rule change cannot
+        // silently split parent and child.
         if (_forwardRealProfile())
             arguments = arguments.Append(ProfileLocation.RealProfileArgument).ToArray();
 

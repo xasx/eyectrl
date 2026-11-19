@@ -87,22 +87,25 @@ public interface ISetupGateways
     /// <summary>
     /// Hand off to the offered package's Setup: re-check the Setup exe's signature against the
     /// pinned thumbprint (belt and braces after the catalog check), start
-    /// <c>EyeCtrl.Setup.exe update "&lt;dir&gt;"</c> with ShellExecute from a neutral working
-    /// directory, then exit cleanly — the lifecycle is <see cref="ISetupExitFlow" />, which must
-    /// never set the restart flag. <see cref="SetupHandoffStart.Failed" /> when refused or the
-    /// launch threw; EyeCtrl then keeps running.
+    /// <c>EyeCtrl.Setup.exe update "&lt;dir&gt;" --real-profile</c> (the flag when this App
+    /// resolved non-dev) with ShellExecute from a neutral working directory, then exit cleanly —
+    /// the lifecycle is <see cref="ISetupExitFlow" />, which must never set the restart flag.
+    /// <see cref="SetupHandoffStart.Failed" /> when refused or the launch threw; EyeCtrl then
+    /// keeps running.
     /// </summary>
     SetupHandoffStart StartUpdateHandoff(SetupUpdateOffer offer);
 
-    /// <summary>Start the installed Setup's <c>rollback</c> with ShellExecute, then exit cleanly.
+    /// <summary>Start the installed Setup's <c>rollback</c> (plus <c>--real-profile</c> when this
+    /// App resolved non-dev) with ShellExecute, then exit cleanly.
     /// <see cref="SetupHandoffStart.Failed" /> when refused or the launch threw; EyeCtrl then keeps
     /// running.</summary>
     SetupHandoffStart StartRollbackHandoff();
 
-    /// <summary>Start the installed Setup's <c>uninstall</c> with ShellExecute. EyeCtrl keeps
-    /// running: its dwell is the input for Setup's own uninstall window.
-    /// <see cref="SetupHandoffStart.RefusedWhileActive" /> when Setup is already starting or
-    /// running (show nothing), <see cref="SetupHandoffStart.Failed" /> when the launch threw.</summary>
+    /// <summary>Start the installed Setup's <c>uninstall</c> (plus <c>--real-profile</c> when this
+    /// App resolved non-dev) with ShellExecute. EyeCtrl keeps running: its dwell is the input for
+    /// Setup's own uninstall window. <see cref="SetupHandoffStart.RefusedWhileActive" /> when Setup
+    /// is already starting or running (show nothing), <see cref="SetupHandoffStart.Failed" /> when
+    /// the launch threw.</summary>
     SetupHandoffStart StartUninstallHandoff();
 }
 
@@ -208,6 +211,7 @@ public sealed class SetupGateways : ISetupGateways
     private readonly Action<string> _warn;
     private readonly Func<bool> _setupSessionLive;
     private readonly Func<DateTimeOffset> _utcNow;
+    private readonly Func<bool> _forwardRealProfile;
     private readonly object _handoffLock = new();
 
     private int _offerProbeStarted;
@@ -231,6 +235,10 @@ public sealed class SetupGateways : ISetupGateways
     /// Setup on the box can never change their outcome.</param>
     /// <param name="utcNow">The clock behind <see cref="HandoffSettleWindow"/>; defaults to
     /// <see cref="DateTimeOffset.UtcNow"/>.</param>
+    /// <param name="forwardRealProfile">Whether a hand-off argv carries
+    /// <c>--real-profile</c>. Defaults to "this process resolved non-dev" (the installed App
+    /// always does); a dev App never reaches a hand-off (not installed), but the seam keeps the
+    /// test host from speaking for the installed product.</param>
     public SetupGateways(
         Func<string> currentProcessPath,
         SetupPaths paths,
@@ -244,7 +252,8 @@ public sealed class SetupGateways : ISetupGateways
         string? neutralWorkingDirectory = null,
         Action<string>? warn = null,
         Func<bool>? setupSessionLive = null,
-        Func<DateTimeOffset>? utcNow = null)
+        Func<DateTimeOffset>? utcNow = null,
+        Func<bool>? forwardRealProfile = null)
     {
         _currentProcessPath = currentProcessPath ?? throw new ArgumentNullException(nameof(currentProcessPath));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
@@ -261,6 +270,7 @@ public sealed class SetupGateways : ISetupGateways
         _warn = warn ?? (_ => { });
         _setupSessionLive = setupSessionLive ?? (() => SetupSessionGuard.IsSessionLive());
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+        _forwardRealProfile = forwardRealProfile ?? (() => !ProfileLocation.Current.IsDev);
     }
 
     /// <summary>The working directory every hand-off passes. Public so a wiring test can pin that
@@ -461,6 +471,12 @@ public sealed class SetupGateways : ISetupGateways
     {
         if (!TryBeginHandoff(verb))
             return SetupHandoffStart.RefusedWhileActive;
+
+        // Belt and braces next to Setup's own rule: a parent that resolved non-dev forwards the
+        // flag, so the Setup it starts is real by flag as well as by its rule. A dev App never
+        // reaches here (not installed).
+        if (_forwardRealProfile())
+            arguments += " " + ProfileLocation.RealProfileArgument;
 
         try
         {

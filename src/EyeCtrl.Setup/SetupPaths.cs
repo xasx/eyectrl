@@ -31,11 +31,13 @@ public sealed class SetupPaths
     }
 
     /// <summary>
-    /// The layout for the RUNNING process's resolved profile (see
+    /// The layout for a resolved profile (see
     /// <see cref="EyeCtrl.Core.Services.ProfileLocation"/>): the same three OS roots the resolver
     /// read, with the build's own profile folder — <c>EyeCtrl.Dev</c> for a dev build, so a dev
-    /// Setup's record, logs and notice reads stay out of the owner's profile. The inbox root is
-    /// deliberately NOT split: it holds the packages the installed product installs.
+    /// Setup's record, logs and notice reads stay out of the owner's profile. Setup passes the
+    /// SETUP rule's resolution (<c>ProfileLocation.CurrentSetup</c>), which is the installed
+    /// product's real profile for every Release Setup. The inbox root is deliberately NOT split:
+    /// it holds the packages the installed product installs.
     /// </summary>
     public static SetupPaths FromProfile(ProfileLocation profile) => new(
         profile.ProgramFilesRoot,

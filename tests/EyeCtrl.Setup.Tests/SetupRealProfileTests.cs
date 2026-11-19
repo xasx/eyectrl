@@ -153,29 +153,50 @@ public class SetupRealProfileTests
     [Fact]
     public void InstallEyeCtrlScript_StartsTheInboxSetupWithTheFlag()
     {
-        // The inbox Setup is not under Program Files; without the flag it would resolve dev and
-        // write setup-last.json and the setup log into EyeCtrl.Dev. The wrapper is the owner's
-        // flow, so it must pass the flag.
-        var script = Path.Combine(FindRepoRoot(), "tools", "release", "Install-EyeCtrl.ps1");
-        Check.WithCustomMessage($"script not found at {script}").That(File.Exists(script)).IsTrue();
+        // F2 of fixup 01: the old test looked for "--real-profile" ANYWHERE in the script, so the
+        // doc header and a comment satisfied it and mutant MS (the flag removed from the actual
+        // Start-Process argument line) survived. Parse the argument line the launch consumes,
+        // after stripping comments.
+        const string package = @"C:\Users\owner\AppData\Local\EyeCtrl\updates\2.0.0";
+        var code = InstalledProductProfile.StripPowerShellComments(
+            File.ReadAllText(Path.Combine(
+                InstalledProductProfile.FindRepoRoot(), "tools", "release", "Install-EyeCtrl.ps1")));
 
-        var text = File.ReadAllText(script);
+        var arguments = InstalledProductProfile.ReadInstallScriptArguments(package);
         Check.WithCustomMessage(
-                "Install-EyeCtrl.ps1 must start Setup with --real-profile (the inbox exe is not " +
-                "an installed location; see ProfileLocation)")
-            .That(text.Contains("--real-profile", StringComparison.Ordinal)).IsTrue();
+                "Install-EyeCtrl.ps1's $setupArguments line must carry --real-profile: the inbox " +
+                "Setup is not an installed location. Rendered: " + string.Join(' ', arguments))
+            .That(arguments).Contains("--real-profile");
+        Check.That(arguments[0]).IsEqualTo("update");
+        Check.That(arguments).Contains(package);
+
+        // And both Start-Process calls must consume exactly that argument list — a flag on a
+        // different line, or an argument list the launch ignores, must not satisfy the test.
+        var launches = System.Text.RegularExpressions.Regex.Matches(code, @"Start-Process[^\r\n]*");
+        Check.That(launches.Count).IsEqualTo(2);
+        Check.That(launches.All(match =>
+                match.Value.Contains("-ArgumentList $setupArguments", StringComparison.Ordinal)))
+            .IsTrue();
     }
 
-    private static string FindRepoRoot()
+    [Fact]
+    public void PublishSignedScript_RefusesADebugConfiguration()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            if (File.Exists(Path.Combine(dir.FullName, "EyeCtrl.slnx")))
-                return dir.FullName;
-            dir = dir.Parent!;
-        }
-        throw new InvalidOperationException(
-            "Could not locate the repository root (EyeCtrl.slnx) above " + AppContext.BaseDirectory);
+        // F5 of fixup 01: a signed package must be Release. A Debug package would resolve the dev
+        // profile and the .Dev names by construction, so the script refuses it before any build.
+        var code = InstalledProductProfile.StripPowerShellComments(
+            File.ReadAllText(Path.Combine(
+                InstalledProductProfile.FindRepoRoot(), "tools", "release", "Publish-Signed.ps1")));
+
+        var configuration = System.Text.RegularExpressions.Regex.Match(
+            code, @"\[ValidateSet\((?<values>[^)]*)\)\]\s*\[string\]\s*\$Configuration");
+        Check.WithCustomMessage(
+                "Publish-Signed.ps1 must validate $Configuration ('Release' only) immediately " +
+                "before the parameter")
+            .That(configuration.Success).IsTrue();
+        var admitted = configuration.Groups["values"].Value;
+        Check.That(admitted).Contains("'Release'");
+        Check.WithCustomMessage($"Publish-Signed.ps1 must refuse -Configuration Debug; admits {admitted}")
+            .That(admitted.Contains("Debug", StringComparison.OrdinalIgnoreCase)).IsFalse();
     }
 }

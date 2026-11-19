@@ -74,7 +74,10 @@ param(
     [switch]$SkipSetup,
     [switch]$Force,
     [string]$Version,
-    [ValidateSet('Release', 'Debug')]
+    # Release only: a Debug package resolves the dev profile and the .Dev names by construction
+    # (ProfileLocation), so an installed Debug build would run with an empty profile. A signed
+    # package must never be Debug; the parameter refuses it before any build starts.
+    [ValidateSet('Release')]
     [string]$Configuration = 'Release',
     [string]$Runtime = 'win-x64',
     [string]$OutputDir,

@@ -123,8 +123,8 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     /// real centre through <see cref="UpdateChoiceCentre"/>; a fired id clears ALL chrome targets
     /// before dispatching (the Settings precedent, :317-318) — the wiring re-renders the card
     /// when the press did not change the step (r4 F3). <paramref name="radiusDip"/> defaults to
-    /// <see cref="ChoiceRadiusDip"/> (70); the Theme chips pass 40 — a 2×2 grid at this card size
-    /// would overlap 70-DIP circles (r5 F4).</summary>
+    /// <see cref="ChoiceRadiusDip"/> (70, the modal fallback); the window passes each card's
+    /// half-diagonal so the WHOLE visible card dwells (the fullscreen cards' live check).</summary>
     public void RegisterChoice(string id, double? radiusDip = null)
     {
         DwellDetector.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0),

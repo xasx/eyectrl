@@ -141,7 +141,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             _choiceButtons[id] = button;
             _choiceKinds[id] = kind;
             ChoiceRow.Children.Add(button.Root);
-            _vm.RegisterChoice(id);
+            _vm.RegisterChoice(id, CardDwellRadiusDip(320, 190));
         }
         PushCentres();
     }
@@ -170,6 +170,14 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     /// mechanism the hand-built cards' bars rode before this became a DwellButton.
     /// </para>
     /// </summary>
+    /// <summary>The dwell catchment for one card: the HALF-DIAGONAL of the visible button, so
+    /// the WHOLE card dwells — the owner's live check found the fullscreen cards caught only the
+    /// text's small central circle (the old 70-DIP modal radius). The 96-DIP gaps keep adjacent
+    /// circles clear (action row centres 416 apart vs 2×186; ± row 296 vs 2×128; chips 448 vs
+    /// 2×206).</summary>
+    private static double CardDwellRadiusDip(double widthDip, double heightDip) =>
+        Math.Sqrt(widthDip * widthDip / 4 + heightDip * heightDip / 4);
+
     private DwellButton BuildCard(string label, string id, ModalChoiceKind kind,
         double width, double height, double fontSize, Thickness margin)
     {
@@ -179,7 +187,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             fill, DwellCategory.Modal, radiusPhysical: 0, dwellMs: 0,
             width: width, height: height, textBrush: labelBrush);
         // radiusPhysical/dwellMs are inert: the control never self-registers (the registrar is
-        // the InertRegistrar below) — the VM's RegisterChoice owns the real radius (70 DIP
+        // the InertRegistrar below) — the VM's RegisterChoice owns the real radius (per-card
         // default, 40 for the chips) and the chrome dwell time.
         button.Root.Margin = margin;
         button.Root.CornerRadius = new CornerRadius(12);   // the approved mockups' card radius
@@ -203,7 +211,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             _choiceButtons["guide_close"] = _chromeCloseButton;
             _choiceKinds["guide_close"] = ModalChoiceKind.Negative;
             ChromeCloseHost.Content = _chromeCloseButton.Root;
-            _vm.RegisterChoice("guide_close");
+            _vm.RegisterChoice("guide_close", CardDwellRadiusDip(280, 160));
             _chromeCloseBuilt = true;
             PushCentres();
         }
@@ -213,7 +221,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             // own field, so progress and the preview repaint keep reaching the control.
             _choiceButtons["guide_close"] = _chromeCloseButton;
             _choiceKinds["guide_close"] = ModalChoiceKind.Negative;
-            _vm.RegisterChoice("guide_close");
+            _vm.RegisterChoice("guide_close", CardDwellRadiusDip(280, 160));
             PushCentres();
         }
         else if (!visible && _chromeCloseBuilt)
@@ -299,7 +307,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
                 _choiceKinds[id] = ModalChoiceKind.Neutral;
                 _knobButtons[id] = button;
                 plusMinus.Children.Add(button.Root);
-                _vm.RegisterChoice(id);
+                _vm.RegisterChoice(id, CardDwellRadiusDip(200, 160));
             }
             KnobRow.Children.Add(_dwellValue);
             KnobRow.Children.Add(plusMinus);
@@ -314,7 +322,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             {
                 _choiceButtons[id] = _knobButtons[id];
                 _choiceKinds[id] = ModalChoiceKind.Neutral;
-                _vm.RegisterChoice(id);
+                _vm.RegisterChoice(id, CardDwellRadiusDip(200, 160));
             }
             PushCentres();
         }
@@ -335,8 +343,9 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     /// <summary>The Theme step's four chips as a 2×2 grid in StepContent (r5 F4's geometry — one
     /// right-aligned row would run off the surface and the chrome circles would overlap). Each
     /// chip is a Neutral card (the same SurfaceMedium surface the old hand-built chips wore)
-    /// registering at radius 40 DIP through
-    /// <see cref="FirstRunGuideViewModel.RegisterChoice(string, double?)"/>. Idempotent; the
+    /// registering at its full half-diagonal catchment through
+    /// <see cref="FirstRunGuideViewModel.RegisterChoice(string, double?)"/> — one ROW, because
+    /// a 2×2 grid's 248-DIP vertical centre distance cannot fit full-card circles. Idempotent; the
     /// already-built branch RE-REGISTERS (r5 F2). Chips live in `_themeButtons` — `SetChoices`
     /// never clears them.</summary>
     public void SetThemeGrid(bool visible, IReadOnlyList<(string Label, string Id)> chips)
@@ -352,20 +361,19 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
                 };
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-                grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 for (var i = 0; i < chips.Count; i++)
                 {
                     var (label, id) = chips[i];
                     var button = BuildCard(label, id, ModalChoiceKind.Neutral, 360, 200, 32,
                         new Thickness(24, 24, 24, 24));
                     _themeButtons[id] = button;
-                    Grid.SetRow(button.Root, i / 2);
-                    Grid.SetColumn(button.Root, i % 2);
+                    Grid.SetColumn(button.Root, i);
                     grid.Children.Add(button.Root);
                     _choiceButtons[id] = button;                   // r6 F4: progress + centres via _choiceButtons
                     _choiceKinds[id] = ModalChoiceKind.Neutral;
-                    _vm.RegisterChoice(id, radiusDip: 40);
+                    _vm.RegisterChoice(id, CardDwellRadiusDip(360, 200));
                 }
                 _themeGrid = grid;
                 StepContent.Content = grid;
@@ -381,7 +389,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
                 {
                     _choiceButtons[id] = _themeButtons[id];
                     _choiceKinds[id] = ModalChoiceKind.Neutral;
-                    _vm.RegisterChoice(id, radiusDip: 40);
+                    _vm.RegisterChoice(id, CardDwellRadiusDip(360, 200));
                 }
             }
             PushCentres();

@@ -1,0 +1,87 @@
+namespace EyeCtrl.App.Tests.Services;
+
+using System.Collections.Concurrent;
+using EyeCtrl.App.Services;
+using Microsoft.Extensions.Time.Testing;
+
+/// <summary>
+/// The exit watchdog (F1 of the 18.11 exit-hang ticket): a step that never returns must end the
+/// process 15 s later with the step's name, and a completed exit must never be killed. Both drive a
+/// <see cref="FakeTimeProvider"/>, so no test waits 15 real seconds.
+/// </summary>
+public class ExitWatchdogTests
+{
+    private const string BlockingStep = "stop password-field detector";
+
+    [Fact]
+    public void NeverCompletingStep_TerminatesOnceAfterTheBudget_WithTheStepName()
+    {
+        var time = new FakeTimeProvider();
+        var calls = new ConcurrentQueue<string>();
+        using var terminated = new ManualResetEventSlim(false);
+        var watchdog = new ExitWatchdog(
+            time,
+            () => BlockingStep,
+            step =>
+            {
+                calls.Enqueue(step);
+                terminated.Set();
+            });
+
+        watchdog.Start();
+
+        time.Advance(ExitWatchdog.DefaultBudget - TimeSpan.FromSeconds(1));
+        Check.That(terminated.Wait(TimeSpan.FromMilliseconds(250))).IsFalse(); // never before the budget
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        Check.That(terminated.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        Check.That(calls.TryDequeue(out string? reported)).IsTrue();
+        Check.That(reported).IsEqualTo(BlockingStep);
+
+        // One-shot: more clock never produces a second terminate (FailFast would end the process on
+        // the first, but a double call would be a bug in the seam the tests drive).
+        time.Advance(TimeSpan.FromMinutes(5));
+        Thread.Sleep(TimeSpan.FromMilliseconds(250));
+        Check.That(calls).IsEmpty();
+    }
+
+    [Fact]
+    public void CompletedBeforeTheBudget_NeverTerminates()
+    {
+        var time = new FakeTimeProvider();
+        var calls = new ConcurrentQueue<string>();
+        var watchdog = new ExitWatchdog(time, () => BlockingStep, step => calls.Enqueue(step));
+
+        watchdog.Start();
+        time.Advance(TimeSpan.FromSeconds(1));
+        watchdog.Completed();
+
+        time.Advance(TimeSpan.FromMinutes(5));
+        Thread.Sleep(TimeSpan.FromMilliseconds(250));
+
+        Check.That(calls).IsEmpty();
+    }
+
+    [Fact]
+    public void Start_IsIdempotent_SoASecondCallAddsNoSecondDeadline()
+    {
+        var time = new FakeTimeProvider();
+        var calls = new ConcurrentQueue<string>();
+        using var terminated = new ManualResetEventSlim(false);
+        var watchdog = new ExitWatchdog(
+            time,
+            () => BlockingStep,
+            step =>
+            {
+                calls.Enqueue(step);
+                terminated.Set();
+            });
+
+        watchdog.Start();
+        watchdog.Start();
+
+        time.Advance(ExitWatchdog.DefaultBudget + TimeSpan.FromSeconds(1));
+        Check.That(terminated.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        Check.That(calls).HasSize(1);
+    }
+}

@@ -141,29 +141,31 @@ public class AdaptationActivationShutdownTests
     public void OnExit_DeactivatesAdaptationRuntime_BeforeDisposingTheServiceProvider()
     {
         // Owner-approved guard (review r2): the two tests above cannot fail when the explicit
-        // OnExit deactivation STEP is deleted from App.xaml.cs — they drive the shutdown shapes
-        // directly, not App.OnExit itself. Deleting the step keeps every test green while the
-        // container's own disposal silently skips the clean "Adaptation runtime deactivated"
-        // teardown (fix (b) downgraded that live symptom to a Debug note, so nothing logs it
-        // either). Cheapest pin, ToolbarButtonDriftTests style: a headless source-order scan of
-        // App.xaml.cs (comment-stripped, so the step's explanatory comment cannot shadow the
-        // check) asserting BOTH step labels exist AND the deactivation's index precedes the
-        // provider disposal's — swapping or deleting either step fails here.
+        // OnExit deactivation STEP is deleted — they drive the shutdown shapes directly, not
+        // App.OnExit's step list. Deleting the step keeps every test green while the container's
+        // own disposal silently skips the clean "Adaptation runtime deactivated" teardown (fix (b)
+        // downgraded that live symptom to a Debug note, so nothing logs it either). Cheapest pin,
+        // ToolbarButtonDriftTests style: a headless source-order scan (comment-stripped, so the
+        // step's explanatory comment cannot shadow the check) asserting BOTH step labels exist AND
+        // the deactivation's index precedes the provider disposal's — swapping or deleting either
+        // step fails here.
+        // The step list lives in ExitSequencePlan since the exit-hang fix (F1/F2), which is now the
+        // source of the order; ShutdownSequenceTests additionally pins the whole list by name.
         var appSource = SourceScanner.StripComments(File.ReadAllText(Path.Combine(
-            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "App.xaml.cs")));
+            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Services", "ExitSequencePlan.cs")));
 
         var deactivate = appSource.IndexOf(
-            "Step(\"deactivate adaptation runtime\"", StringComparison.Ordinal);
+            "sequence.Add(\"deactivate adaptation runtime\"", StringComparison.Ordinal);
         var dispose = appSource.IndexOf(
-            "Step(\"dispose service provider\"", StringComparison.Ordinal);
+            "sequence.Add(\"dispose service provider\"", StringComparison.Ordinal);
 
         Check.WithCustomMessage(
-                "App.xaml.cs no longer contains the 'deactivate adaptation runtime' OnExit step — " +
+                "ExitSequencePlan no longer contains the 'deactivate adaptation runtime' OnExit step — " +
                 "without it the container's own disposal skips the adaptation teardown (see " +
                 "ExplicitDeactivation_BeforeProviderDisposal_TeardownRunsCleanly)")
             .That(deactivate).IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage(
-                "App.xaml.cs no longer contains the 'dispose service provider' OnExit step")
+                "ExitSequencePlan no longer contains the 'dispose service provider' OnExit step")
             .That(dispose).IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage(
                 "OnExit must deactivate the adaptation runtime BEFORE disposing the service " +

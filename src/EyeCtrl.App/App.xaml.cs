@@ -839,104 +839,54 @@ public partial class App : Application
     {
         Log.Information("Shutdown");
 
-        try { _splashHandle?.Dispose(); } catch { /* shutdown-time best effort */ }
-
-        // Every step is best-effort: an exception in any step used to skip every step after it —
-        // including the single-instance mutex release and the log flush — and then rethrow into
-        // the dying dispatcher. The ORDER below is unchanged (see the original ordering notes).
-        void Step(string what, Action act)
-        {
-            try { act(); }
-            catch (Exception ex) { Log.Error(ex, "OnExit step failed: {Step}", what); }
-        }
-
-        // Stamp the final shuttingDown:true payload BEFORE tearing down services — the supervisor
-        // needs this authenticated clean-shutdown signal within its 5s deadline to distinguish a
-        // graceful exit (no restart) from a crash. Cancels the writer loop and drains it (bounded).
-        // Carries the restart intent to the supervisor. False for every ordinary exit —
-        // and also for a self-restart, where a replacement is already coming up and a
-        // supervisor-launched second instance would just lose the race for the mutex.
-        Step("signal shutting down", () => _heartbeatPublisher?.SignalShuttingDown(
-            restartRequested: _restartCoordinator?.SupervisorRelaunchRequested ?? false));
-
-        // Stop ticking before the publisher goes away: a tick racing Dispose would call Stamp on
-        // a disposed publisher from the dispatcher.
-        Step("stop heartbeat timer", () => _heartbeatTimer?.Stop());
-
-        // C9 S6f: the late-record watch is bounded and app-owned; release its timer/watcher now.
-        Step("dispose setup notice watch", () => _setupNoticeWatch?.Dispose());
-
-        // Stop taking Supervisor requests before the exit save: a request mid-flight now sees the
-        // pipe close, and the Supervisor parks it and re-sends to the next App.
-        Step("dispose supervisor request service", () => _supervisorRequests?.Dispose());
-
-        // Before the coordinators: SystemEvents holds a static reference to the handler, so an
-        // un-unsubscribed watcher outlives the app object and would fire into disposed services.
-        Step("dispose display geometry watcher", () => _displayGeometryWatcher?.Dispose());
-
-        Step("dispose tray icon", () => _trayIconManager?.Dispose());
-        Step("dispose lag mark host", () => _lagMarkHost?.Dispose());
-        Step("dispose ring arm log", () => _ringArmLog?.Dispose());
-        Step("dispose blocked-input coordinator", () => _blockedInput?.Dispose());
-        Step("dispose event coordinator", () => _eventCoordinator?.Dispose());
-        // F5: the audio diagnostics' COM listeners outlive every service instance — unregister
-        // them while the process is still alive rather than letting WASAPI call into a dying CCW.
-        Step("unregister audio diagnostics", AudioSessionDiagnostics.Shutdown);
-
-        if (_serviceProvider != null)
-        {
-            var gazeEngine = _serviceProvider.GetRequiredService<GazeEngine>();
-            var settings = _serviceProvider.GetRequiredService<EyeCtrlSettings>();
-            var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
-
-            Step("stop gaze engine", () => gazeEngine.Stop());
-            // Best-effort by design: Save throws on validation failure, and a failed final save
-            // must not cost the caller its remaining teardown (previously this throw skipped
-            // provider disposal, the mutex release and the log flush).
-            Step("save settings", () => settingsService.Save(settings));
-            Step("persist adaptation state", () => _serviceProvider.GetRequiredService<AdaptationLearner>().Persist()); // best-effort (§11); never throws
-            // (User dictionary is saved by EventCoordinator.Dispose above, via PredictionStackFactory.)
-
-            // Instrument 2's final verdict, before the overlays go away. Instrument 1 reports from
-            // GazeEngineAdapter.Dispose just below.
-            try
+        // F1/F2 (18.11 exit hang): every step is named in the log and the first step starts a 15 s
+        // watchdog, so a step that never returns is reported and the process ends instead of holding
+        // the single-instance mutex for hours. The step order is unchanged (mutex release last).
+        var sequence = ExitSequencePlan.Create(
+            new ShutdownDependencies
             {
-                if (_serviceProvider.GetRequiredService<IOverlayManager>().CursorCircle
-                    is IRingQuantizationInstrument instrumented)
-                {
-                    instrumented.ReportQuantization();
-                }
-            }
-            catch (Exception ex) { Log.Warning(ex, "Could not emit the ring-quantization summary"); }
+                SplashHandle = _splashHandle,
+                HeartbeatPublisher = _heartbeatPublisher,
+                RestartCoordinator = _restartCoordinator,
+                HeartbeatTimer = _heartbeatTimer,
+                SetupNoticeWatch = _setupNoticeWatch,
+                SupervisorRequests = _supervisorRequests,
+                DisplayGeometryWatcher = _displayGeometryWatcher,
+                TrayIconManager = _trayIconManager,
+                LagMarkHost = _lagMarkHost,
+                RingArmLog = _ringArmLog,
+                BlockedInput = _blockedInput,
+                EventCoordinator = _eventCoordinator,
+                ServiceProvider = _serviceProvider,
+                SingleInstance = _singleInstance,
+            },
+            terminate: step => ExitStuckReport.Terminate(LogsDirectory, step));
 
-            var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
-            Step("dispose gaze adapter", () => adapter.Dispose());
-            Step("dispose gaze engine", () => gazeEngine.Dispose());
-            Step("dispose external dwell service", () => _serviceProvider.GetRequiredService<ExternalDwellService>().Dispose());
-            // Deactivate the adaptation runtime explicitly while the provider is still alive (live-pass
-            // finding, 2026-10-16): DI disposal disposes resolved singletons one by one, and by
-            // AdaptationActivation's turn the provider is already disposed — StopRuntime's first resolve
-            // threw ObjectDisposedException, logged as "Failed to cleanly deactivate the adaptation
-            // runtime" with the whole teardown skipped. Dispose is idempotent (Deactivate no-ops once
-            // inactive), so the singleton's later disposal inside provider disposal is a no-op.
-            Step("deactivate adaptation runtime", () => _serviceProvider.GetRequiredService<AdaptationActivation>().Dispose());
-            // The session-long password detector (started in OnStartup): remove its system-wide UIA focus hook
-            // while the provider is alive. Stop is idempotent, so the container's later Dispose is a no-op.
-            Step("stop password-field detector", () => _serviceProvider.GetRequiredService<ISensitiveContextDetector>().Stop());
-            Step("dispose service provider", () => _serviceProvider.Dispose()); // Disposes all IDisposable singletons including ManualSelectionDwellService
+        try
+        {
+            sequence.Run();
         }
+        finally
+        {
+            Log.CloseAndFlush();
+            base.OnExit(e);
+        }
+    }
 
-        Step("dispose heartbeat publisher", () => _heartbeatPublisher?.Dispose());
-
-        // Release the single-instance mutex LAST. A restart child is queued on it
-        // (Task 6's waiting acquire) and starts initialising the instant it is released, so
-        // everything this instance still owns — the settings file, the Tobii device, the
-        // external-dwell pipe — must already be released. Releasing it at the TOP of OnExit
-        // was harmless only while a second instance exited immediately instead of waiting.
-        Step("release single-instance mutex", () => _singleInstance?.Dispose());
-
-        Log.CloseAndFlush();
-        base.OnExit(e);
+    /// <summary>
+    /// The directory <see cref="LoggingInitializer"/> writes to. Read by the stuck-exit report, which
+    /// cannot use Serilog (it may already be closed); recomputed rather than stored because the
+    /// duplicate-instance path exits before <see cref="_appDataDir"/> is set.
+    /// </summary>
+    private string LogsDirectory
+    {
+        get
+        {
+            string appDataDir = string.IsNullOrEmpty(_appDataDir)
+                ? AppBootstrapper.DefaultAppDataDir
+                : _appDataDir;
+            return Path.Combine(appDataDir, "logs");
+        }
     }
 
     private (CursorCircleViewModel CursorVm,

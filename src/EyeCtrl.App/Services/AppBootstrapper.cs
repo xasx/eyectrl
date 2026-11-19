@@ -739,6 +739,9 @@ public class AppBootstrapper
         // on), leaving adaptation itself running. Replaces ⑤b's no-op AllowAllFeedbackGate registration.
         // ILogger<UiaSensitiveContextDetector> is auto-injected (as for ControlFinder). Started in
         // App.OnStartup; disposed by the container in OnExit (removing the UIA focus hook).
+        // The hook calls run on the detector's own MTA thread (Microsoft's threading rule); this
+        // registration only says which API implementation it posts to.
+        services.AddSingleton<IFocusHookApi, AutomationFocusHookApi>();
         services.AddSingleton<ISensitiveContextDetector, UiaSensitiveContextDetector>();
         // E1 keyboard log: the foreground PROCESS name and the focused control's text tail (compared
         // in memory, never logged). Resolved into KeyboardViewModel as an optional ctor parameter.

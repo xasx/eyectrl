@@ -451,6 +451,16 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/ExitSequencePlan.cs",
+      "Literal": "\"release single-instance mutex\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ExitSequencePlan.cs",
+      "Literal": "\"start exit watchdog\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
       "Literal": "\"in chrome\"",
       "Count": 1
@@ -768,6 +778,16 @@
     {
       "Path": "src/EyeCtrl.App/Services/SetupLastNoticeService.cs",
       "Literal": "\"setup-notice-shown.json\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ShutdownSequence.cs",
+      "Literal": "\"(not started)\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ShutdownSequence.cs",
+      "Literal": "\"native exit after the last OnExit step\"",
       "Count": 1
     },
     {

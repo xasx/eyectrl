@@ -59,7 +59,7 @@ public class TaskSwitcherLandingGuardTests
     {
         using var h = new Harness(scale);
 
-        // Anchor 80 DIP left of the point it moves to, both inside the same 184x150 face.
+        // Anchor 80 DIP left of the point it moves to, both inside the same 184x104 harness face.
         h.Sample(h.P(340, 400), 0);
         h.Show();
         h.Hold(h.P(340, 400), 30_000, 200_000);

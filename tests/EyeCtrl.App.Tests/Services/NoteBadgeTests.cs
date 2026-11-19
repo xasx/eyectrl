@@ -186,7 +186,8 @@ public class NoteBadgeTests
         && inner.Y + inner.Height <= outer.Y + outer.Height + 0.5;
 
     // ------------------------------------------------------------------ T6 fixup-04 (ticket D8)
-    // The tag now derives from the note's TEXT SIZE: numeral 0.75×, height ink + 8, width
+    // The tag now derives from the note's TEXT SIZE: numeral 1.0× the size (notes readability,
+    // sitting 9 — was 0.75× until then), height ink + 8, width
     // max(28, height), fixed 9 DIP in-card depth, protrusion height − 9. These pins make every
     // derivation observable at the three stock sizes — small, default and large (18/28/48) —
     // because a numeral pinned to the CONSTANT tag height (M1's defect: always 18 × 0.58) is
@@ -215,13 +216,18 @@ public class NoteBadgeTests
             SameTagRect($"{textSize}: the drawn tag must follow the text-size derivation",
                 tag, NoteLayout.TagRect(placement, textSize));
 
-            // (A) the numeral: the drawn FONT is 0.75× the text size, and its INK — the union
-            // of the drawn digits' geometry, which is what paints — clears 0.7 of the body
-            // cap height. (The digits share the body's baseline; the union ≈ one cap height
-            // of the numeral font, so only a truly fixed numeral loses this at 48.)
+            // (A) the numeral: the drawn FONT is 1.0× the text size (notes readability,
+            // sitting 9 — the ABSOLUTE pin: a scale that slips back to 0.75 or any other
+            // fraction goes red here, which the relative TagNumeralFontDip pin cannot catch),
+            // and its INK — the union of the drawn digits' geometry, which is what paints —
+            // clears 0.7 of the body cap height. (The digits share the body's baseline; the
+            // union ≈ one cap height of the numeral font, so only a truly fixed numeral loses
+            // this at 48.)
             var label = window.BadgeLabelForTest!;
             Check.WithCustomMessage($"{textSize}: the numeral font must be TagNumeralScale × the text size")
                 .That(label.FontSize).IsCloseTo(NoteLayout.TagNumeralFontDip(textSize), 1e-6);
+            Check.WithCustomMessage($"{textSize}: the numeral must read AT the body's size (1.0×), not at a fraction of it")
+                .That(label.FontSize).IsCloseTo(textSize, 1e-6);
             double bodyCap = InkHeight("H", textSize);
             Check.WithCustomMessage(
                     $"{textSize}: the numeral's ink (height {NoteLayout.TagNumeralInkHeightDip(textSize):F3}) "

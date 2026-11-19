@@ -466,20 +466,46 @@ internal static class CoreAudioInterop
         internal const int IntervalMs = 2;
         private const int InitialDelayMs = 2;
 
+        /// <summary>Review 02 N1: how long a sampler must have watched before a supersession
+        /// still yields a verdict. Past this bound a poll with no peak has seen the normal
+        /// 10-40 ms start — and even the add-on's ~400 ms device wake — pass, so the click is
+        /// silent. Superseded earlier it is "no verdict" (the window did not outlast a start).
+        /// </summary>
+        internal const int SilentAfterMs = 500;
+
+        private readonly Func<IAudioMeterInformation?> _meterSource;
+        private readonly Func<long> _clock;
+
+        internal CoreAudioMeterProbe()
+            : this(AcquireSharedMeter, () => Environment.TickCount64)
+        {
+        }
+
+        /// <summary>The test seam (review 02 N1): the meter source and a millisecond clock, so the
+        /// sampling loop is drivable with a managed fake meter and no real window of sleeping.</summary>
+        internal CoreAudioMeterProbe(Func<IAudioMeterInformation?> meterSource, Func<long> clock)
+        {
+            _meterSource = meterSource;
+            _clock = clock;
+        }
+
         /// <summary>null = NO VERDICT: the meter could not be read at all (unconfigured endpoint,
-        /// COM failure) — or <paramref name="stop"/> ended the window because a newer click, a new
-        /// show or shutdown superseded it (review-01 F5; such a click must never be counted
-        /// silent, and must never write the silent line). 0 = read fine and the endpoint mix
-        /// stayed silent. Never throws.</summary>
+        /// COM failure), or a newer click / a new show / shutdown superseded the sampler before it
+        /// had watched <see cref="SilentAfterMs"/> (review-02 N1; such a click must never be
+        /// counted silent, and must never write the silent line). 0 = read fine and the endpoint
+        /// mix stayed silent — including a supersession AFTER <see cref="SilentAfterMs"/> with no
+        /// peak: the sound never came within a window that outlasted a normal device wake.
+        /// Never throws.</summary>
         public float? SamplePeak(Func<bool> stop)
         {
             try
             {
-                var meter = AcquireSharedMeter();
+                var meter = _meterSource();
                 if (meter is null) return null;
+                var startedAt = _clock();
+                var deadline = startedAt + WindowMs;
                 var anyRead = false;
                 float max = 0;
-                var deadline = Environment.TickCount64 + WindowMs;
                 Thread.Sleep(InitialDelayMs); // winmm starts the sound asynchronously
                 while (true)
                 {
@@ -491,8 +517,17 @@ internal static class CoreAudioInterop
                         // so a noise floor far below it cannot end the window before the sound.
                         if (peak > AudioSessionDiagnostics.MeterReachedThreshold) return max;
                     }
-                    if (Environment.TickCount64 >= deadline) break;
-                    if (stop()) return null; // superseded or shutting down: no verdict
+                    if (_clock() >= deadline) break;
+                    if (stop())
+                    {
+                        // Review 02 N1: a silent click never ends its window early, so in the real
+                        // failure case (the next key arriving within 1.5 s) supersession is the
+                        // ONLY way it can end. Once the sampler has watched through SilentAfterMs
+                        // with no peak, silence is the verdict; before that — or when nothing could
+                        // be read — there is no verdict. (Shutdown also stops the sampler; the
+                        // caller's post-sample latch turns any late answer into no verdict.)
+                        return anyRead && _clock() - startedAt >= SilentAfterMs ? max : null;
+                    }
                     Thread.Sleep(IntervalMs);
                 }
                 return anyRead ? max : null;

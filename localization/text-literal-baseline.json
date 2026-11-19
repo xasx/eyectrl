@@ -117,7 +117,12 @@
     },
     {
       "Path": "src/EyeCtrl.App/KeyboardSoundService.cs",
-      "Literal": "$\"reached={reached} silent={silent} pending={pending} late={late} maxlatems={maxLateMs}\"",
+      "Literal": "$\"late={late} maxlatems={maxLateMs}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/KeyboardSoundService.cs",
+      "Literal": "$\"reached={reached} silent={silent} pending={pending} unmetered={unmetered} \"",
       "Count": 1
     },
     {

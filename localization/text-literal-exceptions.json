@@ -1716,9 +1716,15 @@
     },
     {
       "Path": "src/EyeCtrl.App/KeyboardSoundService.cs",
-      "Literal": "$\"reached={reached} silent={silent} pending={pending} late={late} maxlatems={maxLateMs}\"",
+      "Literal": "$\"reached={reached} silent={silent} pending={pending} unmetered={unmetered} \"",
       "Category": "log",
-      "Reason": "F10: the hide line's endpoint-meter and start-latency fields (ints only), log-only, never shown."
+      "Reason": "F10/F10-fixup-02: the hide line's endpoint-meter verdicts including the no-verdict (unmetered) count (ints only), log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/KeyboardSoundService.cs",
+      "Literal": "$\"late={late} maxlatems={maxLateMs}\"",
+      "Category": "log",
+      "Reason": "F10: the hide line's start-latency fields (ints only), log-only, never shown."
     },
     {
       "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",

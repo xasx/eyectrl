@@ -85,14 +85,17 @@ public class KeyboardSoundService
     /// meter threshold. They are not proof the click itself was heard — the meter sees every
     /// session on the device — so read them with the snapshot's endpoint volume/mute.
     /// <c>pending</c> is a click still waiting for its verdict at hide time (the hide never waits
-    /// for it); <c>late</c>/<c>maxlatems</c> count and bound the click-request → session-Active
-    /// delays (maxlatems=0 means no start was measured, e.g. the session events were not attached
-    /// yet).</summary>
+    /// for it); <c>unmetered</c> is a click that ended with NO verdict (review-02 N1: an
+    /// unreadable meter, or a newer click/show superseding the sampler before it had watched
+    /// SilentAfterMs), so reached + silent + pending + unmetered = played. <c>late</c>/
+    /// <c>maxlatems</c> count and bound the click-request → session-Active delays (maxlatems=0
+    /// means no start was measured, e.g. the session events were not attached yet).</summary>
     internal static string FormatHideLine(
         int requested, int played, int failed, int skipped,
-        int reached, int silent, int pending, int late, int maxLateMs) =>
+        int reached, int silent, int pending, int unmetered, int late, int maxLateMs) =>
         $"Keyboard click: requested={requested} played={played} failed={failed} skipped={skipped} "
-        + $"reached={reached} silent={silent} pending={pending} late={late} maxlatems={maxLateMs}";
+        + $"reached={reached} silent={silent} pending={pending} unmetered={unmetered} "
+        + $"late={late} maxlatems={maxLateMs}";
 
     public virtual void PlayKeyClick()
     {
@@ -151,14 +154,15 @@ public class KeyboardSoundService
     }
 
     /// <summary>A REAL keyboard hide: exactly one Information line for the show that just ended.
-    /// The meter counts are taken first (bounded: a normal click resolves in tens of ms; a silent
-    /// click still polling shows as pending instead of delaying the hide).</summary>
+    /// The meter counts are a non-blocking snapshot (review-01 F2): a click still sampling shows
+    /// as pending, and a click that ended without a verdict shows as unmetered.</summary>
     public void OnKeyboardHidden()
     {
         var counts = AudioSessionDiagnostics.TakeMeterCounts();
         LogLine(FormatHideLine(
             _requested, _played, _failed, _skipped,
-            counts.Reached, counts.Silent, counts.Pending, counts.Late, counts.MaxLateMs));
+            counts.Reached, counts.Silent, counts.Pending, counts.Unmetered,
+            counts.Late, counts.MaxLateMs));
         AudioSessionDiagnostics.OnKeyboardTransition();
     }
 

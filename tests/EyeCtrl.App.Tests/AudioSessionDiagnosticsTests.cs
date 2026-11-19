@@ -354,6 +354,85 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
     }
 
     [Fact]
+    public void EveryClickRetriesTheSessionEvents_AfterASecondMiss_UntilTheyAttach()
+    {
+        // Review-02 N2/M1: the retry flag must be CLEARED even when the retry itself fails, or
+        // the retry is one-shot: a session still absent at click 2's attempt would leave the
+        // instrument blind until the next show transition.
+        var reader = new FakeReader();
+        var listener = new FakeListener { SessionResults = new Queue<bool>([false, false, true]) };
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
+        try
+        {
+            AudioSessionDiagnostics.OnClickAttempted(); // click 1: first-click work, session absent
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(1);
+
+            AudioSessionDiagnostics.OnClickAttempted(); // click 2: retry, session still absent
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(2);
+            Check.That(AudioSessionDiagnostics.SessionEventsAttached).IsFalse();
+
+            AudioSessionDiagnostics.OnClickAttempted(); // click 3: the flag must be free again
+            RunParkedWork();
+            Check.WithCustomMessage(
+                    "the retry flag was not cleared after a failed retry — the session "
+                    + "registration became one-shot and every later click stayed blind "
+                    + "(review-02 M1)")
+                .That(listener.SessionRegisterCalls).IsEqualTo(3);
+            Check.That(AudioSessionDiagnostics.SessionEventsAttached).IsTrue();
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
+    public void ATwoClicksBeforeTheParkedRetryRuns_QueueOnlyOneRetry()
+    {
+        // Review-02 N2/M4 (the at-most-one-in-flight cost guard): the click path only queues, so
+        // two clicks before the worker runs must not pile up two retries.
+        var reader = new FakeReader();
+        var listener = new FakeListener { SessionResults = new Queue<bool>([false, true]) };
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
+        try
+        {
+            AudioSessionDiagnostics.OnClickAttempted();
+            RunParkedWork();
+            AudioSessionDiagnostics.OnClickAttempted(); // queues the retry
+            AudioSessionDiagnostics.OnClickAttempted(); // must not queue a second
+            Check.That(Parked).HasSize(1);
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(2);
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
+    public void ARetryQueuedBeforeShutdown_RegistersNothingAfterTheLatch()
+    {
+        // Review-02 N2/M3: a retry parked before Shutdown must not register a COM callback in an
+        // exiting process. The listener counts every session-registration attempt.
+        var reader = new FakeReader();
+        var listener = new FakeListener { SessionResults = new Queue<bool>([false, false]) };
+        AudioSessionDiagnostics.ConfigureForTesting(reader, listener);
+        try
+        {
+            AudioSessionDiagnostics.OnClickAttempted();
+            RunParkedWork();
+            Check.That(listener.SessionRegisterCalls).IsEqualTo(1);
+
+            AudioSessionDiagnostics.OnClickAttempted(); // the retry is parked...
+            AudioSessionDiagnostics.Shutdown();         // ...then the app starts to exit
+            RunParkedWork();                            // the late retry runs now
+
+            Check.WithCustomMessage(
+                    "a retry parked before Shutdown registered the session events after the "
+                    + "latch — a COM callback in an exiting process (review-02 M3)")
+                .That(listener.SessionRegisterCalls).IsEqualTo(1);
+        }
+        finally { ResetStatics(); }
+    }
+
+    [Fact]
     public void Transitions_BeforeAnyClick_DoNothing()
     {
         var (reader, listener) = Configure();
@@ -435,6 +514,7 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         Check.That(counts.Reached).IsEqualTo(1);
         Check.That(counts.Silent).IsEqualTo(1);
         Check.That(counts.Pending).IsEqualTo(0);
+        Check.That(counts.Unmetered).IsEqualTo(0);
         Check.That(meter.Calls).IsEqualTo(2);
     }
 
@@ -487,6 +567,9 @@ public class AudioSessionDiagnosticsTests : F5AudioDiagnosticsTestBase
         Check.That(counts.Reached).IsEqualTo(0);
         Check.That(counts.Silent).IsEqualTo(0);
         Check.That(counts.Pending).IsEqualTo(0);
+        // Review-02 N1: the no-verdict click is counted as unmetered, so the hide line's
+        // reached + silent + pending + unmetered still equals the played clicks.
+        Check.That(counts.Unmetered).IsEqualTo(1);
         Check.That(AudioSessionDiagnostics.SilentClickReports).IsEqualTo(0);
     }
 

@@ -136,7 +136,10 @@ internal static class AudioSessionDiagnostics
     /// <summary>
     /// Meter seam (F10). Production polls IAudioMeterInformation::GetPeakValue on the render
     /// endpoint until a peak appears, the click's window closes, or <paramref name="stop"/>
-    /// says a newer click/show superseded this one. Null = the meter could not be read at all.
+    /// says a newer click/show superseded this one. Null = no verdict: the meter could not be
+    /// read at all, or the sampler was superseded before it had watched SilentAfterMs (review-02
+    /// N1). A supersession after that bound with no peak answers 0 (silent): a silent click never
+    /// ends its own window early, so supersession is exactly how it ends in the real failure case.
     /// Tests return a scripted peak instantly (no sleeping, no COM).
     /// </summary>
     internal interface IAudioMeterProbe
@@ -346,12 +349,14 @@ internal static class AudioSessionDiagnostics
         public int Reached;
         public int Silent;
         public int Pending;
+        public int Unmetered;
         public int Late;
         public int MaxLateMs;
         public int FirstSilentLogged;
     }
 
-    internal readonly record struct MeterCounts(int Reached, int Silent, int Pending, int Late, int MaxLateMs);
+    internal readonly record struct MeterCounts(
+        int Reached, int Silent, int Pending, int Unmetered, int Late, int MaxLateMs);
 
     private readonly record struct PendingClick(long RequestedAt, MeterWindow Window);
 
@@ -400,7 +405,14 @@ internal static class AudioSessionDiagnostics
             PendingClicks.Enqueue(new PendingClick(Timestamp(), window));
         }
         var meter = _meter;
-        if (meter is null) return;
+        if (meter is null)
+        {
+            // A played click with no meter wired can never get a verdict; count it as unmetered
+            // so the hide line's arithmetic still accounts for every played click:
+            // reached + silent + pending + unmetered = played.
+            Interlocked.Increment(ref window.Unmetered);
+            return;
+        }
         var generation = Interlocked.Increment(ref _clickGeneration);
         Interlocked.Increment(ref window.Pending);
         RunOffTypingPath(() => SampleClick(window, generation, meter));
@@ -415,11 +427,18 @@ internal static class AudioSessionDiagnostics
                 || Volatile.Read(ref _clickGeneration) != generation
                 || !ReferenceEquals(Volatile.Read(ref _meterWindow), window);
             var peak = meter.SamplePeak(Stop);
-            // Review-01 F5: a stopped sampler (a newer click / a new show / shutdown) and an
-            // unreadable meter are both "no verdict", never "silent" — the probe answers null for
-            // both, and the shutdown latch is re-checked after the sample so nothing can be
-            // counted or logged in a dying process.
-            if (peak is null || Volatile.Read(ref _shutDown) == 1) return;
+            // Review-01 F5: the shutdown latch is re-checked after the sample, so a sampler that
+            // finishes after Shutdown can neither count nor write the silent line (shutdown is
+            // always no verdict, even when the probe already watched past SilentAfterMs).
+            if (Volatile.Read(ref _shutDown) == 1) return;
+            if (peak is null)
+            {
+                // Review 02 N1: no verdict — an unreadable meter, or a supersession before the
+                // probe had watched SilentAfterMs. Counted so the hide line's arithmetic stays
+                // exact: reached + silent + pending + unmetered = played.
+                Interlocked.Increment(ref window.Unmetered);
+                return;
+            }
             if (peak.Value > MeterReachedThreshold)
             {
                 Interlocked.Increment(ref window.Reached);
@@ -455,6 +474,10 @@ internal static class AudioSessionDiagnostics
     /// this runs on the dispatcher, so it must never sleep). A click whose verdict is still in
     /// flight is reported as <c>pending</c>, which is exactly what that field is for; its later
     /// verdict belongs to the show that already closed and is discarded with the window.
+    /// <c>unmetered</c> counts the clicks that ended with no verdict (review-02 N1): an unreadable
+    /// meter, a supersession before the probe had watched SilentAfterMs, or a click played while
+    /// no meter was wired. Together they account for every played click:
+    /// reached + silent + pending + unmetered = played.
     /// </summary>
     internal static MeterCounts TakeMeterCounts()
     {
@@ -463,6 +486,7 @@ internal static class AudioSessionDiagnostics
             Volatile.Read(ref window.Reached),
             Volatile.Read(ref window.Silent),
             Volatile.Read(ref window.Pending),
+            Volatile.Read(ref window.Unmetered),
             Volatile.Read(ref window.Late),
             Volatile.Read(ref window.MaxLateMs));
     }

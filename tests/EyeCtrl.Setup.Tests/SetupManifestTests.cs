@@ -124,7 +124,11 @@ public class SetupManifestTests
             RepoRoot(), "src", "EyeCtrl.Setup", "Windows", "SetupInputSimulator.cs"));
 
         Check.That(source).Contains("new HeldButtonRelease(");
-        Check.That(source).Contains("new FileHeldButtonMarker()");
+        // Fixup 02 G2: the marker must be built over the SETUP profile's path, never the
+        // parameterless default (which reads the APP rule, EyeCtrl.Dev inside a flagless run copy).
+        Check.That(source).Contains("new FileHeldButtonMarker(");
+        Check.That(source).DoesNotContain("new FileHeldButtonMarker()");
+        Check.That(source).Contains("paths.AppDataRoot");
     }
 
     [Fact]

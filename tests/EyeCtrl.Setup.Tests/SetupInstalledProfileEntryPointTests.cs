@@ -233,18 +233,13 @@ public class SetupInstalledProfileEntryPointTests
     // ── The production session guard names ──────────────────────────────────────────────
 
     [Fact]
-    public void TheSessionGuardNames_FollowTheirProcessRules()
+    public void TheAppProbeUsesTheAppRule_SoItSeesTheInstalledSetupsSession()
     {
-        // Setup's session name comes from the SETUP rule; the App's pre-hand-off probe comes from
-        // the APP rule. In this Debug test host both are the dev name — the pin is WHICH resolver
-        // feeds each, so a future edit cannot quietly hand the installed product's mutex to a
-        // dev Setup (or fence the installed Setup out with a .Dev name).
-        Check.That(SetupSessionGuard.SessionMutexName)
-            .IsEqualTo(ProfileLocation.CurrentSetup.SetupSessionMutexName);
+        // The App's pre-hand-off probe must look for the name the APP resolves (installed App →
+        // unsuffixed; dev App → its own .Dev name). The Setup process's own session name comes
+        // from the SETUP rule and is pinned by reference identity in SetupProfileWiringTests.
         Check.That(SetupSessionGuard.AppProbeMutexName)
             .IsEqualTo(ProfileLocation.Current.SetupSessionMutexName);
-        Check.That(SetupSessionGuard.SessionMutexName)
-            .IsEqualTo(@"Local\EyeCtrl.Setup.Session.Dev");
     }
 
     // ── The RunOnce logon repair ────────────────────────────────────────────────────────

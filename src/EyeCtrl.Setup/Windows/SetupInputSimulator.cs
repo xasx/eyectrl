@@ -100,14 +100,29 @@ public sealed class CoreHeldButtonRecovery : EyeCtrl.Setup.Abstractions.IHeldBut
 {
     private readonly HeldButtonRelease _release;
 
-    /// <summary>Creates the production binding over <c>%APPDATA%\EyeCtrl\drag-left-button-held</c>.</summary>
-    public CoreHeldButtonRecovery()
+    /// <summary>
+    /// Creates the production binding over the SETUP profile's marker
+    /// (<c>&lt;Setup AppDataRoot&gt;\drag-left-button-held</c>).
+    /// </summary>
+    /// <param name="paths">The Setup layout. A Release Setup is the installed product's
+    /// maintenance tool wherever it runs from, so its <see cref="SetupPaths.AppDataRoot"/> is the
+    /// installed App's profile — the same marker the App writes. The parameterless
+    /// <see cref="FileHeldButtonMarker"/> default would take the APP rule and look in
+    /// <c>EyeCtrl.Dev</c> from a flagless run copy, leaving the owner with a stuck left button.</param>
+    public CoreHeldButtonRecovery(SetupPaths paths)
     {
+        ArgumentNullException.ThrowIfNull(paths);
+        Marker = new FileHeldButtonMarker(
+            System.IO.Path.Combine(paths.AppDataRoot, FileHeldButtonMarker.FileName));
         _release = new HeldButtonRelease(
-            new FileHeldButtonMarker(),
+            Marker,
             new SetupInputSimulator(),
             () => SetupInputSimulator.IsLeftButtonDown);
     }
+
+    /// <summary>The marker this recovery reads — the Setup profile's. Internal so the wiring test
+    /// can pin the path without touching the real app-data file.</summary>
+    internal FileHeldButtonMarker Marker { get; }
 
     /// <inheritdoc />
     public HeldButtonReleaseResult ReleaseIfMarked() => _release.ReleaseIfMarked();

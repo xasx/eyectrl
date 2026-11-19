@@ -36,13 +36,19 @@ public static class SetupSessionGuard
 {
     /// <summary>
     /// The session-local name every public mutating verb holds, resolved under the SETUP rule
-    /// (see <see cref="EyeCtrl.Core.Services.ProfileLocation.CurrentSetup"/>): a Release Setup is
-    /// the installed product's maintenance tool wherever its exe runs from (Program Files, the
+    /// through the process's one accessor (see <see cref="SetupProcessProfile"/>): a Release Setup
+    /// is the installed product's maintenance tool wherever its exe runs from (Program Files, the
     /// run copy under <c>EyeCtrl.run\</c>, the update inbox), so it always takes the installed
     /// session's unsuffixed name and one session guard covers every real Setup start. A Debug
     /// Setup without <c>--real-profile</c> takes the <c>.Dev</c>-suffixed name.
     /// </summary>
-    public static string SessionMutexName => ProfileLocation.CurrentSetup.SetupSessionMutexName;
+    public static string SessionMutexName => SetupProcessProfile.SessionMutexName;
+
+    /// <summary>
+    /// The profile the session name is derived from — the SETUP rule's instance. Internal so the
+    /// wiring test can assert object identity (values alone are equal in a Debug test host).
+    /// </summary>
+    internal static ProfileLocation SessionProfile => SetupProcessProfile.Location;
 
     /// <summary>
     /// The name the APP probes before its hand-offs: the installed Setup's session name from the

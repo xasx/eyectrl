@@ -64,7 +64,8 @@ public sealed class SetupComposition
         var journal = new InstallJournalStore(paths, fileSystem, guard, log);
         var state = new InstallStateMachine(
             paths, fileSystem, registry, guard, appsAndFeatures, metadata, journal, log);
-        var stop = new StopCoordinator(paths, processes, new CoreHeldButtonRecovery(), log);
+        var stop = new StopCoordinator(
+            paths, processes, new CoreHeldButtonRecovery(paths), log);
         var appStart = new AppStartService(processes, new WindowsAppLogProbe(paths), clock, log);
         var appDataDeletion = new PhysicalAppDataDeletion(paths);
         var phaseResults = new ElevatedPhaseResultStore(paths, fileSystem, guard, log);
@@ -171,8 +172,17 @@ public sealed class SetupComposition
     };
 
     /// <summary>
+    /// The profile the Setup process composes with: the SETUP rule's one resolution (see
+    /// <see cref="SetupProcessProfile"/>). Every path and name below derives from it; exposed so
+    /// the wiring test can assert object identity against <see cref="ProfileLocation.CurrentSetup"/>
+    /// (and NOT <see cref="ProfileLocation.Current"/>), which values alone cannot prove in a
+    /// Debug test host.
+    /// </summary>
+    internal static ProfileLocation ProcessProfile => SetupProcessProfile.Location;
+
+    /// <summary>
     /// The one install layout, from the SETUP rule of the running process's resolver (see
-    /// <see cref="ProfileLocation.CurrentSetup"/> — the only file allowed to name the OS
+    /// <see cref="ProcessProfile"/> — the only file allowed to name the OS
     /// folders): the installed product's real profile for every Release Setup, wherever its exe
     /// runs from (Program Files, a run copy under <c>EyeCtrl.run\</c>, the inbox), and
     /// <c>EyeCtrl.Dev</c> only for a Debug Setup without <c>--real-profile</c>. The path set is
@@ -181,7 +191,7 @@ public sealed class SetupComposition
     /// uninstall delete target is its <c>AppDataRoot</c>. Shared by the composition and the file
     /// log so both name exactly the same paths.
     /// </summary>
-    internal static SetupPaths ProductionPaths() => SetupPaths.FromProfile(ProfileLocation.CurrentSetup);
+    internal static SetupPaths ProductionPaths() => SetupPaths.FromProfile(ProcessProfile);
 
     /// <summary>
     /// Records an unhandled exception as a failed result, built from the OS layout alone so it

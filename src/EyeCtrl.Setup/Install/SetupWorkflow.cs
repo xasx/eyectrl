@@ -31,9 +31,9 @@ public sealed class SetupWorkflow
     /// <summary>Creates the workflow.</summary>
     /// <param name="forwardRealProfile">Whether <c>--real-profile</c> rides along to the run
     /// copy. Defaults to "this process resolved non-dev" under the SETUP rule (see
-    /// <see cref="ProfileLocation.CurrentSetup"/>), so every Release Setup forwards the flag and
-    /// a Debug one without the flag does not; injectable so tests can drive both arms — the
-    /// resolver is static per process and a test host is always a dev build.</param>
+    /// <see cref="SetupProcessProfile"/>), so every Release Setup forwards the flag and a Debug
+    /// one without the flag does not; injectable so tests can drive both arms — the resolver is
+    /// static per process and a test host is always a dev build.</param>
     public SetupWorkflow(
         SetupPaths paths, IElevationPolicy policy, IElevationBroker broker, AppStartService appStart,
         SupervisionStartPlanner planner,
@@ -59,7 +59,7 @@ public sealed class SetupWorkflow
         _log = log;
         _displayFactory = displayFactory ?? NullSetupDisplayFactory.Instance;
         _forwardRealProfile = forwardRealProfile
-            ?? (() => !ProfileLocation.CurrentSetup.IsDev);
+            ?? (() => !SetupProcessProfile.Location.IsDev);
     }
 
     /// <summary>Installs the package and applies the three-part pass rule, rolling back on a

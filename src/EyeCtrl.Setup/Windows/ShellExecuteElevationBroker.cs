@@ -26,9 +26,9 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
     /// <summary>Creates the broker.</summary>
     /// <param name="forwardRealProfile">Whether <c>--real-profile</c> is appended to every child
     /// argv. Defaults to "this process resolved non-dev" under the SETUP rule (see
-    /// <see cref="ProfileLocation.CurrentSetup"/>), so every Release Setup forwards the flag and
-    /// a Debug one without the flag does not; injectable so tests can drive both arms — the
-    /// resolver is static per process and a test host is always a dev build.</param>
+    /// <see cref="SetupProcessProfile"/>), so every Release Setup forwards the flag and a Debug
+    /// one without the flag does not; injectable so tests can drive both arms — the resolver is
+    /// static per process and a test host is always a dev build.</param>
     public ShellExecuteElevationBroker(
         SetupPaths paths, ElevatedOperations operations, ISetupEnvironment environment,
         IElevationState elevationState, IElevationPolicy policy, IElevatedLauncher launcher,
@@ -44,7 +44,7 @@ public sealed class ShellExecuteElevationBroker : IElevationBroker
         _phaseResults = phaseResults;
         _log = log;
         _forwardRealProfile = forwardRealProfile
-            ?? (() => !ProfileLocation.CurrentSetup.IsDev);
+            ?? (() => !SetupProcessProfile.Location.IsDev);
     }
 
     /// <inheritdoc />

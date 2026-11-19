@@ -24,8 +24,10 @@
                      Button: gaze produces no mouse clicks. The disc is 2 × the shared r50 hit
                      radius (B8), so what is drawn IS what the detector hit-tests; the header row's
                      height keeps it clear of the tile band. Keep width == height ==
-                     QuickActionsGridWindow.CloseButtonSize. The halo reaches 4 DIP past the disc,
-                     i.e. past this host's own box, so the Canvas does not clip and no ancestor does. -->
+                     QuickActionsGridWindow.CloseButtonSize. The halo's painted edge is 2.5 DIP past
+                     the disc (WPF insets the stroke of the 105 DIP Ellipse by half its 3 DIP
+                     thickness), i.e. past this host's own box, so the Canvas does not clip and no
+                     ancestor does. The keep-out stays conservative at 4. -->
                 <Border x:Name="CloseButton" Grid.Row="0"
                         Width="100" Height="100" HorizontalAlignment="Right">
                     <Canvas x:Name="CloseLayer" ClipToBounds="False"/>

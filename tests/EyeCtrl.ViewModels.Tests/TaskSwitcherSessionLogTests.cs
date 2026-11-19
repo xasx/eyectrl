@@ -188,22 +188,34 @@ public class TaskSwitcherSessionLogTests
     }
 
     [Fact]
-    public void CloseDisc_IsNeverGated_AndReportsTheLiftAsNever()
+    public void CloseDisc_IsGated_LikeEveryTarget_AndReportsTheLiftAndEntry()
     {
-        // The anchor is ON the close disc and the gaze never moves 50 DIP, so (A) never lifts —
-        // the disc must still dismiss, and the line must say `guardLiftMs=never`.
+        // F-CORNER: the ✕ sits at (screen width − 53, 53) — the top-right corner a toolbar's Task
+        // Switcher button may open from — so it is under the same (A)+(B) rule as the tiles. The
+        // anchor is ON the ✕: a resting look must not dismiss, and the escape must still work
+        // after the gaze moves (> 50 DIP) and enters the disc from outside.
+        // The resting hold is at least 2 × the ✕'s own dwell (from the harness's settings, never a
+        // literal): with the ✕ exempt from the guard (mutant (c)) it would fire inside this hold,
+        // so this test — not only the landing-guard one — discriminates the exemption.
         using var h = new Harness(windowCount: 2);
-        h.Sample(h.Away, 0);
+        h.Sample(h.Close, 0);
         h.Open();
-        h.Layout(reachable: 2, closeCenter: h.Away);
+        h.Layout(reachable: 2, closeCenter: h.Close);
 
-        var closedAt = h.Hold(h.Away, 30, 3000);
+        var restUntil = 30 + (2 * h.CloseDwellMs);
+        h.Hold(h.Close, 30, restUntil);
+        Check.WithCustomMessage("the opening gaze on the ✕ dismissed the switcher without moving")
+            .That(h.Vm.IsVisible).IsTrue();
+
+        var liftAt = restUntil + 100;              // 300 DIP from the anchor → (A) lifts here
+        h.Sample(h.Away, liftAt);
+        var closedAt = h.Hold(h.Close, liftAt + 30, liftAt + 2500);   // fresh entry, then the dwell
 
         Check.That(closedAt).IsNotNull();
         Check.That(h.Selections).IsEmpty();
         Check.That(h.Lines).ContainsExactly(
             "Task switcher opened: tiles=2 currentExcluded=false reachable=2 anchorValid=true sinceLastCloseMs=none lastOutcome=none tileDwellMs=800 previews=0 previewFailures=0 previewHr=none",
-            $"Task switcher closed: outcome=CloseDisc openMs={h.SinceOpen(closedAt!.Value)} guardLiftMs=never liftToEntryMs=n/a slot=- row=- col=-");
+            $"Task switcher closed: outcome=CloseDisc openMs={h.SinceOpen(closedAt!.Value)} guardLiftMs={liftAt} liftToEntryMs=n/a slot=- row=- col=-");
     }
 
     [Fact]
@@ -407,6 +419,12 @@ public class TaskSwitcherSessionLogTests
         internal PhysicalPoint Away2 { get; } = new(1200, 800);
         internal PhysicalPoint Close { get; } = new(1000, 1100);
 
+        /// <summary>
+        /// The ✕'s dwell in this harness's settings: the close target registers
+        /// <c>ToolbarButtonDwellMs</c>, and a regression test that rests on the ✕ must outlast it.
+        /// </summary>
+        internal int CloseDwellMs { get; }
+
         internal Harness(
             int windowCount = 3,
             IReadOnlyList<AppWindow>? windows = null,
@@ -416,13 +434,15 @@ public class TaskSwitcherSessionLogTests
         {
             DpiHelper.Initialize(1.0, 1.0);
             _startMs = _clock.GetUtcNow().ToUnixTimeMilliseconds();
+            var effectiveSettings = settings ?? new EyeCtrlSettings();
+            CloseDwellMs = effectiveSettings.Dwell.ToolbarButtonDwellMs;
             _windowManager = new FakeWindowManager(
                 windows ?? Enumerable.Range(1, windowCount)
                     .Select(i => new AppWindow(new IntPtr(i), $"Window {i}", (uint)(100 + i), "app")).ToArray(),
                 foreground);
             Vm = new TaskSwitcherViewModel(
                 _windowManager,
-                settings ?? new EyeCtrlSettings(),
+                effectiveSettings,
                 _messenger,
                 logger: logger ?? _capture,
                 timeProvider: _clock);

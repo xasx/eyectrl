@@ -35,8 +35,8 @@ public class TaskSwitcherWindowLayoutTests
             var tiles = (ScrollViewer)window.FindName("TilesScroll")!;
             var hintRow = (Grid)window.FindName("HintRow")!;
 
-            // A 112 DIP docked top band on the owner's 1920 × 1200 screen: area (40,136,1840,940),
-            // block 1728x910.
+            // A 112 DIP docked top band on the owner's 1920 × 1200 screen: area (40,136,1840,1021),
+            // block 1728x910 (F-CORNER's text-only hint row left the extra height).
             var top = TaskSwitcherLayout.Compute(
                 1920, 1200, new TaskSwitcherLayout.DipRect(0, 0, 1920, 112), "Top", tileCount: 63);
             window.ApplyLayout(top, screenWidthDip: 1920);
@@ -47,19 +47,41 @@ public class TaskSwitcherWindowLayoutTests
             Check.That(hintRow.Height).IsEqualTo(TaskSwitcherLayout.HintRowHeight);
             Check.That(hintRow.Margin.Bottom).IsEqualTo(0);
 
-            // The reserved hint-row height is the close disc plus its 12 DIP top/bottom margins. Pin
-            // the coupling: growing the disc without growing the reserved row would clip the bottom
-            // full tile row the geometry promised.
-            Check.WithCustomMessage("HintRowHeight must stay the close disc plus its 24 DIP of margins")
-                .That(TaskSwitcherLayout.HintRowHeight).IsEqualTo(TaskSwitcherWindow.CloseButtonSize + 24);
+            // "Row height = what WPF lays out": the row reserves the CEILING of the hint text's
+            // natural one-line height including its margins, so the tile block lands on a whole
+            // DIP (205.5, 411 device px at 200 %) and the text is never clipped. The ✕ is no
+            // longer in the row (F-CORNER moved it to the window's top-right corner), so the old
+            // 100 DIP disc + 24 is gone; measuring the live text keeps the coupling — a font
+            // change that grew the text would leave it clipped, and this check notices.
+            var hint = (TextBlock)window.FindName("HintText")!;
+            hint.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            var hintNeeds = hint.DesiredSize.Height;   // includes the TextBlock's own margin
+            Check.WithCustomMessage(
+                    $"HintRowHeight is {TaskSwitcherLayout.HintRowHeight} DIP but WPF needs {hintNeeds} DIP "
+                    + $"for the hint text plus its margins; the reserve must cover it and be less than "
+                    + "one DIP above it (a whole-DIP reserve).")
+                .That(TaskSwitcherLayout.HintRowHeight >= hintNeeds
+                      && TaskSwitcherLayout.HintRowHeight < hintNeeds + 1)
+                .IsTrue();
+            Check.WithCustomMessage("the hint row still reserves the old close-disc height")
+                .That(TaskSwitcherLayout.HintRowHeight).IsStrictlyLessThan(TaskSwitcherWindow.CloseButtonSize);
+
+            // The ✕ must be OUT of the hint row: a corner exit cannot be centred beside the text.
+            var closeHost = (FrameworkElement)window.FindName("CloseButton")!;
+            var ancestor = VisualTreeHelper.GetParent(closeHost);
+            while (ancestor is not null && !ReferenceEquals(ancestor, hintRow))
+                ancestor = VisualTreeHelper.GetParent(ancestor);
+            Check.WithCustomMessage("the ✕ is still a child of the hint row — it must be the corner exit.")
+                .That(ancestor).IsNull();
 
             // Docked bottom at 112 DIP: the hint row must sit fully above the band (112 + 24 = 136).
+            // Its top stays the ✕ keep-out, not the 40 DIP edge margin: 131.
             var bottom = TaskSwitcherLayout.Compute(
                 1920, 1200, new TaskSwitcherLayout.DipRect(0, 1088, 1920, 112), "Bottom", tileCount: 63);
             window.ApplyLayout(bottom, screenWidthDip: 1920);
 
             Check.That(hintRow.Margin.Bottom).IsEqualTo(136);
-            Check.That(tiles.Margin.Top).IsEqualTo(40);
+            Check.That(tiles.Margin.Top).IsEqualTo(TaskSwitcherLayout.TilesTopMinimum);
             Check.That(tiles.Height).IsEqualTo(4 * TaskSwitcherLayout.CellHeight);
         }
         finally
@@ -133,8 +155,10 @@ public class TaskSwitcherWindowLayoutTests
         var layout = TaskSwitcherWindow.ComputeLayout(physical, 1920, 1200, 2.0, 1.5, tileCount: 5);
 
         Check.That(layout.Area.Y).IsEqualTo(136);
-        Check.That(layout.Block).IsEqualTo(
-            new TaskSwitcherLayout.DipRect(420, 515, 1080, 182));
+        Check.That(layout.Block.X).IsEqualTo(420);
+        Check.That(layout.Block.Y).IsCloseTo(555.5, 1e-9);
+        Check.That(layout.Block.Width).IsEqualTo(1080);
+        Check.That(layout.Block.Height).IsEqualTo(182);
     }
 
     /// <summary>
@@ -151,7 +175,10 @@ public class TaskSwitcherWindowLayoutTests
         using var arranged = Arrange(5, layout);
 
         var viewport = InRoot(arranged.Root, arranged.Scroll);
-        Check.That(viewport).IsEqualTo(new Rect(420, 515, 1080, 182));
+        Check.That(viewport.Left).IsEqualTo(420);
+        Check.That(viewport.Top).IsCloseTo(555.5, 1e-9);
+        Check.That(viewport.Width).IsEqualTo(1080);
+        Check.That(viewport.Height).IsEqualTo(182);
 
         var faces = Faces(arranged);
         Check.That(faces.Count).IsEqualTo(5);
@@ -183,7 +210,10 @@ public class TaskSwitcherWindowLayoutTests
         using var arranged = Arrange(64, layout);
 
         var viewport = InRoot(arranged.Root, arranged.Scroll);
-        Check.That(viewport).IsEqualTo(new Rect(96, 151, 1728, 910));
+        Check.That(viewport.Left).IsEqualTo(96);
+        Check.That(viewport.Top).IsCloseTo(191.5, 1e-9);
+        Check.That(viewport.Width).IsEqualTo(1728);
+        Check.That(viewport.Height).IsEqualTo(910);
 
         var faces = Faces(arranged);
         Check.That(faces.Count).IsEqualTo(64);

@@ -110,22 +110,25 @@ public class TaskSwitcherDesktopTileWindowTests
     public void DesktopTile_OccupiesTheCellRightAfterTheLastWindow_InTheCentredBlock()
     {
         // Five windows on the owner's 1920 × 1200 screen with the 112 DIP test band: six panel
-        // cells, one row, block (312, 515, 1296, 182) — so the desktop tile's face is at
-        // x 1408..1592, y 531..681. A tile drawn anywhere else is not "always the last tile".
+        // cells, one row, block (312, 555.5, 1296, 182) — so the desktop tile's face is at
+        // x 1408..1592, y 571.5..721.5. A tile drawn anywhere else is not "always the last tile".
         using var board = Board.Open(Windows(1, 2, 3, 4, 5));
 
         var layout = board.Layout;
-        Check.That(layout.Block).IsEqualTo(new TaskSwitcherLayout.DipRect(312, 515, 1296, 182));
+        Check.That(layout.Block.X).IsEqualTo(312);
+        Check.That(layout.Block.Y).IsCloseTo(555.5, 1e-9);
+        Check.That(layout.Block.Width).IsEqualTo(1296);
+        Check.That(layout.Block.Height).IsEqualTo(182);
 
         var faces = board.Faces();
         var desktop = board.Bounds(faces[5].Border);
-        var expected = new Rect(1408, 531, 184, 150);
+        var expected = new Rect(1408, 571.5, 184, 150);
         Check.WithCustomMessage($"The desktop tile is at {Box(desktop)}, not {Box(expected)}.")
             .That(Math.Abs(desktop.Left - expected.Left)).IsLessOrEqualThan(0.5);
         Check.That(Math.Abs(desktop.Top - expected.Top)).IsLessOrEqualThan(0.5);
         Check.That(desktop.Width).IsCloseTo(expected.Width, 0.5);
         Check.That(desktop.Height).IsCloseTo(expected.Height, 0.5);
-        _output.WriteLine($"desktop face {Box(desktop)}; block {layout.Block}");
+        _output.WriteLine($"desktop face {Box(desktop)}; block ({layout.Block.X}, {layout.Block.Y})");
     }
 
     [StaFact]

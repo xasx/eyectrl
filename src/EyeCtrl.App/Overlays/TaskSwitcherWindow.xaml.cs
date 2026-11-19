@@ -50,6 +50,15 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// </summary>
     internal const double CloseButtonSize = UIConstants.ButtonRadius * 2;
 
+    /// <summary>
+    /// The host's inset from the screen's right and top edges so its CENTRE lands on the shared
+    /// corner offset: <see cref="UIConstants.BackdropHideButtonOffset"/> (53 DIP, the owner's
+    /// backdrop-hide ✕ corner) minus half the host (50 DIP) = 3 DIP. F-CORNER: the switcher's ✕
+    /// and the backdrop's ✕ are the same exit in the same place. Applied to
+    /// <c>CloseButton.Margin</c> in the constructor — the XAML carries no literal for it.
+    /// </summary>
+    internal const double CloseCornerInset = UIConstants.BackdropHideButtonOffset - (CloseButtonSize / 2);
+
     private TaskSwitcherViewModel? _viewModel;
     private IAppIconProvider? _iconProvider;
     private IWindowThumbnailService? _thumbnailService;
@@ -113,6 +122,17 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// </summary>
     internal void KeepCloakedForTests() => _stayCloakedForTests = true;
 
+    /// <summary>
+    /// One-way seam: lets <see cref="UpdateTilePositions"/> run its real post-layout pass on a
+    /// never-shown window — the production target computation (PointToScreen on the drawn elements)
+    /// exercised headlessly through an off-screen host, instead of a test re-stating it. Set only by
+    /// a test; there is deliberately no way to clear it, and it only relaxes the "hidden window"
+    /// early return, never the visible-face rules the pass applies. Inert in production.
+    /// </summary>
+    internal void AllowHiddenRegistrationForTests() => _allowHiddenRegistrationForTests = true;
+
+    private bool _allowHiddenRegistrationForTests;
+
     public TaskSwitcherWindow()
     {
         InitializeComponent();
@@ -126,11 +146,17 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
         // progress and held look.
         DataContextChanged += OnDataContextChanged;
 
-        // Pin the hint row to the height TaskSwitcherLayout reserves for it. An Auto row measures
-        // the same today (the 100 DIP disc plus its 12 DIP top/bottom margins), but the tile area's
-        // row capacity is computed against this constant — a font or template change that grew the
-        // row would otherwise silently clip the bottom full row the geometry promised.
+        // Pin the hint row to the height TaskSwitcherLayout reserves for it. F-CORNER moved the ✕
+        // out of this row, so it now measures the hint text alone (one 18.62 DIP line plus its
+        // 12 DIP top/bottom margins), reserved at the whole-DIP ceiling of 43; the window still
+        // pins the row, because the tile area's row capacity is computed against the constant — a
+        // font or template change that grew the row would otherwise silently clip the bottom full
+        // row the geometry promised.
         HintRow.Height = TaskSwitcherLayout.HintRowHeight;
+
+        // F-CORNER: place the ✕ host so its CENTRE is the shared 53 DIP corner — right/top
+        // aligned, so screen width and DPI need no arithmetic here (only the inset does).
+        CloseButton.Margin = new Thickness(0, CloseCornerInset, CloseCornerInset, 0);
 
         // DWM's open transition would animate a non-layered window in; the switcher must appear
         // in ONE finished frame (no flash on opening), so the transition is off for this HWND's
@@ -231,8 +257,9 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// pushes each tile's real on-screen rectangle (clamped to its visible face) into the
     /// VM, which creates the dwell target there. The VM has already set IsVisible (that is
     /// what triggered this call); creating targets only post-layout keeps them off the
-    /// (0,0) placeholder during the layout gap. The tile viewport is laid clear of the docked
-    /// toolbar band and the screen edges by <see cref="TaskSwitcherLayout"/> before the show.
+    /// (0,0) placeholder during the layout gap. The tile viewport is laid clear of the ✕ in the
+    /// top-right corner, the docked toolbar band and the screen edges by
+    /// <see cref="TaskSwitcherLayout"/> before the show.
     /// </summary>
     public void ShowFullScreen(ToolbarKeepOut? toolbarKeepOut)
     {
@@ -528,8 +555,8 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
     /// VISIBLE part — the intersection with the ScrollViewer's viewport — into the VM, so the
     /// DwellDetector hit-tests exactly what is drawn: not a circle that ignores the corners,
     /// and not the hidden remainder of a row the viewport clips. Tiles with no visible area
-    /// get NO target: gaze resting on the bottom band (the hint row, the close disc) must
-    /// never silently switch windows through a tile that is not on screen.
+    /// get NO target: gaze resting on the bottom hint row must never silently switch windows
+    /// through a tile that is not on screen.
     /// <para>
     /// S3-A: the panel is the window tiles plus the session's desktop tile. The desktop tile
     /// registers through its own reserved-target call — same rectangle rule, but its id is not a
@@ -548,7 +575,9 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
         // A Loaded-priority pass queued before HideOverlay must not register anything on a hidden
         // window: no dwell target there is reachable, and a preview would live until the next show
         // (or close). Production queues this pass from ShowFullScreen, where IsVisible is true.
-        if (!IsVisible) return;
+        // The one-way test seam lets the drawn = hit gates run the REAL pass on a cloaked,
+        // never-shown window whose content is hosted off-screen (PointToScreen still resolves).
+        if (!IsVisible && !_allowHiddenRegistrationForTests) return;
 
         // With the scrollbar Disabled/Hidden there is no scrollbar chrome, so the
         // ScrollViewer's whole area IS its viewport. Its physical rect is the reachability
@@ -563,7 +592,7 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
         // Windows whose whole drawn face is inside the viewport, for the preview pass below. A
         // partially clipped tile keeps its clipped DWELL rect, but gets NO thumbnail: a DWM
         // thumbnail is composed above WPF and is not clipped by the ScrollViewer, so a picture on
-        // a clipped face would paint over the hint row / close disc.
+        // a clipped face would paint over the hint row.
         var fullyVisibleWindows = new HashSet<IntPtr>();
 
         foreach (var item in TilesPanel.Items)
@@ -599,8 +628,8 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
             // Register only the VISIBLE face: the intersection with the viewport. The
             // ScrollContentPresenter clips tiles at the viewport edge, so for a partially
             // clipped row this intersection IS what the user sees drawn; registering the
-            // full face would keep its hidden part a live target under the hint row and
-            // beside the close disc, silently switching windows when gaze rests there.
+            // full face would keep its hidden part a live target under the hint row,
+            // silently switching windows when gaze rests there.
             var visibleRect = VisibleTileRect(faceRect, viewportRect);
             if (visibleRect.Width <= 0 || visibleRect.Height <= 0)
                 continue;   // fully clipped (or edge-touching): no target, no invisible accumulation

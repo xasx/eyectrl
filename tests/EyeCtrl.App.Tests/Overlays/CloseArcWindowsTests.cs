@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Overlays;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -19,6 +20,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Platform.Icons;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -34,11 +36,11 @@ using IOPath = System.IO.Path;
 /// hand-made Border with a thin text "✕" and a straight bottom bar.
 ///
 /// <para>
-/// The two hosts keep their name, size (100 DIP = 2 × the shared r50 hit radius), layout slot and
-/// the view models' 600 ms dwell, so this file pins the ANATOMY and the drawn = hit chain rather
-/// than re-measuring the surrounding layout: the hint row, the overflow chip's clearance, the
-/// Quick Actions tile pitch and the target-centre expressions are pinned by the existing suites
-/// and must keep passing unchanged.
+/// The two hosts keep their name, size (100 DIP = 2 × the shared r50 hit radius) and the view
+/// models' 600 ms dwell, so this file pins the ANATOMY and the drawn = hit chain. F-CORNER moved
+/// the switcher's ✕ into the window's top-right corner, so its drawn = hit test runs the REAL
+/// <c>UpdateTilePositions</c> pass (through the one-way hidden-registration seam) instead of
+/// restating the target expression, and the corner/halo pins live here too.
 /// </para>
 ///
 /// <para>
@@ -198,12 +200,15 @@ public class CloseArcWindowsTests
             var window = host.Window;
             var vm = host.Vm;
 
-            // The production expression from TaskSwitcherWindow.UpdateTilePositions: the host's
-            // centre, in physical pixels. (That method early-returns on a hidden window, so the
-            // harness supplies its one line rather than showing the switcher.)
-            var hostCentre = window.CloseButton.PointToScreen(
-                new Point(window.CloseButton.ActualWidth / 2, window.CloseButton.ActualHeight / 2));
-            vm.UpdateCloseButtonPosition(new PhysicalPoint(hostCentre.X, hostCentre.Y));
+            // The REAL production pass — no restated target expression. The window is cloaked and
+            // never shown; the one-way seam lets the post-layout registration run on the off-screen
+            // host, exactly as ShowFullScreen's Loaded callback would on screen. If the View stops
+            // reading CloseButton's centre (or moves the host), this test follows the code and the
+            // drawn = hit comparison below fails.
+            window.Configure(vm, new NoIcons());
+            window.AllowHiddenRegistrationForTests();
+            window.UpdateTilePositions();
+
             var target = vm.DetectorForTest.Targets
                 .Single(t => t.Id == TaskSwitcherViewModel.CloseTargetId);
 
@@ -219,6 +224,13 @@ public class CloseArcWindowsTests
                     $"at DPI {scale} the drawn disc is {disc.Background.Width / 2} DIP in radius "
                     + $"but the hit circle is {target.Radius / scale} DIP.")
                 .That(disc.Background.Width / 2).IsCloseTo(target.Radius / scale, 1e-9);
+
+            // …and the shared place is the backdrop hide ✕'s corner: (screen width − 53, 53) DIP.
+            var hostRect = host.InContent((FrameworkElement)window.FindName("CloseButton")!);
+            Check.That(hostRect.Left + (hostRect.Width / 2))
+                .IsCloseTo(ScreenWidth - UIConstants.BackdropHideButtonOffset, 0.5);
+            Check.That(hostRect.Top + (hostRect.Height / 2))
+                .IsCloseTo(UIConstants.BackdropHideButtonOffset, 0.5);
         });
     }
 
@@ -234,41 +246,84 @@ public class CloseArcWindowsTests
 
     // ── the halo is not clipped, and it reaches nothing it did not reach before ─────────────
 
-    [StaFact]
-    public void TheTaskSwitcherCloseHalo_IsNotClipped_AndClearsTheHintTextAndTheChip()
+    [StaTheory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void TheTaskSwitcherCloseDisc_AndItsHalo_StayOnScreen_AndClearTheHintAndChip(double scale)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        // Five windows, one visible slot: the overflow chip is showing, so its clearance is a
-        // real measurement rather than a collapsed element's empty rect.
-        using var host = SwitcherCloseHost.Open(scale: 1.0, windows: 5, capacity: 1);
-        var window = host.Window;
+        WithDpi(scale, () =>
+        {
+            // Five windows, one visible slot: the overflow chip is showing, so its clearance is a
+            // real measurement rather than a collapsed element's empty rect.
+            using var host = SwitcherCloseHost.Open(scale, windows: 5, capacity: 1);
+            var window = host.Window;
 
-        var centre = window.CloseButton.PointToScreen(
-            new Point(window.CloseButton.ActualWidth / 2, window.CloseButton.ActualHeight / 2));
-        host.Vm.UpdateCloseButtonPosition(new PhysicalPoint(centre.X, centre.Y));
-        host.Relayout();
+            window.Configure(host.Vm, new NoIcons());
+            window.AllowHiddenRegistrationForTests();
+            window.UpdateTilePositions();
+            host.Relayout();
 
-        var disc = window.CloseDisc!;
-        AssertNoAncestorClips(disc.Background, host.Root, "TaskSwitcherWindow");
+            var disc = window.CloseDisc!;
+            AssertNoAncestorClips(disc.Background, host.Root, "TaskSwitcherWindow");
 
-        var halo = HaloRect(host.InContent(window.CloseLayer), disc);
-        var hint = host.InContent((FrameworkElement)window.FindName("HintText")!);
-        Check.WithCustomMessage(
-                $"the ✕'s halo {Box(halo)} overlaps the hint text {Box(hint)} — the 48 DIP gap "
-                + "must survive the 4 DIP the halo adds.")
-            .That(halo.IntersectsWith(hint)).IsFalse();
+            var halo = ConservativeHaloRect(host.InContent(window.CloseLayer), disc);
 
-        var chip = host.InContent((FrameworkElement)window.FindName("OverflowChip")!);
-        Check.WithCustomMessage("the overflow chip was not shown, so its clearance proves nothing.")
-            .That(((FrameworkElement)window.FindName("OverflowChip")!).Visibility)
-            .IsEqualTo(Visibility.Visible);
-        Check.WithCustomMessage($"the ✕'s halo {Box(halo)} overlaps the overflow chip {Box(chip)}.")
-            .That(halo.IntersectsWith(chip)).IsFalse();
+            // F-CORNER: the whole PAINTED halo is on screen. WPF insets a Shape's stroke (the
+            // Ellipse is dia + 2 x 2.5 wide and the 3 DIP stroke sits inside that box), so the
+            // real edge is +2.5 DIP past the disc — at the 53 DIP offset that leaves 0.5 DIP of
+            // margin. The rejected 40 DIP offset would put 12.5 DIP of halo off the top/right
+            // edge and fail here.
+            var painted = PaintedHaloRect(host.InContent(window.CloseLayer), disc);
+            Check.WithCustomMessage($"at {scale:0.0}x the ✕'s painted halo {Box(painted)} leaves the screen.")
+                .That(painted.Left >= -1e-6 && painted.Top >= -1e-6
+                      && painted.Right <= ScreenWidth + 1e-6 && painted.Bottom <= ScreenHeight + 1e-6)
+                .IsTrue();
 
-        // And it stays inside the hint row's own band: nothing below grows past the screen edge.
-        var row = host.InContent((FrameworkElement)window.FindName("HintRow")!);
-        Check.WithCustomMessage($"the ✕'s halo {Box(halo)} leaves the hint row {Box(row)}.")
-            .That(halo.Top >= row.Top - 1e-6 && halo.Bottom <= row.Bottom + 1e-6).IsTrue();
+            var hint = host.InContent((FrameworkElement)window.FindName("HintText")!);
+            Check.WithCustomMessage(
+                    $"the ✕'s halo {Box(halo)} overlaps the hint text {Box(hint)}.")
+                .That(halo.IntersectsWith(hint)).IsFalse();
+
+            var chipElement = (FrameworkElement)window.FindName("OverflowChip")!;
+            Check.WithCustomMessage("the overflow chip was not shown, so its clearance proves nothing.")
+                .That(chipElement.Visibility).IsEqualTo(Visibility.Visible);
+            var chip = host.InContent(chipElement);
+            Check.WithCustomMessage($"the ✕'s halo {Box(halo)} overlaps the overflow chip {Box(chip)}.")
+                .That(halo.IntersectsWith(chip)).IsFalse();
+
+            // Tiles, and therefore their thumbnails (fitted INSIDE a face), are below the corner.
+            foreach (var slot in host.Faces())
+            {
+                var face = host.InContent(slot.Border);
+                Check.WithCustomMessage($"at {scale:0.0}x the ✕'s halo {Box(halo)} overlaps a tile {Box(face)}.")
+                    .That(halo.IntersectsWith(face)).IsFalse();
+            }
+        });
+    }
+
+    /// <summary>
+    /// Source pin for the registration expression the cloaked real-path test above executes: the
+    /// close target's centre is <c>CloseButton</c>'s OWN centre read through <c>PointToScreen</c>,
+    /// and it is pushed through <c>UpdateCloseButtonPosition</c>. A future edit that computes the
+    /// corner from a second literal, or registers before layout, fails here even if the geometry
+    /// happens to coincide today.
+    /// </summary>
+    [Fact]
+    public void UpdateTilePositions_RegistersTheCloseTargetFromTheHostsOwnCentre()
+    {
+        var source = IOFile.ReadAllText(IOPath.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Overlays", "TaskSwitcherWindow.xaml.cs"));
+        var start = source.IndexOf("internal void UpdateTilePositions()", StringComparison.Ordinal);
+        Check.That(start).IsStrictlyGreaterThan(-1);
+        var body = SourceScanner.StripComments(
+            source[start..source.IndexOf("\n    }", start, StringComparison.Ordinal)]);
+
+        Check.WithCustomMessage("UpdateTilePositions no longer registers the close target from CloseButton.")
+            .That(Regex.IsMatch(body, @"CloseButton\.PointToScreen\(\s*new Point\(\s*CloseButton\.ActualWidth\s*/\s*2"))
+            .IsTrue();
+        Check.WithCustomMessage("UpdateTilePositions no longer pushes the close centre through the view model.")
+            .That(body.Contains("UpdateCloseButtonPosition(")).IsTrue();
     }
 
     [StaFact]
@@ -282,7 +337,7 @@ public class CloseArcWindowsTests
 
             AssertNoAncestorClips(disc.Background, grid.Root, "QuickActionsGridWindow");
 
-            var halo = HaloRect(grid.InContent(window.CloseLayer), disc);
+            var halo = ConservativeHaloRect(grid.InContent(window.CloseLayer), disc);
             foreach (var face in grid.TileFaces())
             {
                 var tile = grid.InContent(face);
@@ -303,13 +358,32 @@ public class CloseArcWindowsTests
     }
 
     /// <summary>
-    /// The halo's painted outer edge in the host's DIP space: the Ellipse's centre radius plus
-    /// half its stroke — the geometry <c>DwellArcButton</c> draws, not a restated 4 DIP.
+    /// The halo's PAINTED outer edge in the host's DIP space: the Ellipse's own half-width.
+    /// WPF insets a <c>Shape</c>'s stroke, so a <c>RimHalo</c> of <c>dia + 2 × 2.5</c> with a 3 DIP
+    /// stroke paints its rim at exactly half that width — +2.5 DIP past the disc, NOT +4. The
+    /// earlier wording (and the conservative helper below) treated the stroke as if it reached its
+    /// full width outside the rim; that is the comment this ticket corrects.
     /// </summary>
-    private static Rect HaloRect(Rect layerInContent, DwellArcButton disc)
+    private static Rect PaintedHaloRect(Rect layerInContent, DwellArcButton disc)
+    {
+        var overshoot = (disc.RimHalo.Width / 2) - (disc.Background.Width / 2);
+        return Inflated(disc, layerInContent, overshoot);
+    }
+
+    /// <summary>
+    /// The conservative halo box: the painted edge plus half the stroke (+4 DIP). The tile keep-out
+    /// (<c>TaskSwitcherLayout.CloseHaloDip</c>) uses this bound. The clearance checks use it too, so
+    /// they fail if even the conservative box reaches something it must not.
+    /// </summary>
+    private static Rect ConservativeHaloRect(Rect layerInContent, DwellArcButton disc)
     {
         var overshoot = (disc.RimHalo.Width / 2) + (disc.RimHalo.StrokeThickness / 2)
                         - (disc.Background.Width / 2);
+        return Inflated(disc, layerInContent, overshoot);
+    }
+
+    private static Rect Inflated(DwellArcButton disc, Rect layerInContent, double overshoot)
+    {
         var discRect = new Rect(
             layerInContent.Left + Canvas.GetLeft(disc.Background),
             layerInContent.Top + Canvas.GetTop(disc.Background),
@@ -337,8 +411,8 @@ public class CloseArcWindowsTests
         }
 
         Check.WithCustomMessage(
-                $"{windowName}: an ancestor of the close disc clips it, so the halo (4 DIP past "
-                + "the disc) would be cut off:\n  " + string.Join("\n  ", offenders))
+                $"{windowName}: an ancestor of the close disc clips it, so the halo (2.5 DIP painted, "
+                + "4 DIP conservative) would be cut off:\n  " + string.Join("\n  ", offenders))
             .That(offenders).IsEmpty();
     }
 
@@ -476,6 +550,16 @@ public class CloseArcWindowsTests
         public QuickAction? FindById(string id) => null;
     }
 
+    /// <summary>
+    /// No icon seam at all: <c>UpdateTilePositions</c> never resolves icons (that is
+    /// <c>ShowFullScreen</c>'s step), so the real-path registration test needs the dependency
+    /// only to reach the view model through <c>Configure</c>.
+    /// </summary>
+    private sealed class NoIcons : IAppIconProvider
+    {
+        public ImageSource GetIcon(IntPtr hwnd, uint processId) => null!;
+    }
+
     /// <summary>An empty window enumeration — the switcher's hint row and close disc need no tiles.</summary>
     private sealed class CloseArcWindowManager : IWindowManager
     {
@@ -595,6 +679,33 @@ public class CloseArcWindowsTests
 
         /// <summary>A content-space DIP point mapped to the physical pixel the View would report.</summary>
         internal Point ToScreen(Point contentPoint) => Root.PointToScreen(contentPoint);
+
+        /// <summary>Every realised panel tile's template face Border, in display order.</summary>
+        internal IReadOnlyList<(TaskSwitcherTileViewModel Tile, Border Border)> Faces()
+        {
+            var panel = (ItemsControl)Window.FindName("TilesPanel")!;
+            var faces = new List<(TaskSwitcherTileViewModel, Border)>();
+            foreach (var tile in Vm.PanelItems)
+            {
+                if (panel.ItemContainerGenerator.ContainerFromItem(tile) is not FrameworkElement container)
+                    continue;
+
+                Border? face = null;
+                for (var i = 0; i < VisualTreeHelper.GetChildrenCount(container); i++)
+                {
+                    if (VisualTreeHelper.GetChild(container, i) is Border candidate)
+                    {
+                        face = candidate;
+                        break;
+                    }
+                }
+
+                if (face is not null)
+                    faces.Add((tile, face));
+            }
+
+            return faces;
+        }
 
         /// <summary>Re-lays the hosted content after a binding changed its size.</summary>
         internal void Relayout()

@@ -441,6 +441,212 @@ public class KeyboardPredictionLongLookTests
         finally { probe.Dispose(); }
     }
 
+    [StaFact]
+    public void LeavingTheLatchedSlot_ClearsItsLongLookFill()
+    {
+        // Review 01 F1: the paint loop used to skip an unlatched slot, so a half-filled outline
+        // stayed frozen on a slot the gaze had left (the detector never reports that slot - the
+        // target filter kept it out while it was latched). The fill must go to 0 on the sample the
+        // latch drops, without touching any other slot and without a re-render.
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 100, ["world"] = 100, ["there"] = 100 },
+            withLm: false);
+        try
+        {
+            var picks = CollectPicks(probe);
+            SeedBarAndPairs(probe);
+            PlaceTargets(probe);
+            var slot = SlotCenter(probe, "pred_0");
+
+            var pickTs = PickSlot(probe, slot, picks);
+            Check.WithCustomMessage("arrange: the pick must happen").That(picks).HasSize(1);
+
+            var anchor = pickTs + (CooldownMs * 1000L);
+            Feed(probe, slot, anchor, anchor + 600_000);   // ~0.6 of the long look
+
+            var cell = (Border)probe.Window.PredictionBar.Children[0];
+            var fill = CellProgress(cell);
+            Check.WithCustomMessage($"arrange: the long look must show a fill (was {fill:F2})")
+                .That(fill).IsStrictlyGreaterThan(0.25);
+
+            var leaveFrom = anchor + 633_000;
+            Feed(probe, KeyPoint(probe.Window), leaveFrom, leaveFrom + 250_000);
+
+            Check.WithCustomMessage("the latch did not drop after a 250 ms leave")
+                .That(RearmLatch(probe.Window).IsLatched("pred_0")).IsFalse();
+            Check.WithCustomMessage("the leave re-rendered the bar; the frozen-cell case is untested")
+                .That(ReferenceEquals(probe.Window.PredictionBar.Children[0], cell)).IsTrue();
+            Check.WithCustomMessage($"a stale long-look fill {CellProgress(cell):F2} stayed on the slot")
+                .That(CellProgress(cell)).IsEqualTo(0.0);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    // ---- the excursion tolerance (review 01 F2) ------------------------------------------------
+
+    [StaFact]
+    public void ClearingTheLeftSlotsFill_LeavesANormalDwellOnAnotherSlotAlone()
+    {
+        // The other half of review 01 F1's fix: only the outline THIS loop painted may be cleared.
+        // A normal dwell on another slot is driven by OnPredictionProgress and must survive the
+        // clear (clearing unlatched slots wholesale would erase it - the old comment warned so).
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 100, ["world"] = 100, ["there"] = 100 },
+            withLm: false);
+        try
+        {
+            var picks = CollectPicks(probe);
+            SeedBarAndPairs(probe);
+            PlaceTargets(probe);
+            var slotZero = SlotCenter(probe, "pred_0");
+
+            var pickTs = PickSlot(probe, slotZero, picks);
+            Check.WithCustomMessage("arrange: the pick must happen").That(picks).HasSize(1);
+
+            var anchor = pickTs + (CooldownMs * 1000L);
+            Feed(probe, slotZero, anchor, anchor + 400_000);   // paint slot 0's long-look fill
+
+            var zeroCell = (Border)probe.Window.PredictionBar.Children[0];
+            var oneCell = (Border)probe.Window.PredictionBar.Children[1];
+            Check.WithCustomMessage($"arrange: slot 0 must show a long-look fill (was {CellProgress(zeroCell):F2})")
+                .That(CellProgress(zeroCell)).IsStrictlyGreaterThan(0.2);
+
+            // A normal dwell on slot 1: slot 0's leave clock runs, its latch drops and only its
+            // fill may clear, while slot 1's detector-driven fill keeps growing below its 500 ms fire.
+            var slotOne = SlotCenter(probe, "pred_1");
+            var leaveFrom = anchor + 433_000;
+            Feed(probe, slotOne, leaveFrom, leaveFrom + 400_000);
+
+            Check.WithCustomMessage("the latch did not drop after the leave")
+                .That(RearmLatch(probe.Window).IsLatched("pred_0")).IsFalse();
+            Check.WithCustomMessage($"the stale long-look fill {CellProgress(zeroCell):F2} stayed on slot 0")
+                .That(CellProgress(zeroCell)).IsEqualTo(0.0);
+            Check.WithCustomMessage("the leave re-rendered the bar; the fill case is untested")
+                .That(ReferenceEquals(probe.Window.PredictionBar.Children[1], oneCell)).IsTrue();
+            Check.WithCustomMessage($"the normal dwell fill on slot 1 was cleared ({CellProgress(oneCell):F2})")
+                .That(CellProgress(oneCell)).IsStrictlyGreaterThan(0.5);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void AReloadOrHideReset_ClearsThePaintedLongLookFill()
+    {
+        // The reset path (hide/re-show, layout reload) clears the latch without a leave sample, so
+        // it must drop the fills the latch painted itself (review 01 F1): otherwise a fill frozen at
+        // hide time is still drawn when the bar comes back without a re-render.
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 100, ["world"] = 100, ["there"] = 100 },
+            withLm: false);
+        try
+        {
+            var picks = CollectPicks(probe);
+            SeedBarAndPairs(probe);
+            PlaceTargets(probe);
+            var slot = SlotCenter(probe, "pred_0");
+
+            var pickTs = PickSlot(probe, slot, picks);
+            Check.WithCustomMessage("arrange: the pick must happen").That(picks).HasSize(1);
+
+            var anchor = pickTs + (CooldownMs * 1000L);
+            Feed(probe, slot, anchor, anchor + 400_000);
+            var cell = (Border)probe.Window.PredictionBar.Children[0];
+            Check.WithCustomMessage($"arrange: the long look must show a fill (was {CellProgress(cell):F2})")
+                .That(CellProgress(cell)).IsStrictlyGreaterThan(0.2);
+
+            typeof(KeyboardWindow)
+                .GetMethod("ResetPredictionRearm", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .Invoke(probe.Window, null);
+
+            Check.WithCustomMessage("the reset left the latch alive")
+                .That(RearmLatch(probe.Window).IsLatched("pred_0")).IsFalse();
+            Check.WithCustomMessage($"the reset left a long-look fill {CellProgress(cell):F2} on the slot")
+                .That(CellProgress(cell)).IsEqualTo(0.0);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void AOneSampleBlipOffTheLatchedSlot_PausesTheLongLook()
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 100, ["world"] = 100, ["there"] = 100 },
+            withLm: false);
+        try
+        {
+            var picks = CollectPicks(probe);
+            SeedBarAndPairs(probe);
+            PlaceTargets(probe);
+            var slot = SlotCenter(probe, "pred_0");
+            var pickTs = PickSlot(probe, slot, picks);
+            var anchor = pickTs + (CooldownMs * 1000L);
+
+            Feed(probe, slot, anchor, anchor + 500_000);              // 500 ms credited
+            probe.Window.UpdateGaze(KeyPoint(probe.Window), anchor + 533_000);   // one blip sample
+            probe.Content.UpdateLayout();
+            Feed(probe, slot, anchor + 566_000, anchor + 1_200_000);  // 634 more: total 1134
+
+            Check.WithCustomMessage(
+                    "a 33 ms blip reset the long-look clock instead of pausing it")
+                .That(picks).HasSize(2);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void ATwoSampleBlipOffTheLatchedSlot_PausesTheLongLook()
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 100, ["world"] = 100, ["there"] = 100 },
+            withLm: false);
+        try
+        {
+            var picks = CollectPicks(probe);
+            SeedBarAndPairs(probe);
+            PlaceTargets(probe);
+            var slot = SlotCenter(probe, "pred_0");
+            var pickTs = PickSlot(probe, slot, picks);
+            var anchor = pickTs + (CooldownMs * 1000L);
+
+            Feed(probe, slot, anchor, anchor + 500_000);              // 500 ms credited
+            probe.Window.UpdateGaze(KeyPoint(probe.Window), anchor + 533_000);   // two blip samples,
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(KeyPoint(probe.Window), anchor + 566_000);   // 67 ms away
+            probe.Content.UpdateLayout();
+            Feed(probe, slot, anchor + 600_000, anchor + 1_250_000);  // 650 more: total 1150
+
+            Check.WithCustomMessage(
+                    "a 67 ms blip reset the long-look clock instead of pausing it")
+                .That(picks).HasSize(2);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [Fact]
+    public void AnExcursionPastTheTolerance_ResetsTheLongLookClock()
+    {
+        // A target that disappears while the latch survives (a re-render leaves the slot empty)
+        // keeps the latch alive through the remembered rect but pauses the clock; past the shared
+        // 400 ms tolerance the accumulated progress resets instead of resuming. Real off-slot
+        // excursions are capped by the 120 ms leave, so this is the branch's only reachable path.
+        var detector = new DwellDetector(cooldownMs: 0);
+        var rect = new PhysicalRect(0, 0, 100, 100);
+        detector.AddTarget(new DwellTarget("pred_0", rect, 500));
+        var latch = new PredictionBarRearmLatch();
+        var inside = new PhysicalPoint(50, 50);
+
+        latch.Latch("pred_0", rect, 0);
+        for (long t = 0; t <= 900_000; t += 30_000)
+            latch.Update(inside, t, detector);
+
+        Check.WithCustomMessage("arrange: 900 ms of on-slot time must be credited")
+            .That(latch.LongLookProgress("pred_0")).IsCloseTo(0.9, 0.05);
+
+        detector.ClearTargets();
+        for (long t = 930_000; t <= 1_500_000; t += 30_000)
+            latch.Update(inside, t, detector);
+
+        Check.WithCustomMessage("the absent target cleared the latch instead of pausing")
+            .That(latch.IsLatched("pred_0")).IsTrue();
+        Check.WithCustomMessage("progress survived an excursion past the 400 ms tolerance")
+            .That(latch.LongLookProgress("pred_0")).IsEqualTo(0.0);
+    }
+
     // ---- F7's reserved slot 0 -----------------------------------------------------------------
 
     [StaFact]

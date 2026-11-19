@@ -50,12 +50,12 @@ public class DwellWashCensusTests
     /// positively, and by COUNT, so deleting one of several call sites is caught too.
     ///
     /// Expected SetProgress calls: KeyboardWindow drives keys on progress, clears them on
-    /// reset, drives predictions, and since F8 paints a latched slot's long-look fill — four.
-    /// EmojiGridManager drives category tabs — one.
+    /// reset, drives predictions, paints a latched slot's long-look fill and clears it when the
+    /// latch drops — five. EmojiGridManager drives category tabs — one.
     /// </summary>
     private static readonly (string File, int Attaches, int Advances)[] MustOutline =
     [
-        ("src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs", 2, 4),
+        ("src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs", 2, 5),
         ("src/EyeCtrl.App/Overlays/EmojiGridManager.cs", 1, 1),
     ];
 
@@ -102,7 +102,7 @@ public class DwellWashCensusTests
     }
 
     [Theory]
-    [InlineData("src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs", 2, 4)]
+    [InlineData("src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs", 2, 5)]
     [InlineData("src/EyeCtrl.App/Overlays/EmojiGridManager.cs", 1, 1)]
     public void EveryFormerWashSite_DrivesAnOutline(string relative, int attaches, int advances)
     {

@@ -67,6 +67,9 @@ public partial class KeyboardWindow : OverlayWindow
     // (KeyTargeting.PickKey). Filled and cleared together with _keyScreenPositions.
     private readonly Dictionary<string, PhysicalRect> _keyScreenBoxes = new();
     private readonly List<DwellOutlineOverlay?> _predictionOutlines = new();
+    // The slot indices whose outline this sample loop painted a long-look fill into. A slot that
+    // leaves the latch must be cleared even though the detector never reported it (review 01 F1).
+    private readonly HashSet<int> _longLookPainted = new();
     // The list the bar RENDERED, one entry per slot. A null entry is an empty slot: the quiet
     // placeholder at the END of the bar, and — while a next-word answer is in flight — slot 0,
     // which is reserved for the language model. OnPredictionDwelled resolves its index against
@@ -267,7 +270,14 @@ public partial class KeyboardWindow : OverlayWindow
     /// Clears every prediction-bar latch. The single body both the hide/re-show subscription and
     /// the layout reload go through, so the tested reload path covers the clear itself.
     /// </summary>
-    private void ResetPredictionRearm() => _predictionRearm.Clear();
+    private void ResetPredictionRearm()
+    {
+        _predictionRearm.Clear();
+        // The cleared latches cannot repaint their outlines, so drop the fills they left behind
+        // through the same loop that clears a slot leaving the latch (review 01 F1): a hide/re-show
+        // or a layout reload must not keep a half-drawn long look on the bar.
+        PaintLongLookProgress();
+    }
 
     public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs, int cooldownMs)
     {
@@ -820,16 +830,26 @@ public partial class KeyboardWindow : OverlayWindow
 
     /// <summary>
     /// Paints each latched suggestion slot's long-look fill through the same outline its normal
-    /// dwell uses. Unlatched slots are left to <see cref="OnPredictionProgress"/>; painting them
-    /// from here would erase a normal dwell in progress on another slot.
+    /// dwell uses. An unlatched slot is left to <see cref="OnPredictionProgress"/> - UNLESS this
+    /// loop painted it, in which case the fill must be cleared: the detector never reports a slot
+    /// that was latched (the target filter kept it out), so a half-filled outline would otherwise
+    /// freeze on a slot the gaze left (review 01 F1). Clearing only the slots this loop painted
+    /// keeps a normal dwell on another slot intact.
     /// </summary>
     private void PaintLongLookProgress()
     {
         for (var i = 0; i < _predictionOutlines.Count; i++)
         {
             var id = $"pred_{i}";
-            if (!_predictionRearm.IsLatched(id)) continue;
-            _predictionOutlines[i]?.SetProgress(_predictionRearm.LongLookProgress(id));
+            if (_predictionRearm.IsLatched(id))
+            {
+                _longLookPainted.Add(i);
+                _predictionOutlines[i]?.SetProgress(_predictionRearm.LongLookProgress(id));
+            }
+            else if (_longLookPainted.Remove(i))
+            {
+                _predictionOutlines[i]?.SetProgress(0);
+            }
         }
     }
 

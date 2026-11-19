@@ -80,6 +80,12 @@ public class KeyboardLongLookAnyKeyTests
                         new KeyDefinition { Label = "↑", SpecialAction = "key:ArrowUp" },
                         new KeyDefinition { Label = "123", SpecialAction = "switchSub:numbers" },
                         new KeyDefinition { Label = "ABC", SpecialAction = "switchSub:letters" },
+                        // The edge pair as ordinary grid keys. Production keeps them on the edge
+                        // bar, but the rig needs them in the layout or IsRepeatableKey returns
+                        // false before the close/move rule is asked and the cases are vacuous
+                        // (review 01 F3).
+                        new KeyDefinition { Label = "✕", SpecialAction = "Keyboard_close" },
+                        new KeyDefinition { Label = "⇄", SpecialAction = "Keyboard_flip" },
                     ],
                 ],
             },

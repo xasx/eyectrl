@@ -60,13 +60,31 @@ internal static class NoteLayout
 
     // == the number tag (T6 fixup-01; fixup-04: the whole block scales with the body text) ==
 
-    /// <summary>The tag numeral's font size as a fraction of the body text size (review-02 F1 /
-    /// owner decision fixup-04): 0.75, so the numeral's ink reads near the body capital at every
-    /// T8 size — 13.5/21/36 DIP at 18/28/48, next to a body cap of about 19.6 DIP at 28.</summary>
-    private const double TagNumeralScale = 0.75;
+    /// <summary>The face the note draws its readable text at (notes readability, sitting 9 —
+    /// the owner chose stroke weight as the lever): the standard family at SemiBold, for the
+    /// body text, the chip text and the tag numeral alike. Every FormattedText/Typeface that
+    /// MEASURES that text — the body height (<c>NoteWindow.MeasureTextHeightDip</c>), the chip
+    /// column and line count (<see cref="MeasureChip"/> and its helpers), the tag numeral's
+    /// ink (<see cref="TagNumeralInkHeightDip"/>) — uses this same face, so what is drawn and
+    /// what is measured can never drift apart.</summary>
+    internal static readonly Typeface SemiBoldFace =
+        new(Tokens.FontStandard, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
 
-    /// <summary>The tag's vertical padding above and below the numeral ink.</summary>
-    public const double TagVerticalPadDip = 4.0;
+    /// <summary>The tag numeral's font size as a fraction of the body text size (notes
+    /// readability, sitting 9: the owner chose the tag's SIZE as the second lever — was 0.75
+    /// since T6 fixup-04/review-02 F1). 1.0, so the numeral reads at the body's own size —
+    /// 28/36/40 DIP at the stock sizes, next to a body cap of about 19.6 DIP at 28.</summary>
+    private const double TagNumeralScale = 1.0;
+
+    /// <summary>The tag's vertical padding above and below the numeral ink. Was 4.0 until the
+    /// numeral went to 1.0× the body text (notes readability, sitting 9): the bigger numeral
+    /// grew the height, the protrusion and the Edit-state topGrowthDip with it, and at 2.0
+    /// padding the derived heights keep the placement rules' keyboard clearances holding — the
+    /// tall-card least-overlap pin at 48 and the yielded-keyboard re-place at the default size
+    /// both budget every DIP of the drawn window's growth. Two DIP of breathing room per side
+    /// stays invisible on the straddling tag (the same reason the height rounds UP to a whole
+    /// DIP).</summary>
+    public const double TagVerticalPadDip = 2.0;
 
     /// <summary>The tag's fixed in-card DEPTH: how far it rides INTO the card below its top
     /// edge. The body text's top margin is 10 DIP, so the first text line stays clear whatever
@@ -78,7 +96,7 @@ internal static class NoteLayout
     /// proportionate to the disc column beside it.</summary>
     public const double TagMinWidthDip = 28.0;
 
-    /// <summary>The tag numeral's font size in DIP: 0.75 × the body text size.</summary>
+    /// <summary>The tag numeral's font size in DIP: 1.0 × the body text size.</summary>
     public static double TagNumeralFontDip(double textSizeDip) => TagNumeralScale * textSizeDip;
 
     /// <summary>The tag numeral's INK height at its drawn font: the bounding box of the tallest
@@ -95,7 +113,7 @@ internal static class NoteLayout
 
         var formatted = new FormattedText(
             "0123456789", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-            new Typeface(Tokens.FontStandard.Source), TagNumeralFontDip(textSizeDip),
+            SemiBoldFace, TagNumeralFontDip(textSizeDip),
             Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
         // All ten digits sit on one shared baseline, so the union box HEIGHT is the tallest
         // digit's ink — the height the numeral box must hold for any number.
@@ -455,29 +473,32 @@ internal static class NoteLayout
         return Math.Max(hi, widestWord);
     }
 
-    /// <summary>The text's natural (unwrapped) width in DIP at <paramref name="fontSize"/>.</summary>
+    /// <summary>The text's natural (unwrapped) width in DIP at <paramref name="fontSize"/>.
+    /// Measured at <see cref="SemiBoldFace"/> — the chip draws its text at that weight, so the
+    /// column the measurement produces must hold the drawn ink.</summary>
     private static double NaturalTextWidthDip(string text, double fontSize)
     {
         var formatted = new FormattedText(
             text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-            new Typeface(Tokens.FontStandard.Source), fontSize,
+            SemiBoldFace, fontSize,
             Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
         return formatted.WidthIncludingTrailingWhitespace;
     }
 
     /// <summary>How many lines <paramref name="text"/> wraps into at
-    /// <paramref name="maxWidth"/> DIP and <paramref name="fontSize"/> DIP.</summary>
+    /// <paramref name="maxWidth"/> DIP and <paramref name="fontSize"/> DIP. Measured at
+    /// <see cref="SemiBoldFace"/> — the chip's drawn weight (notes readability, sitting 9).</summary>
     private static int WrappedLineCount(string text, double fontSize, double maxWidth)
     {
         if (maxWidth <= 0) return int.MaxValue;
         var oneLine = new FormattedText(
             text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-            new Typeface(Tokens.FontStandard.Source), fontSize,
+            SemiBoldFace, fontSize,
             Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
         if (oneLine.Height <= 0) return 1;
         var wrapped = new FormattedText(
             text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-            new Typeface(Tokens.FontStandard.Source), fontSize,
+            SemiBoldFace, fontSize,
             Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0)
         { MaxTextWidth = maxWidth };
         return (int)Math.Round(wrapped.Height / oneLine.Height);

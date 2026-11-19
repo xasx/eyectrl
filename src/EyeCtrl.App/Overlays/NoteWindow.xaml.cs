@@ -175,6 +175,10 @@ public class NoteWindow : OverlayWindow
     internal System.Collections.Generic.IReadOnlyDictionary<string, TextBlock> LabelsForTest() => _buttonLabels;
     internal double ButtonRadiusForTest => ButtonRadius;
 
+    /// <summary>Test accessor (notes readability, sitting 9): the drawn body text block — the
+    /// element whose weight the owner reads, pinned SemiBold against drawn/measured drift.</summary>
+    internal TextBlock? BodyTextForTest => _textBlock;
+
     /// <summary>Test accessor (T6 fixup-06 G1): the chip's drawn text block - its font size and
     /// its column are what the owner could not read, so they are read, not assumed.</summary>
     internal TextBlock? ChipTextForTest => _chipTextBlock;
@@ -354,21 +358,22 @@ public class NoteWindow : OverlayWindow
         _badgeTag = tag;
 
         // The numeral centres on its INK (T5 fixup-03 G1's convention): digits like "1" carry
-        // asymmetric advance boxes, and box centring reads off-centre. The font is 0.75× the
-        // body text (T6 fixup-04, review-02 F1: the caretaker reads the numeral from ~0.8 m, so
-        // it belongs near the body size at every T8 step) — and the ink centring is Solo-style:
-        // the glyph is the tag's entire content (the same bucket the control discs read).
+        // asymmetric advance boxes, and box centring reads off-centre. The font is 1.0× the
+        // body text (notes readability, sitting 9: the owner chose the tag's SIZE as the second
+        // lever; was 0.75× since T6 fixup-04) at SemiBold — the ink measurement below uses the
+        // same face and weight, so the centring math and the drawn glyph cannot disagree.
         var label = new TextBlock
         {
             Text = number.ToString(CultureInfo.InvariantCulture),
             FontFamily = Tokens.FontStandard,
             FontSize = NoteLayout.TagNumeralFontDip(_textSize),
+            FontWeight = FontWeights.SemiBold,
             Foreground = Tokens.BrushSurfaceDark,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
         var formatted = new FormattedText(label.Text, CultureInfo.InvariantCulture,
-            FlowDirection.LeftToRight, new Typeface(Tokens.FontStandard.Source), label.FontSize,
+            FlowDirection.LeftToRight, NoteLayout.SemiBoldFace, label.FontSize,
             Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0);
         Rect ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
         double cx = rect.Left + (rect.Width / 2);
@@ -414,6 +419,10 @@ public class NoteWindow : OverlayWindow
                 Margin = new Thickness(NoteLayout.ChipTextMarginDip, NoteLayout.ChipTextMarginDip, 0, 0),
                 FontSize = NoteLayout.ChipTextFontDip(_chipTextSize),
                 FontFamily = Tokens.FontStandard,
+                // Notes readability (sitting 9): the chip reads SemiBold like the body - stroke
+                // weight was the lever the owner chose, and NoteLayout.MeasureChip measures the
+                // column at the same weight, so drawn and measured can never drift.
+                FontWeight = FontWeights.SemiBold,
                 Foreground = Tokens.BrushTextPrimary,
                 TextWrapping = TextWrapping.Wrap,
                 // The body's 1.25x leading: the card's height is derived from the lines this
@@ -452,6 +461,11 @@ public class NoteWindow : OverlayWindow
             Margin = new Thickness(10, 10, 0, 0),
             FontSize = _textSize,
             FontFamily = Tokens.FontStandard,
+            // Notes readability (sitting 9): SemiBold in EVERY state - Display and Edit draw
+            // the same block (P4 D2), so one weight covers both. MeasureTextHeightDip measures
+            // at the same weight, so the fit/wrap math and the card height derivation (the
+            // manager reads this same measure) cannot drift from what is drawn.
+            FontWeight = FontWeights.SemiBold,
             Foreground = Tokens.BrushTextPrimary,
             TextWrapping = TextWrapping.Wrap,
             // The P4 D2 leading: 1.25x, pinned as a block height so every line is identical.
@@ -601,7 +615,9 @@ public class NoteWindow : OverlayWindow
     /// <summary>Measures the wrapped text height in DIP at an EXPLICIT text size (T6 fixup-06
     /// G1): the chip's captured size, which the window's own current size may no longer be —
     /// a pending chip keeps the size it was composed at, so the full card it is measured
-    /// against has to be measured at that size too.</summary>
+    /// against has to be measured at that size too. Measured at the DRAWN weight (notes
+    /// readability, sitting 9): the body draws SemiBold, so the fit/wrap math and the card
+    /// heights the manager derives from this measure measure SemiBold too.</summary>
     internal double MeasureTextHeightDip(string text, double textSize)
     {
         double width = NoteLayout.TextColumnWidthDip(textSize);
@@ -609,6 +625,7 @@ public class NoteWindow : OverlayWindow
         {
             FontSize = textSize,
             FontFamily = Tokens.FontStandard,
+            FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
             LineHeight = NoteLayout.TextLineHeightDip(textSize),
             LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
@@ -664,8 +681,9 @@ public class NoteWindow : OverlayWindow
             Dispatcher.Invoke(() =>
             {
                 UpdateContent();
-                // T8: the tag is size-DEPENDENT now (fixup-04: the numeral at 0.75× the body
-                // size and the derived box around it), and DrawBadge redraws it from the
+                // T8: the tag is size-DEPENDENT now (fixup-04: the numeral scales with the
+                // body size — 1.0× since notes readability, sitting 9 — and the derived box
+                // around it), and DrawBadge redraws it from the
                 // current placement — ApplyPlacementToWindow skips identical rects, so Draw
                 // would not run and a placement-inflight read must not go stale. The window
                 // rect itself follows with the manager's re-derivation from the T8 trigger.

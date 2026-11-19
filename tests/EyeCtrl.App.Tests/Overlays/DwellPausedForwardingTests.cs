@@ -325,28 +325,37 @@ public class DwellPausedForwardingTests
     }
 
     [StaFact]
-    public void QuickActionsClose_BindsCloseDwellPaused_ToItsBarsOpacity()
+    public void QuickActionsClose_BindsCloseDwellPaused_ToItsArc()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = InvisibleTestWindow.Prepare(new QuickActionsGridWindow());
-        var vm = new QuickActionsGridViewModel(new NoActions(), new EyeCtrlSettings(), new WeakReferenceMessenger());
-        window.DataContext = vm;
-        var closeButton = window.CloseButton;
-
-        var bar = RealisedBar(window, _ => FitText.Descendants<ProgressBar>(closeButton).Single(), out var host);
-        using (host)
+        try
         {
+            var vm = new QuickActionsGridViewModel(new NoActions(), new EyeCtrlSettings(), new WeakReferenceMessenger());
+            window.DataContext = vm;
+
+            var disc = window.CloseDisc;
+            Check.WithCustomMessage("QuickActionsGridWindow drew no close disc (CloseDisc is null).")
+                .That(disc).IsNotNull();
+
+            // The close target's dwell feedback is the shared rim arc now (close-arc ticket):
+            // nothing is painted at rest, and the held look dims exactly that arc.
+            Check.That(disc!.ProgressPath.Visibility).IsEqualTo(Visibility.Collapsed);
             vm.CloseDwellPaused = true;
-            Check.That(bar.Opacity).IsEqualTo(Held);
+            Check.That(disc.ProgressPath.Opacity).IsEqualTo(Held);
             vm.CloseDwellPaused = false;
-            Check.That(bar.Opacity).IsEqualTo(1.0);
+            Check.That(disc.ProgressPath.Opacity).IsEqualTo(1.0);
+        }
+        finally
+        {
+            window.Close();
         }
     }
 
-    // Mutation (A1-f10): the close binding names IsDwellPaused instead of CloseDwellPaused -> red.
+    // Mutation (A1-f10): the close VM handler names IsDwellPaused instead of CloseDwellPaused -> red.
 
     [StaFact]
-    public void TaskSwitcherClose_BindsCloseDwellProgressAndPaused_ToItsBar()
+    public void TaskSwitcherClose_BindsCloseDwellProgressAndPaused_ToItsArc()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());
@@ -355,19 +364,37 @@ public class DwellPausedForwardingTests
             using var vm = new TaskSwitcherViewModel(
                 new EmptyWindowManager(), new EyeCtrlSettings(), new WeakReferenceMessenger());
             window.DataContext = vm;
-            var closeButton = window.CloseButton;
 
-            var bar = RealisedBar(window, _ => FitText.Descendants<ProgressBar>(closeButton).Single(), out var host);
-            using (host)
-            {
-                vm.CloseDwellProgress = 0.5;
-                Check.WithCustomMessage("the close bar's fill must track CloseDwellProgress — without it the escape affordance gives no dwell feedback and reads as dead (the 2026-08-17 'not dwellable' perception, on the one control that must never feel dead)")
-                    .That(bar.Value).IsEqualTo(0.5);
-                vm.CloseDwellPaused = true;
-                Check.That(bar.Opacity).IsEqualTo(Held);
-                vm.CloseDwellPaused = false;
-                Check.That(bar.Opacity).IsEqualTo(1.0);
-            }
+            var disc = window.CloseDisc;
+            Check.WithCustomMessage("TaskSwitcherWindow drew no close disc (CloseDisc is null).")
+                .That(disc).IsNotNull();
+
+            // The close target's dwell feedback is the shared rim arc (close-arc ticket). At rest
+            // nothing is painted; at half a dwell the arc is visible and ends at the half circle.
+            Check.WithCustomMessage("progress 0 must not paint the close arc")
+                .That(disc!.ProgressPath.Visibility).IsEqualTo(Visibility.Collapsed);
+            vm.CloseDwellProgress = 0.5;
+            Check.WithCustomMessage(
+                    "the close arc must track CloseDwellProgress — without it the escape affordance "
+                    + "gives no dwell feedback and reads as dead (the 2026-08-17 'not dwellable' "
+                    + "perception, on the one control that must never feel dead)")
+                .That(disc.ProgressPath.Visibility).IsEqualTo(Visibility.Visible);
+
+            // Half a circle from 12 o'clock is the 6 o'clock point: (centre.X, centre.Y + r).
+            var centre = disc.Background.Width / 2;
+            var radius = disc.Arc.Size.Width;
+            Check.WithCustomMessage("half a dwell must end at the bottom of the rim arc")
+                .That(disc.Arc.Point.X).IsCloseTo(centre, 1e-9);
+            Check.That(disc.Arc.Point.Y).IsCloseTo(centre + radius, 1e-9);
+
+            vm.CloseDwellPaused = true;
+            Check.That(disc.ProgressPath.Opacity).IsEqualTo(Held);
+            vm.CloseDwellPaused = false;
+            Check.That(disc.ProgressPath.Opacity).IsEqualTo(1.0);
+
+            vm.CloseDwellProgress = 0;
+            Check.WithCustomMessage("a reset dwell must hide the close arc again")
+                .That(disc.ProgressPath.Visibility).IsEqualTo(Visibility.Collapsed);
         }
         finally
         {
@@ -375,9 +402,9 @@ public class DwellPausedForwardingTests
         }
     }
 
-    // Mutations (review m5): the Value binding names DwellProgress instead of
-    // CloseDwellProgress -> red; the Opacity binding names IsDwellPaused instead of
-    // CloseDwellPaused -> red.
+    // Mutations (close-arc ticket): the UpdateProgress call in the close VM handler removed -> the
+    // half-circle assertion goes red; the SetPaused call removed -> the held-look assertion goes
+    // red; the CloseDwellPaused branch named IsDwellPaused -> red.
 
     private sealed class EmptyWindowManager : IWindowManager
     {

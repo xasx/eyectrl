@@ -225,8 +225,10 @@ public class ShippedGermanStep3Tests
             Expect("note ↕", "Notiz verschieben", named["↕"]);
 
             var grid = new QuickActionsGridWindow();
-            Expect("grid close", "Schließen",
-                AutomationProperties.GetName((TextBlock)grid.FindName("CloseGlyph")!));
+            var closeAnchor = grid.CloseDisc?.AutomationAnchor;
+            Check.WithCustomMessage("the grid's close disc has no automation anchor")
+                .That(closeAnchor).IsNotNull();
+            Expect("grid close", "Schließen", AutomationProperties.GetName(closeAnchor!));
 
             Expect("pause title", "EyeCtrl pausiert", new PauseIndicatorWindow().Title);
 

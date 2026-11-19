@@ -74,6 +74,9 @@ internal sealed class QuickActionsGridHost : IDisposable
     internal QuickActionsGridWindow Window { get; }
     internal QuickActionsGridViewModel Vm { get; }
 
+    /// <summary>The production content root, after it was detached from the window.</summary>
+    internal FrameworkElement Root => _root;
+
     /// <summary>
     /// Builds the grid through <see cref="QuickActionsGridWindow.Configure"/> only — nothing
     /// hand-sets the ItemsControl — and lays it out off-screen at <paramref name="scale"/>.

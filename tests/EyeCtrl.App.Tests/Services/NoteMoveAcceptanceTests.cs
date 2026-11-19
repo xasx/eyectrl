@@ -190,8 +190,14 @@ public class NoteMoveAcceptanceTests
 
             // The :place dwell re-anchors the note on the ACCEPTED centroid (the dwell started
             // on the window itself, so the "last gaze" defence of the activation never buys the
-            // wrong spot here: the dwell sits on its target either way).
-            present = HoldGaze(manager, DpiOfCentre(manager.PlaceWindowRectForTest), present);
+            // wrong spot here: the dwell sits on its target either way). R3: gaze at the DISC's
+            // centre, which is the registered target — at the 36 DIP default the taller label
+            // puts the window's own centre 30 DIP below the disc, outside the 28 DIP hit radius.
+            var placeRect = manager.PlaceWindowRectForTest;
+            var placeWindow = manager.PlaceWindowForTest!;
+            present = HoldGaze(manager, new PhysicalPoint(
+                DpiHelper.LogicalToPhysicalX(placeRect.X + placeWindow.DiscCentreDip.X),
+                DpiHelper.LogicalToPhysicalY(placeRect.Y + placeWindow.DiscCentreDip.Y)), present);
 
             Check.WithCustomMessage("the place dwell must return the note to Display")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);

@@ -56,8 +56,8 @@ public class NoteTextSizeTests
 
             var before = manager.PlacementForTest(id)!;
             var window = manager.WindowForTest(id)!;
-            Check.That(before.Card.Width).IsEqualTo(NoteLayout.CardWidthDip(28));
-            Check.That(window.TextSizeForTest).IsEqualTo(28);
+            Check.That(before.Card.Width).IsEqualTo(NoteLayout.CardWidthDip(NoteSettings.DefaultTextSizeDip));
+            Check.That(window.TextSizeForTest).IsEqualTo(NoteSettings.DefaultTextSizeDip);
 
             settings.TextSizeDip = 40;
 

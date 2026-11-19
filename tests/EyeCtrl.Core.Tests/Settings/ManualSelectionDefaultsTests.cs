@@ -27,8 +27,10 @@ public class ManualSelectionDefaultsTests
             .That(settings.CircleRadiusPixels).IsEqualTo(100);
     }
 
-    [Fact]
-    public void OwnersFile_SurvivesLoadSaveReload_Unchanged()
+    [Theory]
+    [InlineData(200.0, 3)]  // the owner's file at the 9th sitting
+    [InlineData(60.0, 5)]   // after the magnifier-ring-freeze prep (option B: hold 60 DIP, K 5)
+    public void OwnersFile_SurvivesLoadSaveReload_Unchanged(double holdRadius, int stabilitySamples)
     {
         // G2: the owner's real manualSelection section (4 / 100 plus their other values) goes
         // through Load -> Save -> reload with every value intact. A migration (or any load-time
@@ -40,8 +42,8 @@ public class ManualSelectionDefaultsTests
             owner.ManualSelection.CircleRadiusPixels = 100;
             owner.ManualSelection.MagnificationLevel = 4.0;
             owner.ManualSelection.ManualSelectionGracePeriodMs = 1200;
-            owner.ManualSelection.HoldRadiusLogical = 200;
-            owner.ManualSelection.StabilitySampleCount = 3;
+            owner.ManualSelection.HoldRadiusLogical = holdRadius;
+            owner.ManualSelection.StabilitySampleCount = stabilitySamples;
             owner.ManualSelection.StabilityWindowSize = 7;
             owner.ManualSelection.HoldOutlierSkipLimit = 10;
             owner.ManualSelection.GazeIndicatorOpacity = 0.7;
@@ -50,11 +52,11 @@ public class ManualSelectionDefaultsTests
             service.Save(owner);
 
             var loaded = service.Load();
-            AssertOwnersSection(loaded);
+            AssertOwnersSection(loaded, holdRadius, stabilitySamples);
 
             // The second leg: Save what Load produced, reload again - still the owner's values.
             service.Save(loaded);
-            AssertOwnersSection(new SettingsService(path).Load());
+            AssertOwnersSection(new SettingsService(path).Load(), holdRadius, stabilitySamples);
         }
         finally
         {
@@ -109,13 +111,13 @@ public class ManualSelectionDefaultsTests
         Check.That(settings.ManualSelection.MagnificationLevel).IsEqualTo(4.0);
     }
 
-    private static void AssertOwnersSection(EyeCtrlSettings settings)
+    private static void AssertOwnersSection(EyeCtrlSettings settings, double holdRadius, int stabilitySamples)
     {
         Check.That(settings.ManualSelection.CircleRadiusPixels).IsEqualTo(100);
         Check.That(settings.ManualSelection.MagnificationLevel).IsEqualTo(4.0);
         Check.That(settings.ManualSelection.ManualSelectionGracePeriodMs).IsEqualTo(1200);
-        Check.That(settings.ManualSelection.HoldRadiusLogical).IsEqualTo(200.0);
-        Check.That(settings.ManualSelection.StabilitySampleCount).IsEqualTo(3);
+        Check.That(settings.ManualSelection.HoldRadiusLogical).IsEqualTo(holdRadius);
+        Check.That(settings.ManualSelection.StabilitySampleCount).IsEqualTo(stabilitySamples);
         Check.That(settings.ManualSelection.StabilityWindowSize).IsEqualTo(7);
         Check.That(settings.ManualSelection.HoldOutlierSkipLimit).IsEqualTo(10);
         Check.That(settings.ManualSelection.GazeIndicatorOpacity).IsEqualTo(0.7);

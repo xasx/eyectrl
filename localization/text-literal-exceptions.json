@@ -444,9 +444,51 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"Magnifier dwell\"",
+      "Category": "log",
+      "Reason": "The prefix of the magnifier dwell lines (ring freeze; gated on diagnostics.logRingEvents) -- log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
       "Literal": "\"ManualSelection_dwell_target\"",
       "Category": "id",
       "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"na\"",
+      "Category": "log",
+      "Reason": "The no-timestamp token of the magnifier dwell lines -- log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"none\"",
+      "Category": "log",
+      "Reason": "The no-anchor token of the magnifier dwell lines -- log-only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"{0} commit real=({1:0},{2:0}) view=({3:0},{4:0})\"",
+      "Category": "log",
+      "Reason": "The magnifier dwell commit's real-point line format -- log-only, parsed by the sitting readout; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"{0} reset ({1}) ts={2} anchor={3}\"",
+      "Category": "log",
+      "Reason": "The magnifier dwell reset line format -- log-only, parsed by the sitting readout; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"{0} seat ts={1} ms={2} anchor=({3:0},{4:0}) k={5}/{6}\"",
+      "Category": "log",
+      "Reason": "The magnifier dwell seat line format -- log-only, parsed by the sitting readout; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"{0} silence ts={1} gapMs={2} anchor={3}\"",
+      "Category": "log",
+      "Reason": "The magnifier dwell silence-restart line format -- log-only, parsed by the sitting readout; never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/ManualSelectionEdgeButtons.cs",

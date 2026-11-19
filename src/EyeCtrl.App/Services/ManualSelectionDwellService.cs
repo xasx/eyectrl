@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
@@ -40,8 +41,9 @@ public class ManualSelectionDwellService : IDisposable
 
     // Commit-rule state. The anchor seats on stability onset and is then HELD: it is not re-centred
     // on the live gaze (that made the distance to the hit-tested point identically zero, so the
-    // target radius was unreachable and every sample counted as inside). The commit point is the
-    // running centroid of the held samples, which recovers accuracy under noise.
+    // target radius was unreachable and every sample counted as inside). While the anchor is held
+    // the gaze indicator is FROZEN on it and the click commits AT it: what the ring shows is what is
+    // clicked. The running centroid of the held samples is kept only for the commit log line.
     private readonly Queue<PhysicalPoint> _stabilitySamples = new();
     private PhysicalPoint? _anchor;
     private PhysicalPoint? _commitPoint;
@@ -50,12 +52,27 @@ public class ManualSelectionDwellService : IDisposable
     private int _commitCount;
     private int _consecutiveOutOfHoldSamples;
 
+    // Diagnostics only (the gated log lines): the last sample fed to the detector, to see its
+    // silence restart, and whether the gaze is already outside the rim, so a bounds reset is logged
+    // once per excursion rather than on every outside sample.
+    private long? _lastFedTimestamp;
+    private bool _outsideBounds;
+
     /// <summary>
-    /// Onset window as a fraction of the hold radius: the seating cluster must be this tight
-    /// before the anchor seats. Tied to the hold radius so the one strictness knob
-    /// (<see cref="ManualSelectionSettings.HoldRadiusLogical"/>) loosens seating and holding together.
+    /// Onset window radius in DIP: K of the last <see cref="ManualSelectionSettings.StabilityWindowSize"/>
+    /// samples must lie this close to the newest one before the anchor seats. A fixed, tight settle
+    /// (30 px at 200 %, about 3.3 sigma of the owner's jitter), decoupled from the hold radius: the
+    /// indicator freezes at the seat, so seating on a loose cluster would freeze the ring on the
+    /// landing point while the eye and the filter are still arriving.
     /// </summary>
-    private const double OnsetRadiusHoldFraction = 0.5;
+    internal const double OnsetRadiusLogical = 15.0;
+
+    /// <summary>The detector's silence clamp (<c>DwellDetector.MaxCreditedSampleGapUs</c>): a gap of
+    /// at least this between fed samples restarts the fill. Mirrored here only to log the restart.</summary>
+    private const long DetectorSilenceRestartUs = 150 * MathConstants.MicrosecondsPerMillisecond;
+
+    /// <summary>The prefix every gated magnifier-dwell line starts with.</summary>
+    internal const string LogPrefix = "Magnifier dwell";
 
     public ManualSelectionDwellService(
         IMessenger messenger,
@@ -95,6 +112,7 @@ public class ManualSelectionDwellService : IDisposable
         _isActive = true;
         _gracePeriodActive = false;
         _manualSelectionStartTimestamp = 0;
+        _outsideBounds = false;
 
         // Create DwellDetector with cooldown disabled (we handle grace period separately)
         _dwellDetector = new DwellDetector(cooldownMs: 0, context: DwellContext.ManualSelection, sink: _sink);
@@ -174,11 +192,15 @@ public class ManualSelectionDwellService : IDisposable
         if (!_isActive || _dwellDetector == null) return;
 
         var hadAnchor = _anchor is not null;
+        LogReset("recapture", _anchor);
         ClearCommitState();
 
         _dwellDetector.ResetAllState();
         _gracePeriodActive = false;
         _manualSelectionStartTimestamp = 0;
+        // Grace samples return before the bounds check, so an excursion that was running at the
+        // recapture would otherwise swallow the bounds line of the next one after the new grace.
+        _outsideBounds = false;
 
         DispatchSafe(() => _messenger.Send(new ResetManualSelectionIndicatorMessage()), "recapture-reset");
 
@@ -196,16 +218,19 @@ public class ManualSelectionDwellService : IDisposable
 
         // Gap-held sample: the position is frozen, so it must not advance dwell. Skipping the whole
         // sample also keeps the grace period honest — it starts at the first REAL sample rather than
-        // at a held timestamp — and the indicator simply stays where it was, since the point is
-        // unchanged.
+        // at a held timestamp — and the indicator simply stays where it was, which also keeps a
+        // frozen ring frozen through a blink.
         if (message.IsInGap)
             return;
 
         var pt = message.Position;
         var ts = message.TimestampMicroseconds;
 
-        // 1. Update indicator position (even during grace period)
-        UpdateIndicatorPosition(pt);
+        // 1. The indicator follows the gaze (grace period included) until the anchor seats. From the
+        //    seat on it is FROZEN on the anchor: no position update while _anchor is set. Every path
+        //    that drops the anchor below follows this same sample again, so a release is immediate.
+        if (_anchor is null)
+            UpdateIndicatorPosition(pt);
 
         // 2. Handle grace period
         if (!_gracePeriodActive)
@@ -221,16 +246,17 @@ public class ManualSelectionDwellService : IDisposable
         // 3. Bounds check
         if (!IsWithinManualSelectionBounds(pt))
         {
-            ResetDwell();
+            ReleaseAndFollow("bounds", pt, ts, logOnlyOnEntry: true);
             return;
         }
+        _outsideBounds = false;
 
         // 4. Commit rule: the anchor must exist before dwell can accumulate, and once it exists it
         //    is held. Only samples within the hold radius are fed to the detector; an isolated
         //    out-of-hold sample is skipped rather than treated as gaze-left.
         if (_anchor is null)
         {
-            if (!TrySeatAnchor(pt))
+            if (!TrySeatAnchor(pt, ts))
                 return;
         }
         else if (!IsWithinHoldRadius(pt))
@@ -238,10 +264,10 @@ public class ManualSelectionDwellService : IDisposable
             _consecutiveOutOfHoldSamples++;
             if (_consecutiveOutOfHoldSamples > _settings.ManualSelection.HoldOutlierSkipLimit)
             {
-                // Not an isolated outlier: the user moved. Drop the anchor, reset the dwell and
-                // start looking for a new stability onset from this sample.
-                ResetDwell();
-                TrySeatAnchor(pt);
+                // Not an isolated outlier: the user moved. Drop the anchor (unfreezing the ring onto
+                // this sample), reset the dwell and start looking for a new stability onset here.
+                ReleaseAndFollow("hold", pt, ts, logOnlyOnEntry: false);
+                TrySeatAnchor(pt, ts);
             }
             return;
         }
@@ -251,18 +277,41 @@ public class ManualSelectionDwellService : IDisposable
             AccumulateCommitPoint(pt);
         }
 
-        // 5. Update dwell detector
+        // 5. Update dwell detector. A silence of 150 ms or more since the last fed sample (a blink,
+        //    or a run of skipped out-of-hold samples) restarts the fill inside the detector; the
+        //    anchor, and so the frozen ring, stay. Logged here because the detector does it silently.
+        if (_lastFedTimestamp is { } lastFed && ts - lastFed >= DetectorSilenceRestartUs)
+            LogLine(SilenceLine(ts, (ts - lastFed) / MathConstants.MicrosecondsPerMillisecond, _anchor));
+        _lastFedTimestamp = ts;
         _dwellDetector.Update(pt, ts);
+    }
+
+    /// <summary>
+    /// The abandon and out-of-bounds release: reset the dwell (which drops the anchor) and put the
+    /// ring back on the live gaze at once. Step 1 skipped this sample because the ring was frozen.
+    /// </summary>
+    private void ReleaseAndFollow(string cause, PhysicalPoint pt, long ts, bool logOnlyOnEntry)
+    {
+        var wasFrozen = _anchor is not null;
+        if (!logOnlyOnEntry || wasFrozen || !_outsideBounds)
+            LogReset(cause, _anchor, ts);
+        if (logOnlyOnEntry)
+            _outsideBounds = true;
+
+        ResetDwell();
+        if (wasFrozen)
+            UpdateIndicatorPosition(pt);
     }
 
     /// <summary>
     /// Seats the dwell anchor on stability onset: at least
     /// <see cref="ManualSelectionSettings.StabilitySampleCount"/> of the last
-    /// <see cref="ManualSelectionSettings.StabilityWindowSize"/> samples must lie within the onset
-    /// window of the newest sample. The anchor is their centroid, and it also seeds the commit
-    /// centroid, so seating error is ~sigma/sqrt(K).
+    /// <see cref="ManualSelectionSettings.StabilityWindowSize"/> samples must lie within
+    /// <see cref="OnsetRadiusLogical"/> of the newest sample. The anchor is their centroid, so
+    /// seating error is ~sigma/sqrt(K). The seat sends the indicator ONE final position, the anchor,
+    /// and freezes it there.
     /// </summary>
-    private bool TrySeatAnchor(PhysicalPoint sample)
+    private bool TrySeatAnchor(PhysicalPoint sample, long ts)
     {
         var sampleCount = _settings.ManualSelection.StabilitySampleCount;
         var windowSize = Math.Max(_settings.ManualSelection.StabilityWindowSize, sampleCount);
@@ -271,7 +320,7 @@ public class ManualSelectionDwellService : IDisposable
         while (_stabilitySamples.Count > windowSize)
             _stabilitySamples.Dequeue();
 
-        var onsetRadius = HoldRadiusPhysical * OnsetRadiusHoldFraction;
+        var onsetRadius = OnsetRadiusLogical * DpiHelper.ScaleX;
         var onsetRadiusSq = onsetRadius * onsetRadius;
 
         var inlierCount = 0;
@@ -306,7 +355,12 @@ public class ManualSelectionDwellService : IDisposable
         _logger.LogDebug(
             "ManualSelection anchor seated at ({X}, {Y}) from {Count} stable samples",
             anchor.X, anchor.Y, inlierCount);
+        LogLine(SeatLine(ts, (ts - _manualSelectionStartTimestamp) / MathConstants.MicrosecondsPerMillisecond,
+            anchor, inlierCount, windowSize));
 
+        // The freeze: the ring's last position is the anchor (within a few px of the live ring at
+        // this moment), and step 1 of OnGazeMoved sends nothing more until the anchor is dropped.
+        UpdateIndicatorPosition(anchor);
         DispatchSafe(() => _messenger.Send(new ManualSelectionAnchorChangedMessage(anchor)), "anchor-seated");
         return true;
     }
@@ -328,6 +382,7 @@ public class ManualSelectionDwellService : IDisposable
         _commitCount = 0;
         _consecutiveOutOfHoldSamples = 0;
         _stabilitySamples.Clear();
+        _lastFedTimestamp = null;
     }
 
     /// <param name="handler">
@@ -368,15 +423,17 @@ public class ManualSelectionDwellService : IDisposable
             if (_dwellDetector == null) return;
 
             _logger.LogInformation("ManualSelection dwell completed");
+            if (_anchor is { } anchor)
+                LogLine(CommitLine(_lastFedTimestamp, anchor, _commitPoint ?? anchor, _commitCount));
 
             // Reset indicator
             _messenger.Send(new ResetManualSelectionIndicatorMessage());
 
-            // Commit at the running centroid of the held samples, not at the live gaze point: the
-            // centroid averages out the noise that a single sample would commit, which is what
-            // recovers accuracy now that the target no longer tracks the gaze.
+            // Commit AT the anchor — the frozen point the ring shows — not at the running centroid
+            // of the held samples: what the ring shows is what is clicked. The centroid is only in
+            // the commit log line, to compare the two at the next sitting.
             _messenger.Send(new ManualSelectionDwellCompletedMessage(
-                _commitPoint ?? _manualSelectionCenter!.Value));
+                _anchor ?? _manualSelectionCenter!.Value));
 
             // Post-completion publish (spec D8): the cue fires only here — after the bail-out,
             // so a session torn down between the raise and this continuation publishes neither
@@ -429,6 +486,61 @@ public class ManualSelectionDwellService : IDisposable
         if (hadAnchor)
             DispatchSafe(() => _messenger.Send(new ManualSelectionAnchorChangedMessage(null)), "anchor-released");
     }
+
+    // ── The gated log lines (diagnostics.logRingEvents; invariant culture; physical view px) ──
+
+    private void LogLine(string line)
+    {
+        if (_settings.Diagnostics.LogRingEvents)
+            _logger.LogInformation("{MagnifierDwell:l}", line);
+    }
+
+    private void LogReset(string cause, PhysicalPoint? anchor, long? ts = null) =>
+        LogLine(ResetLine(cause, ts, anchor));
+
+    /// <summary>The seat: the device timestamp, ms since the session's first real sample, the anchor
+    /// and how many of the window's samples seated it.</summary>
+    internal static string SeatLine(long ts, long sinceStartMs, PhysicalPoint anchor, int k, int window) =>
+        string.Format(CultureInfo.InvariantCulture,
+            "{0} seat ts={1} ms={2} anchor=({3:0},{4:0}) k={5}/{6}",
+            LogPrefix, ts, sinceStartMs, anchor.X, anchor.Y, k, window);
+
+    /// <summary>A reset with its cause (bounds, hold or recapture) and the anchor it dropped
+    /// (<c>none</c> when there was none). Bounds is logged once per excursion outside the rim.</summary>
+    internal static string ResetLine(string cause, long? ts, PhysicalPoint? anchor) =>
+        string.Format(CultureInfo.InvariantCulture,
+            "{0} reset ({1}) ts={2} anchor={3}",
+            LogPrefix, cause, ts is { } t ? t.ToString(CultureInfo.InvariantCulture) : "na", PointText(anchor));
+
+    /// <summary>The detector's silence restart: the fill starts over, the anchor and ring stay.</summary>
+    internal static string SilenceLine(long ts, long gapMs, PhysicalPoint? anchor) =>
+        string.Format(CultureInfo.InvariantCulture,
+            "{0} silence ts={1} gapMs={2} anchor={3}",
+            LogPrefix, ts, gapMs, PointText(anchor));
+
+    /// <summary>The commit: the anchor (the clicked view point), the held samples' centroid and their
+    /// distance, and the number of samples in the centroid.</summary>
+    internal static string CommitLine(long? ts, PhysicalPoint anchor, PhysicalPoint centroid, int n)
+    {
+        var dx = centroid.X - anchor.X;
+        var dy = centroid.Y - anchor.Y;
+        return string.Format(CultureInfo.InvariantCulture,
+            "{0} commit ts={1} anchor=({2:0},{3:0}) centroid=({4:0},{5:0}) d={6:0} n={7}",
+            LogPrefix, ts is { } t ? t.ToString(CultureInfo.InvariantCulture) : "na",
+            anchor.X, anchor.Y, centroid.X, centroid.Y, Math.Sqrt(dx * dx + dy * dy), n);
+    }
+
+    /// <summary>The commit's real screen point, written where the view point is mapped
+    /// (<c>OverlayMessageCoordinator</c>), gated the same way.</summary>
+    internal static string CommitRealLine(PhysicalPoint view, PhysicalPoint real) =>
+        string.Format(CultureInfo.InvariantCulture,
+            "{0} commit real=({1:0},{2:0}) view=({3:0},{4:0})",
+            LogPrefix, real.X, real.Y, view.X, view.Y);
+
+    private static string PointText(PhysicalPoint? point) =>
+        point is { } p
+            ? string.Format(CultureInfo.InvariantCulture, "({0:0},{1:0})", p.X, p.Y)
+            : "none";
 
     private void UpdateIndicatorPosition(PhysicalPoint gazePoint)
     {

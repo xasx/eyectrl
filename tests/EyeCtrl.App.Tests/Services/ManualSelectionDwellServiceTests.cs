@@ -11,7 +11,7 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 /// <summary>
@@ -71,6 +71,7 @@ public class ManualSelectionDwellServiceTests
     private readonly Dispatcher _dispatcher;
     private readonly ManualSelectionGazeIndicatorViewModel _indicatorVM;
     private readonly InteractionManager _interactionManager;
+    private readonly RecordingLogger _log = new();
     private readonly ManualSelectionDwellService _service;
 
     public ManualSelectionDwellServiceTests()
@@ -103,7 +104,7 @@ public class ManualSelectionDwellServiceTests
 
         _service = new ManualSelectionDwellService(
             _messenger,
-            NullLogger<ManualSelectionDwellService>.Instance,
+            _log,
             _settings,
             _dispatcher,
             _interactionManager);
@@ -744,45 +745,29 @@ public class ManualSelectionDwellServiceTests
     }
 
     /// <summary>
-    /// Committing at the running centroid, not the last sample. The stream holds at the anchor and
-    /// then sits 60 px off it (still inside the 72 px hold); the commit must land on the mean of the
-    /// held samples. Committing at the last gaze point misses by ~37 px and turns this red.
+    /// M2 — commit at the frozen point. The anchor seats at (500, 500), then the held samples drift
+    /// 40 px (inside the hold) until the dwell fires. The click must land on the ANCHOR, where the
+    /// frozen ring is drawn, not on the running centroid of the held samples (which this stream
+    /// drags ~30 px away) nor on the last sample. Replaces the earlier centroid-commit pin: the
+    /// magnifier ring freeze (owner 18.11) deliberately moves the commit to the anchor.
     /// </summary>
-    [Fact]
-    public void OnDwellCompleted_CommitsAtRunningCentroid_NotLastSample()
+    [Theory]
+    [InlineData(60.0, 5, 10)]   // the owner's prep values (option B)
+    [InlineData(72.0, 5, 3)]    // the product defaults
+    public void Freeze_M2_CommitIsAtTheAnchor_NotTheCentroid(double hold, int k, int skip)
     {
+        ConfigureHold(hold, k, skip);
         StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
 
-        ManualSelectionDwellCompletedMessage? completed = null;
-        _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completed = m);
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), k);
+        for (var i = next; i < next + 60 && rec.Commits.Count == 0; i++)
+            SendGaze(new PhysicalPoint(540, 500), i);
 
-        double sumX = 0, sumY = 0;
-        var count = 0;
-        PhysicalPoint last = default;
-        for (var i = 0; i < 60 && completed is null; i++)
-        {
-            // p0–p18 at the anchor, then 60 px off it (inside the hold radius) for the tail.
-            var point = i < 19 ? new PhysicalPoint(500, 500) : new PhysicalPoint(560, 500);
-            if (i >= FirstPostGraceSampleIndex)
-            {
-                sumX += point.X;
-                sumY += point.Y;
-                count++;
-            }
-            last = point;
-            SendGaze(point, i);
-        }
-
-        Check.That(completed).IsNotNull();
-        var expectedX = sumX / count;
-        var expectedY = sumY / count;
-        Check.That(completed!.PrecisePoint.X).IsCloseTo(expectedX, 0.01);
-        Check.That(completed!.PrecisePoint.Y).IsCloseTo(expectedY, 0.01);
-
-        Check.WithCustomMessage("The probe must discriminate: the last sample sits far from the centroid.")
-            .That(Math.Abs(last.X - expectedX)).IsStrictlyGreaterThan(30);
-
-        _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+        Check.WithCustomMessage("Setup: the dwell must have completed.").That(rec.Commits).HasSize(1);
+        Check.WithCustomMessage("The click must land on the anchor, where the frozen ring is drawn.")
+            .That(rec.Commits[0].X).IsCloseTo(500, 0.01);
+        Check.That(rec.Commits[0].Y).IsCloseTo(500, 0.01);
     }
 
     /// <summary>
@@ -1008,5 +993,430 @@ public class ManualSelectionDwellServiceTests
             .That(anchorReleases).IsEqualTo(0);
 
         _messenger.Unregister<ManualSelectionAnchorChangedMessage>(this);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    // The magnifier ring freeze (owner 18.11, option B; ticket magnifier-ring-freeze, report §3).
+    // The anchor seats on a tight settle (15 DIP, K of the last 7), the indicator is frozen on it
+    // from the seat on, the click commits at it, and only the abandon, the rim, a recapture or the
+    // session end unfreeze it. Each test names the report's mutant it kills; the D/K/skip theories
+    // run at the owner's prep values (60 DIP, K 5, skip 10) and at the product defaults (72, 5, 3).
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>M1 — the follow is gated: after the seat, gaze moving inside the hold radius sends
+    /// no position message, and the anchor stays.</summary>
+    [Theory]
+    [InlineData(60.0, 5, 10)]
+    [InlineData(72.0, 5, 3)]
+    public void Freeze_M1_AfterTheSeat_GazeInsideTheHold_SendsNoPosition(double hold, int k, int skip)
+    {
+        ConfigureHold(hold, k, skip);
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), k);
+        Check.WithCustomMessage("Setup: the anchor must have seated.").That(rec.Seats).HasSize(1);
+        rec.Positions.Clear();
+
+        // 8 samples (400 ms, under the 800 ms dwell) wandering up to 40 px — inside both holds.
+        var wander = new[] { (540, 500), (500, 540), (460, 500), (500, 460), (530, 530), (470, 470), (520, 480), (480, 520) };
+        for (var j = 0; j < wander.Length; j++)
+            SendGaze(new PhysicalPoint(wander[j].Item1, wander[j].Item2), next + j);
+
+        Check.WithCustomMessage("A frozen ring must not follow the gaze inside the hold.")
+            .That(rec.Positions).IsEmpty();
+        Check.That(rec.Releases).IsEqualTo(0);
+        Check.That(rec.Commits).IsEmpty();
+    }
+
+    /// <summary>
+    /// M3 — the onset is a fixed 15 DIP settle, not 0.5 × hold. With the owner's old 200 DIP hold
+    /// the old rule seats on the 5th sample of a landing trajectory (every step 20 px, all within
+    /// 100 px of the newest). The settle rule must wait until K samples of the last 7 lie within
+    /// 15 DIP: the 5th sample at rest, 20 px past the last landing step.
+    /// </summary>
+    [Fact]
+    public void Freeze_M3_ALandingTrajectory_DoesNotSeatUntilATightSettle()
+    {
+        ConfigureHold(200, 5, 10);
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
+
+        SendGazeRun(new PhysicalPoint(300, 500), FirstPostGraceSampleIndex);
+        var i = FirstPostGraceSampleIndex;
+        for (var step = 0; step < 8; step++, i++)
+            SendGaze(new PhysicalPoint(300 + 20 * step, 500), i);   // 300 … 440, landing
+
+        Check.WithCustomMessage("A landing gaze (20 px per sample) must not seat the anchor.")
+            .That(rec.Seats).IsEmpty();
+
+        for (var rest = 1; rest <= 5; rest++, i++)
+        {
+            SendGaze(new PhysicalPoint(460, 500), i);              // at rest, 20 px past the last step
+            if (rest < 5)
+                Check.WithCustomMessage($"Rest sample {rest} of 5 must not seat yet.").That(rec.Seats).IsEmpty();
+        }
+
+        Check.WithCustomMessage("The 5th sample at rest seats the anchor on the settled point.")
+            .That(rec.Seats).HasSize(1);
+        Check.That(rec.Seats[0].X).IsCloseTo(460, 0.01);
+        Check.That(rec.Seats[0].Y).IsCloseTo(500, 0.01);
+    }
+
+    /// <summary>The onset radius is a DIP value and carries ScaleX: at 200 % a cluster with a 24 px
+    /// spread seats (inside 30 px), and at 100 % it never could (outside 15 px).</summary>
+    [Theory]
+    [InlineData(2.0, true)]
+    [InlineData(1.0, false)]
+    public void Freeze_OnsetRadius_ScalesWithDisplayDpi(double scale, bool seats)
+    {
+        DpiHelper.Initialize(scale, scale);
+        try
+        {
+            StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+            var rec = new FreezeRecorder(_messenger);
+
+            for (var i = 0; i < FirstPostGraceSampleIndex + 10; i++)
+                SendGaze(new PhysicalPoint(i % 2 == 0 ? 488 : 512, 500), i);
+
+            Check.That(rec.Seats.Count == 1).IsEqualTo(seats);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    /// <summary>M4 — the abandon unfreezes: after more than the skip limit beyond D the ring follows
+    /// the gaze again, on the releasing sample and on the next one.</summary>
+    [Theory]
+    [InlineData(60.0, 5, 10)]
+    [InlineData(72.0, 5, 3)]
+    public void Freeze_M4_AfterTheAbandon_TheIndicatorFollowsAgain(double hold, int k, int skip)
+    {
+        ConfigureHold(hold, k, skip);
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), k);
+        rec.Positions.Clear();
+
+        for (var j = 0; j <= skip; j++)
+            SendGaze(new PhysicalPoint(700, 500), next + j);       // 200 px: beyond either D
+        next += skip + 1;
+        SendGaze(new PhysicalPoint(710, 500), next);
+
+        Check.That(rec.Releases).IsEqualTo(1);
+        Check.WithCustomMessage("After the abandon the next sample must move the indicator.")
+            .That(rec.Positions).Not.IsEmpty();
+        Check.That(rec.Positions[^1].X).IsCloseTo(710, 0.01);
+        Check.That(rec.Positions[^1].Y).IsCloseTo(500, 0.01);
+    }
+
+    /// <summary>M8 — <c>&gt;</c>, not <c>&gt;=</c>: exactly N (the skip limit) out-of-hold samples keep
+    /// the freeze; the N+1-th releases it and puts the ring on the live gaze.</summary>
+    [Theory]
+    [InlineData(60.0, 5, 10)]
+    [InlineData(72.0, 5, 3)]
+    public void Freeze_M8_ExactlyTheSkipLimitKeepsTheFreeze_OneMoreReleases(double hold, int k, int skip)
+    {
+        ConfigureHold(hold, k, skip);
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), k);
+        rec.Positions.Clear();
+
+        for (var j = 0; j < skip; j++)
+            SendGaze(new PhysicalPoint(700, 500), next + j);
+
+        Check.WithCustomMessage("Exactly the skip limit of out-of-hold samples must keep the freeze.")
+            .That(rec.Positions).IsEmpty();
+        Check.That(rec.Releases).IsEqualTo(0);
+
+        SendGaze(new PhysicalPoint(700, 500), next + skip);
+
+        Check.WithCustomMessage("One more out-of-hold sample must release the freeze.")
+            .That(rec.Releases).IsEqualTo(1);
+        Check.That(rec.Positions).HasSize(1);
+        Check.That(rec.Positions[0].X).IsCloseTo(700, 0.01);
+    }
+
+    /// <summary>M5 — leaving the magnifier rim unfreezes, at once and for the samples after it.</summary>
+    [Theory]
+    [InlineData(60.0, 5, 10)]
+    [InlineData(72.0, 5, 3)]
+    public void Freeze_M5_LeavingTheRim_Unfreezes(double hold, int k, int skip)
+    {
+        ConfigureHold(hold, k, skip);
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), k);
+        rec.Positions.Clear();
+
+        SendGaze(new PhysicalPoint(950, 500), next);               // 450 px: outside the 400 px rim
+        SendGaze(new PhysicalPoint(520, 500), next + 1);           // back inside, 20 px off the old anchor
+
+        Check.That(rec.Releases).IsEqualTo(1);
+        Check.WithCustomMessage("Leaving the rim must unfreeze the ring onto the live gaze.")
+            .That(rec.Positions).HasSize(2);
+        Check.That(rec.Positions[0].X).IsCloseTo(950, 0.01);
+        Check.That(rec.Positions[1].X).IsCloseTo(520, 0.01);
+    }
+
+    /// <summary>M5 — a recapture unfreezes: the next sample (in the restarted grace) moves the ring.</summary>
+    [Theory]
+    [InlineData(60.0, 5, 10)]
+    [InlineData(72.0, 5, 3)]
+    public void Freeze_M5_ARecapture_Unfreezes(double hold, int k, int skip)
+    {
+        ConfigureHold(hold, k, skip);
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), k);
+        rec.Positions.Clear();
+
+        _messenger.Send(new ManualSelectionRecaptureMessage());
+        SendGaze(new PhysicalPoint(530, 500), next);               // inside the hold: only the recapture can free it
+
+        Check.That(rec.Releases).IsEqualTo(1);
+        Check.WithCustomMessage("After a recapture the ring must follow the gaze again.")
+            .That(rec.Positions).HasSize(1);
+        Check.That(rec.Positions[0].X).IsCloseTo(530, 0.01);
+    }
+
+    /// <summary>The session end unfreezes: a new session's first sample moves the ring.</summary>
+    [Fact]
+    public void Freeze_TheSessionEnd_Unfreezes()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), 5);
+
+        _messenger.Send(new EndManualSelectionMessage());
+        _messenger.Send(new StartManualSelectionMessage(new PhysicalPoint(500, 500), 200, 2.0, new PhysicalPoint(500, 500)));
+        rec.Positions.Clear();
+        SendGaze(new PhysicalPoint(510, 500), next);
+
+        Check.That(rec.Positions).HasSize(1);
+        Check.That(rec.Positions[0].X).IsCloseTo(510, 0.01);
+    }
+
+    /// <summary>
+    /// M6 — the seat sends ONE final position, the anchor. The cluster is asymmetric, so the anchor
+    /// (500, 500.4) is not the seating sample (500, 498): a seat that leaves the ring on the last
+    /// live sample fails the equality.
+    /// </summary>
+    [Fact]
+    public void Freeze_M6_TheLastPositionAtTheSeat_IsTheAnchor()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
+
+        SendGazeRun(new PhysicalPoint(500, 500), FirstPostGraceSampleIndex);
+        SendGaze(new PhysicalPoint(500, 500), 6);
+        SendGaze(new PhysicalPoint(504, 500), 7);
+        SendGaze(new PhysicalPoint(496, 500), 8);
+        SendGaze(new PhysicalPoint(500, 504), 9);
+        SendGaze(new PhysicalPoint(500, 498), 10);
+
+        Check.That(rec.Seats).HasSize(1);
+        var last = rec.Positions[^1];
+        Check.WithCustomMessage("The ring's last position at the seat must be the anchor.")
+            .That(last.X).IsCloseTo(rec.Seats[0].X, 0.001);
+        Check.That(last.Y).IsCloseTo(rec.Seats[0].Y, 0.001);
+        Check.That(last.Y).IsCloseTo(500.4, 0.001);
+    }
+
+    /// <summary>M7 — a blink keeps the freeze: gap samples during it send nothing (even far off the
+    /// anchor), and the next real sample inside the hold sends nothing either.</summary>
+    [Theory]
+    [InlineData(60.0, 5, 10)]
+    [InlineData(72.0, 5, 3)]
+    public void Freeze_M7_GapSamplesDuringTheFreeze_SendNothing(double hold, int k, int skip)
+    {
+        ConfigureHold(hold, k, skip);
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), k);
+        rec.Positions.Clear();
+
+        for (var j = 0; j < skip + 3; j++)
+            _messenger.Send(new GazeCursorMovedMessage(
+                new GazeFrame(new PhysicalPoint(700, 500), (next + j) * TargetingSampleSpacingUs, IsInGap: true)));
+        SendGaze(new PhysicalPoint(510, 500), next + skip + 3);
+
+        Check.WithCustomMessage("A blink must not move or unfreeze the frozen ring.")
+            .That(rec.Positions).IsEmpty();
+        Check.That(rec.Releases).IsEqualTo(0);
+    }
+
+    // ── The gated log lines (diagnostics.logRingEvents) ──────────────────────────────────────
+
+    /// <summary>The seat, a silence restart and the commit, with their fields, when the key is on.</summary>
+    [Fact]
+    public void Freeze_LogLines_SeatSilenceAndCommit_AreWrittenWhenRingEventsAreOn()
+    {
+        _settings.Diagnostics.LogRingEvents = true;
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), 5);    // seats at sample 10 = 500 ms
+        SendGaze(new PhysicalPoint(540, 500), next);                // 11
+        next += 5;                                                  // 250 ms silence: 11 → 16
+        for (var i = next; i < next + 40 && rec.Commits.Count == 0; i++)
+            SendGaze(new PhysicalPoint(540, 500), i);
+
+        Check.That(rec.Commits).HasSize(1);
+        var lines = _log.MagnifierLines();
+        Check.That(lines).Contains("Magnifier dwell seat ts=500000 ms=500 anchor=(500,500) k=5/7");
+        Check.That(lines).Contains("Magnifier dwell silence ts=800000 gapMs=250 anchor=(500,500)");
+        Check.That(lines.Any(l => l.StartsWith("Magnifier dwell commit ts=", StringComparison.Ordinal)
+                                  && l.Contains("anchor=(500,500) centroid=(", StringComparison.Ordinal)))
+            .IsTrue();
+    }
+
+    /// <summary>Every reset with its cause: hold (the abandon), bounds once per excursion outside the
+    /// rim, and recapture with the anchor it dropped.</summary>
+    [Fact]
+    public void Freeze_LogLines_ResetsCarryTheirCause()
+    {
+        _settings.Diagnostics.LogRingEvents = true;
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), 5);    // default skip limit 3
+        for (var j = 0; j < 4; j++)
+            SendGaze(new PhysicalPoint(700, 500), next + j);        // abandon on the 4th
+        next += 4;
+        SendGaze(new PhysicalPoint(950, 500), next++);              // out of the rim …
+        SendGaze(new PhysicalPoint(960, 500), next++);              // … still out: no second line
+        for (var j = 0; j < 5; j++)
+            SendGaze(new PhysicalPoint(520, 500), next++);          // back in, re-seats
+        _messenger.Send(new ManualSelectionRecaptureMessage());
+
+        var lines = _log.MagnifierLines();
+        Check.That(lines).Contains("Magnifier dwell reset (hold) ts=700000 anchor=(500,500)");
+        Check.That(lines.Count(l => l.StartsWith("Magnifier dwell reset (bounds)", StringComparison.Ordinal)))
+            .IsEqualTo(1);
+        Check.That(lines).Contains("Magnifier dwell reset (bounds) ts=750000 anchor=none");
+        Check.That(lines).Contains("Magnifier dwell reset (recapture) ts=na anchor=(520,500)");
+    }
+
+    /// <summary>
+    /// Review-01 F3: a recapture while the gaze is outside the rim ends that excursion. The gaze
+    /// comes back inside during the new grace (those samples return before the bounds check) and
+    /// leaves again after it: that new excursion must still write its bounds line.
+    /// </summary>
+    [Fact]
+    public void Freeze_LogLines_ARecaptureWhileOutside_StillLogsTheNextExcursion()
+    {
+        _settings.Diagnostics.LogRingEvents = true;
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), 5);    // seats at sample 10
+        SendGaze(new PhysicalPoint(950, 500), next++);              // 11: out, logged
+        SendGaze(new PhysicalPoint(950, 500), next++);              // 12: still out
+        _messenger.Send(new ManualSelectionRecaptureMessage());
+        for (var j = 0; j < 6; j++)
+            SendGaze(new PhysicalPoint(500, 500), next++);          // 13–18: inside, all in the new 300 ms grace
+        SendGaze(new PhysicalPoint(950, 500), next++);              // 19: out again, after the grace
+
+        var bounds = _log.MagnifierLines()
+            .Where(l => l.StartsWith("Magnifier dwell reset (bounds)", StringComparison.Ordinal))
+            .ToList();
+        Check.That(bounds).ContainsExactly(
+            "Magnifier dwell reset (bounds) ts=550000 anchor=(500,500)",
+            "Magnifier dwell reset (bounds) ts=950000 anchor=none");
+    }
+
+    /// <summary>The gate: with diagnostics.logRingEvents off (the default) none of the lines is written.</summary>
+    [Fact]
+    public void Freeze_LogLines_AreGatedOnRingEvents()
+    {
+        Check.That(_settings.Diagnostics.LogRingEvents).IsFalse();
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var rec = new FreezeRecorder(_messenger);
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), 5);
+        next += 5;                                                  // a silence
+        for (var i = next; i < next + 40 && rec.Commits.Count == 0; i++)
+            SendGaze(new PhysicalPoint(540, 500), i);
+        for (var j = 0; j < 4; j++)
+            SendGaze(new PhysicalPoint(700, 500), next + 40 + j);
+        SendGaze(new PhysicalPoint(950, 500), next + 44);
+        _messenger.Send(new ManualSelectionRecaptureMessage());
+
+        Check.That(rec.Commits).HasSize(1);
+        Check.WithCustomMessage("Without diagnostics.logRingEvents no magnifier dwell line may be written.")
+            .That(_log.MagnifierLines()).IsEmpty();
+    }
+
+    /// <summary>The commit's real-point line (written in OverlayMessageCoordinator): invariant, whole px.</summary>
+    [Fact]
+    public void Freeze_CommitRealLine_HasTheExactFormat()
+    {
+        Check.That(ManualSelectionDwellService.CommitRealLine(new PhysicalPoint(1000.4, 600.6), new PhysicalPoint(1234.4, 987.2)))
+            .IsEqualTo("Magnifier dwell commit real=(1234,987) view=(1000,601)");
+    }
+
+    // ── Freeze helpers ───────────────────────────────────────────────────────────────────────
+
+    private void ConfigureHold(double hold, int k, int skip)
+    {
+        _settings.ManualSelection.HoldRadiusLogical = hold;
+        _settings.ManualSelection.StabilitySampleCount = k;
+        _settings.ManualSelection.HoldOutlierSkipLimit = skip;
+    }
+
+    /// <summary>Grace samples, then K samples at <paramref name="point"/> (the K-th seats); returns
+    /// the next sample index.</summary>
+    private int SeatAnchorAt(PhysicalPoint point, int k)
+    {
+        for (var i = 0; i < FirstPostGraceSampleIndex + k; i++)
+            SendGaze(point, i);
+        return FirstPostGraceSampleIndex + k;
+    }
+
+    /// <summary>Records what the freeze is observed by: the indicator positions, the seats and
+    /// releases of the anchor, and the commit points.</summary>
+    private sealed class FreezeRecorder
+    {
+        public List<PhysicalPoint> Positions { get; } = new();
+        public List<PhysicalPoint> Seats { get; } = new();
+        public int Releases { get; private set; }
+        public List<PhysicalPoint> Commits { get; } = new();
+
+        public FreezeRecorder(IMessenger messenger)
+        {
+            messenger.Register<FreezeRecorder, UpdateManualSelectionIndicatorPositionMessage>(this, (r, m) => r.Positions.Add(m.GazePoint));
+            messenger.Register<FreezeRecorder, ManualSelectionAnchorChangedMessage>(this, (r, m) =>
+            {
+                if (m.Anchor is { } anchor) r.Seats.Add(anchor);
+                else r.Releases++;
+            });
+            messenger.Register<FreezeRecorder, ManualSelectionDwellCompletedMessage>(this, (r, m) => r.Commits.Add(m.PrecisePoint));
+        }
+    }
+
+    private sealed class RecordingLogger : ILogger<ManualSelectionDwellService>
+    {
+        public List<string> Lines { get; } = new();
+
+        public List<string> MagnifierLines() =>
+            Lines.Where(l => l.StartsWith(ManualSelectionDwellService.LogPrefix, StringComparison.Ordinal)).ToList();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel >= LogLevel.Information)
+                Lines.Add(formatter(state, exception));
+        }
     }
 }

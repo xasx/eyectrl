@@ -14,6 +14,9 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
+using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 using Xunit;
 
 /// <summary>
@@ -110,6 +113,70 @@ public class ManualSelectionAndMenuBarWiringTests
         });
     }
 
+    // ── Magnifier ring freeze, review-01 F1 + F2: the commit's view → real seam ─────────────
+
+    /// <summary>
+    /// F1: the commit point is mapped from magnifier VIEW space to the real screen point exactly
+    /// once, by <see cref="IManualSelectionOverlay.GetRealPhysicalPoint"/>, before it reaches Core.
+    /// Every other fake maps by the identity, so a handler that passed the view point straight on
+    /// (4x off at the owner's zoom) stayed green; this fake's map is a real 4x zoom.
+    /// </summary>
+    [Fact]
+    public void DwellCompleted_PassesTheMappedRealPoint_NotTheViewPoint()
+    {
+        using var world = new World();
+        world.EnterManualSelection();
+
+        world.Messenger.Send(new ManualSelectionDwellCompletedMessage(new PhysicalPoint(2000, 1300)));
+        world.Pump();
+
+        Check.WithCustomMessage("Core must receive the REAL point the view point maps to.")
+            .That(world.InteractionManager.ManualSelectionDwellPoint).IsEqualTo(new PhysicalPoint(520, 525));
+    }
+
+    /// <summary>
+    /// F2: the commit's <c>Magnifier dwell commit real=</c> line is written by the coordinator only
+    /// when <c>diagnostics.logRingEvents</c> is on, and then exactly once with both points.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DwellCompleted_CommitRealLine_IsGatedOnRingEvents(bool ringEvents)
+    {
+        var sink = new CapturingSink();
+        var previousLogger = Log.Logger;
+        try
+        {
+            Log.Logger = new LoggerConfiguration().MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
+            using var world = new World();
+            world.Settings.Diagnostics.LogRingEvents = ringEvents;
+            world.EnterManualSelection();
+
+            world.Messenger.Send(new ManualSelectionDwellCompletedMessage(new PhysicalPoint(2000, 1300)));
+            world.Pump();
+
+            var lines = sink.Messages
+                .Where(m => m.StartsWith("Magnifier dwell commit real=", StringComparison.Ordinal))
+                .ToList();
+            if (ringEvents)
+                Check.That(lines).ContainsExactly("Magnifier dwell commit real=(520,525) view=(2000,1300)");
+            else
+                Check.WithCustomMessage("Without diagnostics.logRingEvents the real-point line must not be written.")
+                    .That(lines).IsEmpty();
+        }
+        finally
+        {
+            Log.Logger = previousLogger;
+        }
+    }
+
+    private sealed class CapturingSink : ILogEventSink
+    {
+        public List<string> Messages { get; } = new();
+
+        public void Emit(LogEvent logEvent) => Messages.Add(logEvent.RenderMessage());
+    }
+
     private static void WithDpi(double scale, Action body)
     {
         DpiHelper.Initialize(scale, scale);
@@ -142,9 +209,10 @@ public class ManualSelectionAndMenuBarWiringTests
                 new ToolbarLifecycleCoordinator(modal), new OverlayVmBindingCoordinator(modal));
             _vmBinding = new OverlayVmBindingCoordinator(modal);
 
+            InteractionManager = new InteractionManager();
             var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
             {
-                InteractionManager = new InteractionManager(),
+                InteractionManager = InteractionManager,
                 Messenger = Messenger,
                 Dispatcher = _dispatcher,
                 Settings = Settings,
@@ -164,6 +232,18 @@ public class ManualSelectionAndMenuBarWiringTests
         }
 
         internal WeakReferenceMessenger Messenger { get; }
+
+        internal InteractionManager InteractionManager { get; }
+
+        /// <summary>Puts Core into ManualSelectionActive, the only state that accepts a commit.</summary>
+        internal void EnterManualSelection()
+        {
+            InteractionManager.SelectionMode = SelectionMode.ManualSelection;
+            InteractionManager.OnFixationStarted(new PhysicalPoint(500, 500));
+            InteractionManager.OnActivationButtonDwelled();
+            Pump();
+            Check.That(InteractionManager.CurrentState).IsEqualTo(InteractionState.ManualSelectionActive);
+        }
 
         internal EyeCtrlSettings Settings { get; }
 
@@ -244,7 +324,10 @@ public class ManualSelectionAndMenuBarWiringTests
         public void UpdateCenter(PhysicalPoint center, int radius, double magnification,
             PhysicalPoint? gazePoint = null, bool recapture = true) { }
         public void Hide() { }
-        public PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen) => gazeOnScreen;
+        // A real 4x magnifier map (view centre (1920, 1200) over content centre (500, 500)), not
+        // the identity, so a commit that skips the mapping is visible (review-01 F1).
+        public PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen) =>
+            new((gazeOnScreen.X - 1920) / 4 + 500, (gazeOnScreen.Y - 1200) / 4 + 500);
         public PhysicalPoint EffectiveCaptureCenter => default;
     }
 

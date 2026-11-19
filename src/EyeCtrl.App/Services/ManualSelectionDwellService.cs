@@ -198,6 +198,9 @@ public class ManualSelectionDwellService : IDisposable
         _dwellDetector.ResetAllState();
         _gracePeriodActive = false;
         _manualSelectionStartTimestamp = 0;
+        // Grace samples return before the bounds check, so an excursion that was running at the
+        // recapture would otherwise swallow the bounds line of the next one after the new grace.
+        _outsideBounds = false;
 
         DispatchSafe(() => _messenger.Send(new ResetManualSelectionIndicatorMessage()), "recapture-reset");
 

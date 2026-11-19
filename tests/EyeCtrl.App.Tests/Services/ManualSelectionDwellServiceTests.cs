@@ -1305,6 +1305,33 @@ public class ManualSelectionDwellServiceTests
         Check.That(lines).Contains("Magnifier dwell reset (recapture) ts=na anchor=(520,500)");
     }
 
+    /// <summary>
+    /// Review-01 F3: a recapture while the gaze is outside the rim ends that excursion. The gaze
+    /// comes back inside during the new grace (those samples return before the bounds check) and
+    /// leaves again after it: that new excursion must still write its bounds line.
+    /// </summary>
+    [Fact]
+    public void Freeze_LogLines_ARecaptureWhileOutside_StillLogsTheNextExcursion()
+    {
+        _settings.Diagnostics.LogRingEvents = true;
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), 5);    // seats at sample 10
+        SendGaze(new PhysicalPoint(950, 500), next++);              // 11: out, logged
+        SendGaze(new PhysicalPoint(950, 500), next++);              // 12: still out
+        _messenger.Send(new ManualSelectionRecaptureMessage());
+        for (var j = 0; j < 6; j++)
+            SendGaze(new PhysicalPoint(500, 500), next++);          // 13–18: inside, all in the new 300 ms grace
+        SendGaze(new PhysicalPoint(950, 500), next++);              // 19: out again, after the grace
+
+        var bounds = _log.MagnifierLines()
+            .Where(l => l.StartsWith("Magnifier dwell reset (bounds)", StringComparison.Ordinal))
+            .ToList();
+        Check.That(bounds).ContainsExactly(
+            "Magnifier dwell reset (bounds) ts=550000 anchor=(500,500)",
+            "Magnifier dwell reset (bounds) ts=950000 anchor=none");
+    }
+
     /// <summary>The gate: with diagnostics.logRingEvents off (the default) none of the lines is written.</summary>
     [Fact]
     public void Freeze_LogLines_AreGatedOnRingEvents()

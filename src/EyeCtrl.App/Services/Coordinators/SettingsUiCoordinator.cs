@@ -287,16 +287,6 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
                 UnwindPartialRaise(context, lease);
             }
         }
-        if (_splashHandle is { } splash) splash.WhenExited(Show);
-        else Show();
-
-        // Sync-show unwind guard: Show() unwinds internally on a failure — UnwindPartialRaise
-        // nulls _guideFlow — so continuing into the subscriptions below would NRE on the nulled
-        // flow and surface as a second unwind + a second raise-failed log through
-        // StartFirstRunGuide's catch. The unwind already did everything (lease, fallback), so a
-        // return is the whole job.
-        if (_guideFlow is null) return;
-
         // Step toggles (claim 6(d)) + the ring's step-5 lifecycle (r3 F8: SHOW then raise).
         _guideFlow.StepEntered += step => context.Dispatcher.BeginInvoke(() =>
         {
@@ -368,6 +358,14 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         }
         _guideFlow.Closed += reason => context.Dispatcher.BeginInvoke(() => Restore(reason));
         _guideWindow.Closed += (_, _) => _guideFlow?.WindowClosed();   // external close = abandon
+
+        // LAST: every handler above is attached before any show path can run Start() — the
+        // no-splash sync path fires Start() synchronously, and a Welcome-step StepEntered into
+        // unattached handlers only worked by luck of duplicated first-step effects (PR-review
+        // finding 5). A failed sync Show unwinds internally and this method ends — nothing
+        // follows, so no second unwind can run.
+        if (_splashHandle is { } splash) splash.WhenExited(Show);
+        else Show();
     }
 
     private readonly Dictionary<string, Action?> _safetyActions = new();

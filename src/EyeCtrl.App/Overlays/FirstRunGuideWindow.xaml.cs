@@ -175,8 +175,10 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     /// <summary>The dwell catchment for one card: the HALF-DIAGONAL of the visible button, so
     /// the WHOLE card dwells — the owner's live check found the fullscreen cards caught only the
     /// text's small central circle (the old 70-DIP modal radius). The 96-DIP gaps keep adjacent
-    /// circles clear (action row centres 416 apart vs 2×186; ± row 296 vs 2×128; chips 448 vs
-    /// 2×206).</summary>
+    /// circles clear (action row centres 416 apart vs 2×186; ± row 296 vs 2×128; chips
+    /// StepContent÷4 apart — 480 on the reference 1920-DIP screen vs 2×206, 68 of daylight;
+    /// below ~1650 DIP of width the circles overlap and the detector's nearest-wins rule
+    /// resolves it — see the responsive-layout follow-up).</summary>
     private static double CardDwellRadiusDip(double widthDip, double heightDip) =>
         Math.Sqrt(widthDip * widthDip / 4 + heightDip * heightDip / 4);
 

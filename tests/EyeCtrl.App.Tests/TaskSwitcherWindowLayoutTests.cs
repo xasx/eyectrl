@@ -35,7 +35,7 @@ public class TaskSwitcherWindowLayoutTests
             var tiles = (ScrollViewer)window.FindName("TilesScroll")!;
             var hintRow = (Grid)window.FindName("HintRow")!;
 
-            // A 112 DIP docked top band on the owner's 1920 × 1200 screen: area (40,136,1840,1021.38),
+            // A 112 DIP docked top band on the owner's 1920 × 1200 screen: area (40,136,1840,1021),
             // block 1728x910 (F-CORNER's text-only hint row left the extra height).
             var top = TaskSwitcherLayout.Compute(
                 1920, 1200, new TaskSwitcherLayout.DipRect(0, 0, 1920, 112), "Top", tileCount: 63);
@@ -47,18 +47,22 @@ public class TaskSwitcherWindowLayoutTests
             Check.That(hintRow.Height).IsEqualTo(TaskSwitcherLayout.HintRowHeight);
             Check.That(hintRow.Margin.Bottom).IsEqualTo(0);
 
-            // "Row height = what WPF lays out": the row reserves exactly the hint text's natural
-            // one-line height including its margins — the ✕ is no longer in it (F-CORNER moved it
-            // to the window's top-right corner), so the old 100 DIP disc + 24 is gone. Measuring
-            // the text with the row's own pinned height in place keeps the coupling; a font change
-            // that grew the text would leave it clipped (this is the check that notices).
+            // "Row height = what WPF lays out": the row reserves the CEILING of the hint text's
+            // natural one-line height including its margins, so the tile block lands on a whole
+            // DIP (205.5, 411 device px at 200 %) and the text is never clipped. The ✕ is no
+            // longer in the row (F-CORNER moved it to the window's top-right corner), so the old
+            // 100 DIP disc + 24 is gone; measuring the live text keeps the coupling — a font
+            // change that grew the text would leave it clipped, and this check notices.
             var hint = (TextBlock)window.FindName("HintText")!;
             hint.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             var hintNeeds = hint.DesiredSize.Height;   // includes the TextBlock's own margin
             Check.WithCustomMessage(
                     $"HintRowHeight is {TaskSwitcherLayout.HintRowHeight} DIP but WPF needs {hintNeeds} DIP "
-                    + $"for the hint text plus its margins.")
-                .That(TaskSwitcherLayout.HintRowHeight).IsCloseTo(hintNeeds, 0.01);
+                    + $"for the hint text plus its margins; the reserve must cover it and be less than "
+                    + "one DIP above it (a whole-DIP reserve).")
+                .That(TaskSwitcherLayout.HintRowHeight >= hintNeeds
+                      && TaskSwitcherLayout.HintRowHeight < hintNeeds + 1)
+                .IsTrue();
             Check.WithCustomMessage("the hint row still reserves the old close-disc height")
                 .That(TaskSwitcherLayout.HintRowHeight).IsStrictlyLessThan(TaskSwitcherWindow.CloseButtonSize);
 
@@ -152,7 +156,7 @@ public class TaskSwitcherWindowLayoutTests
 
         Check.That(layout.Area.Y).IsEqualTo(136);
         Check.That(layout.Block.X).IsEqualTo(420);
-        Check.That(layout.Block.Y).IsCloseTo(555.69, 1e-9);
+        Check.That(layout.Block.Y).IsCloseTo(555.5, 1e-9);
         Check.That(layout.Block.Width).IsEqualTo(1080);
         Check.That(layout.Block.Height).IsEqualTo(182);
     }
@@ -172,7 +176,7 @@ public class TaskSwitcherWindowLayoutTests
 
         var viewport = InRoot(arranged.Root, arranged.Scroll);
         Check.That(viewport.Left).IsEqualTo(420);
-        Check.That(viewport.Top).IsCloseTo(555.69, 1e-9);
+        Check.That(viewport.Top).IsCloseTo(555.5, 1e-9);
         Check.That(viewport.Width).IsEqualTo(1080);
         Check.That(viewport.Height).IsEqualTo(182);
 
@@ -207,7 +211,7 @@ public class TaskSwitcherWindowLayoutTests
 
         var viewport = InRoot(arranged.Root, arranged.Scroll);
         Check.That(viewport.Left).IsEqualTo(96);
-        Check.That(viewport.Top).IsCloseTo(191.69, 1e-9);
+        Check.That(viewport.Top).IsCloseTo(191.5, 1e-9);
         Check.That(viewport.Width).IsEqualTo(1728);
         Check.That(viewport.Height).IsEqualTo(910);
 

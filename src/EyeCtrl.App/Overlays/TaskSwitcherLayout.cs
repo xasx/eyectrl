@@ -73,14 +73,18 @@ internal static class TaskSwitcherLayout
     internal const double TilesTopMinimum = CloseKeepOutBottom + ToolbarGap;
 
     /// <summary>
-    /// The bottom hint row's height: the hint text's one-line height at the shipped 14 DIP
-    /// body-large size (18.62 DIP for both "Segoe UI Variable Text" and its "Segoe UI" fallback)
-    /// plus its 12 DIP top and bottom margins. F-CORNER moved the ✕ out of this row to the
-    /// top-right corner, so the row is text(-and-chip) only and shrank from 124 DIP to this;
-    /// <c>TaskSwitcherWindowLayoutTests</c> holds the number against what WPF actually lays out,
-    /// which is what makes the area arithmetic below the layout WPF performs.
+    /// The bottom hint row's height, reserved WHOLE: 43 DIP is the ceiling of the hint text's
+    /// measured height (one 18.62 DIP line at the shipped 14 DIP body-large size, for both
+    /// "Segoe UI Variable Text" and its "Segoe UI" fallback, plus its 12 DIP top and bottom
+    /// margins = 42.62). Reserving the ceiling keeps the centred tile block on a whole DIP —
+    /// the owner's block lands at y 205.5, i.e. 411 device pixels at 200 % — instead of the
+    /// 205.69 (411.38 px) the exact text height produced. F-CORNER moved the ✕ out of this row
+    /// to the top-right corner, so the row is text(-and-chip) only and shrank from 124 DIP;
+    /// <c>TaskSwitcherWindowLayoutTests</c> holds the reserve against what WPF actually lays out
+    /// (reserved ≥ laid-out, and less than one DIP above it), which keeps the area arithmetic
+    /// the layout WPF performs.
     /// </summary>
-    internal const double HintRowHeight = 18.62 + 24;
+    internal const double HintRowHeight = 43;
 
     /// <summary>A rectangle in DIP.</summary>
     internal readonly record struct DipRect(double X, double Y, double Width, double Height)

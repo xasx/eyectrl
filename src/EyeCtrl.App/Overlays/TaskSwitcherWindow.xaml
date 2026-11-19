@@ -189,7 +189,7 @@
         <!-- S2-B: no window to offer (more likely since S2-A leaves the foreground window out).
              Centred where the tile block would be — the Margin mirrors the tile viewport's, so it
              follows the docked toolbar keep-out without a second geometry source. No dwell target:
-             nothing here is registered, and the ✕ below stays the escape. -->
+             nothing here is registered, and the ✕ in the top-right corner stays the escape. -->
         <TextBlock x:Name="EmptyMessage" Grid.Row="0"
                    Text="{loc:T 'overlays.taskSwitcher.empty'}"
                    Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"
@@ -199,10 +199,11 @@
         <Grid Grid.Row="1" x:Name="HintRow">
             <!-- F-CORNER: the hint row is TEXT ONLY now. The ✕ moved to the window's top-right
                  corner (the backdrop hide ✕'s 53 DIP inset), so this row reserves only what the
-                 hint text needs: one 18.62 DIP line plus its 12 DIP top/bottom margins = 42.62
-                 DIP, pinned by TaskSwitcherLayout.HintRowHeight and held against WPF's own
-                 layout by TaskSwitcherWindowLayoutTests. The freed 81 DIP went into the tile
-                 area, which is what let a fifth row survive under a 200 DIP band.
+                 hint text needs: one 18.62 DIP line plus its 12 DIP top/bottom margins = 42.62,
+                 reserved at the whole-DIP ceiling (43) so the tile block lands on a whole DIP.
+                 TaskSwitcherLayout.HintRowHeight holds the reserve and TaskSwitcherWindowLayoutTests
+                 holds it against WPF's own layout. The freed 81 DIP went into the tile area, which
+                 is what let a fifth row survive under a 200 DIP band.
 
                  S2-B fixup-01: the row is THREE columns — the chip lives in the left STAR column,
                  the hint in the middle Auto column — so showing the chip can never move the hint.
@@ -246,8 +247,8 @@
              shared r50 hit radius (B8: what is drawn IS what the detector hit-tests); its Canvas
              exists so the halo is not clipped. The halo's painted edge is +2.5 DIP past the disc
              (WPF insets the stroke); the layout keeps a conservative 4 DIP band clear
-             (TaskSwitcherLayout.CloseHaloDip), and the 53 DIP offset keeps +52.5 DIP of it on
-             screen at both 100 % and 200 %. -->
+             (TaskSwitcherLayout.CloseHaloDip), and the 53 DIP inset leaves the 52.5 DIP painted
+             halo radius with 0.5 DIP to spare at both 100 % and 200 %. -->
         <Border x:Name="CloseButton" Grid.Row="0" Width="100" Height="100"
                 HorizontalAlignment="Right" VerticalAlignment="Top">
             <Canvas x:Name="CloseLayer" ClipToBounds="False"/>

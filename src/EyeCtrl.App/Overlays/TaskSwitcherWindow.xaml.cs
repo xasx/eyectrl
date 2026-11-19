@@ -148,9 +148,10 @@ public partial class TaskSwitcherWindow : OverlayWindow, ITaskSwitcherOverlay
 
         // Pin the hint row to the height TaskSwitcherLayout reserves for it. F-CORNER moved the ✕
         // out of this row, so it now measures the hint text alone (one 18.62 DIP line plus its
-        // 12 DIP top/bottom margins); the window still pins the row, because the tile area's row
-        // capacity is computed against the constant — a font or template change that grew the row
-        // would otherwise silently clip the bottom full row the geometry promised.
+        // 12 DIP top/bottom margins), reserved at the whole-DIP ceiling of 43; the window still
+        // pins the row, because the tile area's row capacity is computed against the constant — a
+        // font or template change that grew the row would otherwise silently clip the bottom full
+        // row the geometry promised.
         HintRow.Height = TaskSwitcherLayout.HintRowHeight;
 
         // F-CORNER: place the ✕ host so its CENTRE is the shared 53 DIP corner — right/top

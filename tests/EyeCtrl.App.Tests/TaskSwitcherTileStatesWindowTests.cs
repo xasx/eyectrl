@@ -528,7 +528,7 @@ public class TaskSwitcherTileStatesWindowTests
             messages.Add($"the chip {Box(chip)} overlaps the ✕ disc {Box(disc)}");
 
         // The chip must fit the row WPF lays out (the row is no longer 124 DIP tall): its vertical
-        // margins were dropped to 0 so its 26.62 DIP pill fits the 42.62 DIP text row.
+        // margins were dropped to 0 so its 26.62 DIP pill fits the 43 DIP text row.
         if (!Inside(row, chip))
             messages.Add($"the chip {Box(chip)} leaves the hint row {Box(row)}");
 

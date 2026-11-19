@@ -73,7 +73,11 @@ public class RingArmWiringTests
                 @"_ringArmLog\s*=\s*RingArmLog\s*\.\s*Create\s*\(\s*ringArmLaunch\s*,\s*settings\s*\.\s*Diagnostics\s*,\s*im\s*,\s*cursorVm\s*,")).IsTrue();
         Check.WithCustomMessage("App.xaml.cs constructs a RingArmLog directly, past RingArmLog.Create")
             .That(text.Contains("new RingArmLog(", StringComparison.Ordinal)).IsFalse();
-        Check.WithCustomMessage("OnExit no longer disposes the ring arm log")
-            .That(Regex.IsMatch(text, @"_ringArmLog\s*\?\.\s*Dispose\s*\(\s*\)")).IsTrue();
+        // The exit step list lives in ExitSequencePlan since the exit-hang fix (F1/F2).
+        var planText = LocalizationTestData.SourceFiles()
+            .Single(file => file.Relative == "src/EyeCtrl.App/Services/ExitSequencePlan.cs").Text;
+        Check.WithCustomMessage("the exit sequence no longer disposes the ring arm log")
+            .That(Regex.IsMatch(planText,
+                @"sequence\s*\.\s*Add\s*\(\s*""dispose ring arm log""\s*,\s*\(\)\s*=>\s*deps\s*\.\s*RingArmLog\s*\?\s*\.\s*Dispose\s*\(\s*\)\s*\)")).IsTrue();
     }
 }

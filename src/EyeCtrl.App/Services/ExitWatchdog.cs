@@ -128,10 +128,13 @@ internal static class ExitStuckReport
         ArgumentException.ThrowIfNullOrEmpty(logsDirectory);
         ArgumentNullException.ThrowIfNull(step);
 
-        string line = string.Create(
-            CultureInfo.InvariantCulture,
-            $"{now:yyyy-MM-dd HH:mm:ss.fff} [FTL] [{typeof(ExitWatchdog).FullName}] EyeCtrl exit stuck in step '{step}'");
-        string path = Path.Combine(logsDirectory, $"eyectrl-{now:yyyyMMdd}.log");
+        // The date is formatted through the invariant culture *explicitly* (never the ambient one):
+        // the line is machine-read by the exit-hang investigation, and the file must be the exact
+        // one Serilog's daily roll writes (eyectrl-yyyyMMdd.log).
+        string stamp = now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+        string day = now.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        string line = $"{stamp} [FTL] [{typeof(ExitWatchdog).FullName}] EyeCtrl exit stuck in step '{step}'";
+        string path = Path.Combine(logsDirectory, $"eyectrl-{day}.log");
         Directory.CreateDirectory(logsDirectory);
         // Same file as Serilog's daily roll; no BOM, because the sink writes UTF-8 without one.
         File.AppendAllText(path, line + Environment.NewLine, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));

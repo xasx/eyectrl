@@ -98,12 +98,15 @@ public class PasswordDetectorLifetimeTests
     [Fact]
     public void OnExit_StopsTheDetector_BeforeTheProviderIsDisposed()
     {
-        var body = MethodBody(Source("App.xaml.cs"), "protected override void OnExit(");
+        // The OnExit step list lives in ExitSequencePlan since the exit-hang fix (F1/F2); the plan is
+        // the source of truth for the order, and ShutdownSequenceTests pins the whole list.
+        var body = File.ReadAllText(Path.Combine(
+            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Services", "ExitSequencePlan.cs"));
 
         var stop = body.IndexOf(
-            "Step(\"stop password-field detector\", () => _serviceProvider.GetRequiredService<ISensitiveContextDetector>().Stop());",
+            "sequence.Add(\"stop password-field detector\", () => services.GetRequiredService<ISensitiveContextDetector>().Stop());",
             StringComparison.Ordinal);
-        var dispose = body.IndexOf("Step(\"dispose service provider\"", StringComparison.Ordinal);
+        var dispose = body.IndexOf("sequence.Add(\"dispose service provider\"", StringComparison.Ordinal);
 
         Check.WithCustomMessage("OnExit must remove the system-wide focus hook in its own step")
             .That(stop).IsStrictlyGreaterThan(-1);

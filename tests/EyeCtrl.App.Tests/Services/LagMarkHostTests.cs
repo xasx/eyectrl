@@ -583,11 +583,14 @@ public class LagMarkHostTests
             .That(Regex.IsMatch(
                 text,
                 @"_eventCoordinator\s*\.\s*ProbeOpenChanged\s*\+=\s*_lagMarkHost\s*\.\s*OnProbeOpenChanged")).IsTrue();
-        // A7 (the orchestrator's pinned check): OnExit disposes the host — it owns the window and
-        // sends the final null zone.
-        Check.WithCustomMessage("OnExit no longer disposes the lag-mark host")
+        // A7 (the orchestrator's pinned check): the exit sequence disposes the host — it owns the
+        // window and sends the final null zone. The step list lives in ExitSequencePlan since the
+        // exit-hang fix (F1/F2), which is what OnExit runs.
+        var planText = LocalizationTestData.SourceFiles()
+            .Single(file => file.Relative == "src/EyeCtrl.App/Services/ExitSequencePlan.cs").Text;
+        Check.WithCustomMessage("the exit sequence no longer disposes the lag-mark host")
             .That(Regex.IsMatch(
-                text,
-                @"Step\s*\(\s*""dispose lag mark host""\s*,\s*\(\)\s*=>\s*_lagMarkHost\s*\?\s*\.\s*Dispose\s*\(\s*\)\s*\)")).IsTrue();
+                planText,
+                @"sequence\s*\.\s*Add\s*\(\s*""dispose lag mark host""\s*,\s*\(\)\s*=>\s*deps\s*\.\s*LagMarkHost\s*\?\s*\.\s*Dispose\s*\(\s*\)\s*\)")).IsTrue();
     }
 }

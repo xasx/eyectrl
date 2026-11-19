@@ -878,9 +878,16 @@ public partial class App : Application
     /// cannot use Serilog (it may already be closed); recomputed rather than stored because the
     /// duplicate-instance path exits before <see cref="_appDataDir"/> is set.
     /// </summary>
-    private string LogsDirectory => string.IsNullOrEmpty(_appDataDir)
-        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "logs")
-        : Path.Combine(_appDataDir, "logs");
+    private string LogsDirectory
+    {
+        get
+        {
+            string appDataDir = string.IsNullOrEmpty(_appDataDir)
+                ? AppBootstrapper.DefaultAppDataDir
+                : _appDataDir;
+            return Path.Combine(appDataDir, "logs");
+        }
+    }
 
     private (CursorCircleViewModel CursorVm,
              ActivationButtonViewModel ActivationVm,

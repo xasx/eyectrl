@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Overlays;
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -20,8 +21,8 @@ using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
 /// <summary>
-/// K1 (sitting 10): the note's Edit card must clear the keyboard when the keyboard is ALREADY up
-/// at creation, and it must follow the keyboard's FINAL rect after a flip and a re-show.
+/// K1: the note's Edit card must be placed against the keyboard when the keyboard is ALREADY up at
+/// creation, and it must follow the keyboard's FINAL rect after a flip and a re-show.
 /// <para>
 /// The headless tests used a fake probe: they set the rects and call <c>RaiseChanged()</c> after
 /// <c>CreateNoteAt</c>, an event production never sends when the keyboard was already visible
@@ -34,83 +35,139 @@ using Xunit;
 /// non-activating): layout, the window's on-screen rect and LocationChanged/SizeChanged run exactly
 /// as in production, and nothing is painted.
 /// </para>
+/// <para>
+/// SCREEN-INDEPENDENT: the manager and the keyboard window share the SAME work area (the real
+/// <see cref="SystemParameters.WorkArea"/> in DIP, or the rig's seam), the flip is asserted against
+/// that work area's edges, and the essence is an EQUALITY with the placement derived through
+/// <see cref="NoteLayout.Place"/> from the probe's final rect — so the tests hold on a small CI
+/// runner where the card has no clear spot at all. The 24 DIP clearance is asserted only where the
+/// real work area genuinely leaves the room for it.
+/// </para>
 /// </summary>
 [Collection("WpfApplication")]
 public class NoteKeyboardRealProbeTests
 {
-    /// <summary>The owner's work area in DIP (1920x1152 at 2.0), kept as the virtual stage: the
-    /// real keyboard window is positioned on it, and the note manager derives against it.</summary>
-    private static readonly Rect WorkArea = new(0, 0, 1920, 1152);
-
-    /// <summary>The owner's keyboard x (the log's 278 physical px at 2.0). The width/height come
-    /// from the shipped qwertz layout at key size 1.5, read back from the real window.</summary>
-    private const double KeyboardXDip = 139;
-
     private const int TextSizeDip = 36;
 
-    /// <summary>An anchor under the top keyboard. Once the card is placed clear (below the top
-    /// keyboard) that spot lies INSIDE the bottom keyboard's band, so a flip has to move the card
-    /// again rather than leave it where it was. The sitting's b-bottom anchor was (1440, 586).</summary>
-    private static readonly Point AnchorDip = new(960, 300);
-
     [StaFact]
-    public void CreateWhileTheKeyboardIsUp_PlacesTheEditCardClearOfIt()
+    public void CreateWhileTheKeyboardIsUp_IsPlacedAgainstTheLiveKeyboard()
     {
-        // The sitting's first failure, all three notes: the keyboard was already visible when the
-        // note was created (the previous editor handed it over), so no probe raise followed and
-        // the empty-avoid first placement stayed under the keyboard for 17-31 s.
+        // The scenario: a note is created while the keyboard is already visible (the previous
+        // editor's commit-first hand-over keeps it up), so no probe raise follows. The first
+        // placement must already be the one derived against the keyboard on screen.
         using var rig = new Rig();
-        rig.Manager.CreateNoteAt(rig.Phys(AnchorDip));
-
-        var placement = rig.Placement;
-        var keyboard = rig.KeyboardRectDip;
-        Check.WithCustomMessage($"the keyboard probe reported no rect; the assertion would pass vacuously")
-            .That(keyboard.Width).IsStrictlyGreaterThan(0);
-
-        AssertClearOfTheKeyboard(placement, keyboard, "created while the keyboard was up");
+        rig.CreateNote();
+        AssertPlacedAgainst(rig, rig.ProbeRects, "created while the keyboard was up");
     }
 
     [StaFact]
-    public void FlippingTheKeyboardMidEdit_RePlacesTheCardClearOfTheNewRect()
+    public void FlippingTheKeyboardMidEdit_FollowsTheFinalRect()
     {
-        // The production order of the edge-bar Flip, which is what the owner used (the findings'
-        // b-bottom, 21:46:07): the dwell sends KeyboardEdgeToggledMessage; the probe queues its
-        // raise at Background, the coordinator queues SetScreenEdge at Normal. The re-place must
-        // read the keyboard's FINAL rect, not the edge it is leaving.
         using var rig = new Rig();
-        rig.Manager.CreateNoteAt(rig.Phys(AnchorDip));
-        var before = rig.Placement;
-        AssertClearOfTheKeyboard(before, rig.KeyboardRectDip, "before the flip");
-
-        rig.FlipTo("Bottom");
-        var after = rig.Placement;
-        var bottom = rig.KeyboardRectDip;
-        Check.WithCustomMessage($"the probe still reports the top rect after the flip: {bottom}")
-            .That(bottom.Top).IsStrictlyGreaterThan(WorkArea.Height / 2);
-        Check.WithCustomMessage($"the card {before.Window} did not move off the new keyboard {bottom}")
-            .That(after.Window).IsNotEqualTo(before.Window);
-        AssertClearOfTheKeyboard(after, bottom, "after the flip");
+        AssertFlipFollowsTheFinalRect(rig);
     }
 
     [StaFact]
-    public void ReShowingTheKeyboardAtTheSamePlaceMidEdit_RePlacesTheCardClearOfIt()
+    public void ReShowingTheKeyboardAtTheSamePlace_FollowsTheFinalRect()
     {
         // A re-show at the same size and place fires no SizeChanged/Loaded/LocationChanged; only
         // the VM's IsVisible flip reaches the probe (KeyboardProbe.cs:78-85). The card must be
-        // clear again once the keyboard is back.
+        // placed against the re-shown rect again.
         using var rig = new Rig();
-        rig.Manager.CreateNoteAt(rig.Phys(AnchorDip));
-        var top = rig.KeyboardRectDip;
-        AssertClearOfTheKeyboard(rig.Placement, top, "before the hide");
+        rig.CreateNote();
+        var original = rig.ProbeRects;
+        AssertPlacedAgainst(rig, original, "before the hide");
 
         rig.HideKeyboard();
-        var hidden = rig.Placement;
-        Check.WithCustomMessage("with the keyboard hidden the card must return next to its anchor")
-            .That(hidden.Window.IntersectsWith(top)).IsTrue();
+        Check.WithCustomMessage("with the keyboard hidden the card must be the no-avoid placement")
+            .That(rig.Placement).IsEqualTo(rig.Derive(Array.Empty<PhysicalRect>()));
 
         rig.ShowKeyboard();
+        var shown = rig.ProbeRects;
+        Check.WithCustomMessage("the re-show must return the keyboard to the same rect")
+            .That(shown).HasSize(1);
+        AssertSameRect(original[0], shown[0], "the re-shown keyboard");
+        AssertPlacedAgainst(rig, shown, "after the re-show");
+    }
+
+    [StaFact]
+    public void OnASmallWorkArea_TheSameEssenceHolds()
+    {
+        // The CI runner's screen is small (~768 DIP tall). The rig's work-area seam proves the
+        // same assertions hold on a 1366x768 stage, where the card has no clear spot anywhere.
+        using var rig = new Rig(() => new Rect(0, 0, 1366, 768));
+        AssertFlipFollowsTheFinalRect(rig);
+    }
+
+    /// <summary>The creation essence: the published placement IS the one derived against the
+    /// probe's current (live) rects, through the manager's own Edit inputs. The 24 DIP clearance
+    /// is added only when the work area really leaves that much room beside the keyboard.</summary>
+    private static void AssertPlacedAgainst(Rig rig, IReadOnlyList<PhysicalRect> avoid, string when)
+    {
         var keyboard = rig.KeyboardRectDip;
-        AssertClearOfTheKeyboard(rig.Placement, keyboard, "after the re-show");
+        Check.WithCustomMessage("the keyboard probe reported no rect; the assertion would pass vacuously")
+            .That(keyboard.Width).IsStrictlyGreaterThan(0);
+
+        var expected = rig.Derive(avoid);
+        Check.WithCustomMessage(
+                $"{when}: the card {rig.Placement.Window} must be the placement derived against the "
+                + $"live keyboard {keyboard} (expected {expected.Window})")
+            .That(rig.Placement).IsEqualTo(expected);
+
+        if (HasClearBand(rig.WorkAreaDip, keyboard, rig.Placement.Window.Height))
+            AssertClearOfTheKeyboard(rig.Placement, keyboard, when);
+    }
+
+    /// <summary>The flip essence: the keyboard lands at the other edge of the SAME work area, and
+    /// the card's placement is the one derived from the NEW rect — not from the one it left.</summary>
+    private static void AssertFlipFollowsTheFinalRect(Rig rig)
+    {
+        // The production order of the edge-bar Flip: the dwell sends KeyboardEdgeToggledMessage;
+        // the probe queues its raise at Background, the coordinator queues SetScreenEdge at
+        // Normal. The re-place must read the keyboard's FINAL rect.
+        rig.CreateNote();
+        var top = rig.KeyboardRectDip;
+        var oldRects = rig.ProbeRects;
+        AssertPlacedAgainst(rig, oldRects, "before the flip");
+        if (top.Height <= rig.WorkAreaDip.Height)
+            Check.WithCustomMessage($"the keyboard must start docked to the work area's top ({top})")
+                .That(top.Top).IsCloseTo(rig.WorkAreaDip.Top, 2.0);
+
+        rig.FlipTo("Bottom");
+        var bottom = rig.KeyboardRectDip;
+        var newRects = rig.ProbeRects;
+        var after = rig.Placement;
+
+        Check.WithCustomMessage($"the flip must move the keyboard down (top {top.Top} -> {bottom.Top})")
+            .That(bottom.Top).IsStrictlyGreaterThan(top.Top);
+        if (bottom.Height <= rig.WorkAreaDip.Height)
+            Check.WithCustomMessage(
+                    $"the flipped keyboard {bottom} must dock to the work area's bottom edge {rig.WorkAreaDip}")
+                .That(bottom.Bottom).IsCloseTo(rig.WorkAreaDip.Bottom, 2.0);
+
+        var expected = rig.Derive(newRects);
+        Check.WithCustomMessage(
+                $"after the flip the card {after.Window} must be the placement derived against the "
+                + $"FINAL keyboard {bottom} (expected {expected.Window})")
+            .That(after).IsEqualTo(expected);
+        Check.WithCustomMessage(
+                "the card must NOT be the placement derived against the keyboard's OLD rect")
+            .That(after).IsNotEqualTo(rig.Derive(oldRects));
+
+        if (HasClearBand(rig.WorkAreaDip, bottom, after.Window.Height))
+            AssertClearOfTheKeyboard(after, bottom, "after the flip");
+    }
+
+    /// <summary>Whether the work area really leaves room for the drawn Edit card plus the 24 DIP
+    /// clearance on the side of the keyboard: the smaller CI work area does not.</summary>
+    private static bool HasClearBand(Rect workArea, Rect keyboard, double drawnHeight)
+    {
+        double margin = NoteLayout.Constants.EdgeMarginDip;
+        double insetTop = workArea.Top + margin;
+        double insetBottom = workArea.Bottom - margin;
+        bool atTop = Math.Abs(keyboard.Top - workArea.Top) <= Math.Abs(keyboard.Bottom - workArea.Bottom);
+        double band = atTop ? insetBottom - keyboard.Bottom : keyboard.Top - insetTop;
+        return band >= drawnHeight + NoteLayout.Constants.AvoidGapDip;
     }
 
     /// <summary>The sweep's three rules, on the real probe's rect: the card, every Edit hit cell
@@ -137,8 +194,19 @@ public class NoteKeyboardRealProbeTests
             .That(GapFrom(tagRect, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
     }
 
-    /// <summary>The production pair plus the note manager, on a virtual stage: a real keyboard
-    /// window shown invisibly, positioned at the owner's x/edge, and a real probe reading it.</summary>
+    private static void AssertSameRect(PhysicalRect expected, PhysicalRect actual, string what)
+    {
+        Check.WithCustomMessage($"{what}: expected {expected}, got {actual}")
+            .That(Math.Abs(actual.X - expected.X) <= 1.0
+                && Math.Abs(actual.Y - expected.Y) <= 1.0
+                && Math.Abs(actual.Width - expected.Width) <= 1.0
+                && Math.Abs(actual.Height - expected.Height) <= 1.0)
+            .IsTrue();
+    }
+
+    /// <summary>The production pair plus the note manager, on one work area: a real keyboard window
+    /// shown invisibly and positioned by the same work-area rect the note manager derives against
+    /// (the real one by default, or the test's seam).</summary>
     private sealed class Rig : IDisposable
     {
         private readonly Dispatcher _dispatcher;
@@ -149,13 +217,14 @@ public class NoteKeyboardRealProbeTests
         private readonly IMessenger _messenger;
         private readonly KeyboardProbe _probe;
 
-        public Rig()
+        public Rig(Func<Rect>? workArea = null)
         {
             WpfApplicationGate.EnsureApplicationWithTokens();
             _dispatcher = Dispatcher.CurrentDispatcher;
             _savedScaleX = DpiHelper.ScaleX;
             _savedScaleY = DpiHelper.ScaleY;
             _messenger = new WeakReferenceMessenger();
+            WorkArea = workArea ?? (() => SystemParameters.WorkArea);
 
             var layout = KeyboardLayoutLoader.Load(Path.Combine(SourceScanner.RepoRoot().FullName,
                 "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json"));
@@ -175,27 +244,45 @@ public class NoteKeyboardRealProbeTests
             DpiHelper.Initialize(dpi.DpiScaleX, dpi.DpiScaleY);
             Scale = dpi.DpiScaleX;
 
-            _window.Left = KeyboardXDip;
-            _window.Top = 0;
-            Pump();
-
             // Constructed BEFORE the show flip, as production constructs it once at startup.
             _probe = new KeyboardProbe(_vm, _dispatcher, _messenger, () => _window, () => null);
 
             Manager = new NoteManager(_messenger, hitTester: InactiveNoteHitTester.Instance,
-                workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = TextSizeDip });
+                workAreaDip: () => WorkAreaDip, noteSettings: new NoteSettings { TextSizeDip = TextSizeDip });
             Manager.SetKeyboardProbe(_probe);
 
             ShowKeyboard();
+
+            // The anchor lies under the top keyboard: the middle of the keyboard rect, clamped
+            // into the work area. Chosen AFTER the show so it follows the host's geometry.
+            var keyboard = KeyboardRectDip;
+            AnchorDip = new Point(
+                Math.Clamp(keyboard.Left + (keyboard.Width / 2), WorkAreaDip.Left + 10, WorkAreaDip.Right - 10),
+                Math.Clamp(keyboard.Top + (Math.Min(keyboard.Height, WorkAreaDip.Height) / 2),
+                    WorkAreaDip.Top + 10, WorkAreaDip.Bottom - 10));
         }
+
+        private Func<Rect> WorkArea { get; }
+
+        public Rect WorkAreaDip => WorkArea();
+
+        public Point AnchorDip { get; }
 
         public double Scale { get; }
 
         public NoteManager Manager { get; }
 
+        public Size CardSize => new(
+            NoteLayout.CardWidthDip(TextSizeDip),
+            NoteLayout.CardHeightDip(TextSizeDip, 0, WorkAreaDip.Height));
+
+        public IReadOnlyList<PhysicalRect> ProbeRects => _probe.Rects();
+
+        public NotePlacement Placement => Manager.PlacementForTest(Manager.ActiveNotes[^1].Id)!;
+
         public PhysicalPoint Phys(Point dip) => new(dip.X * Scale, dip.Y * Scale);
 
-        public NotePlacement Placement => Manager.PlacementForTest(Manager.ActiveNotes[0].Id)!;
+        public void CreateNote() => Manager.CreateNoteAt(Phys(AnchorDip));
 
         /// <summary>The keyboard's on-screen rect in DIP, through the SAME physical-to-DIP scale
         /// the note manager uses — the rect it derived against, not a hand-copied one.</summary>
@@ -203,24 +290,33 @@ public class NoteKeyboardRealProbeTests
         {
             get
             {
-                var rects = _probe.Rects();
+                var rects = ProbeRects;
                 Check.WithCustomMessage("the real keyboard must be visible AND sourced for the probe")
                     .That(rects).Not.IsEmpty();
-                var r = rects[0];
-                return new Rect(
-                    DpiHelper.PhysicalToLogicalX(r.X), DpiHelper.PhysicalToLogicalY(r.Y),
-                    DpiHelper.PhysicalToLogicalX(r.X + r.Width) - DpiHelper.PhysicalToLogicalX(r.X),
-                    DpiHelper.PhysicalToLogicalY(r.Y + r.Height) - DpiHelper.PhysicalToLogicalY(r.Y));
+                return ToDip(rects[0]);
             }
         }
 
+        /// <summary>The manager's own Edit derivation, through the same inputs: the probe's rects
+        /// (converted exactly as <c>NoteManager.PhysicalRectToDip</c> does), the work area, the
+        /// displaced candidates and the tag growth.</summary>
+        public NotePlacement Derive(IReadOnlyList<PhysicalRect> avoidPhysical)
+        {
+            var avoidDip = avoidPhysical.Select(ToDip).ToList();
+            var placed = NoteLayout.Place(
+                Phys(AnchorDip), NoteSide.Right, CardSize, WorkAreaDip, avoidDip, Scale,
+                exclude: null, allowDisplaced: true,
+                topGrowthDip: NoteLayout.TagProtrusionDip(TextSizeDip))!;
+            return NoteLayout.WithTagClearance(placed, TextSizeDip);
+        }
+
         /// <summary>The production show sequence (KeyboardCoordinator.SetKeyboardVisible): the VM
-        /// flip, Show(), then the explicit show placement.</summary>
+        /// flip, Show(), then the explicit show placement — against the rig's work area.</summary>
         public void ShowKeyboard()
         {
             _vm.IsVisible = true;
             _window.Show();
-            _window.PlaceForShow(WorkArea, _window.ActualWidth, _window.ActualHeight);
+            _window.PlaceForShow(WorkAreaDip, _window.ActualWidth, _window.ActualHeight);
             Pump();
         }
 
@@ -233,13 +329,23 @@ public class NoteKeyboardRealProbeTests
         }
 
         /// <summary>The production Flip half: the dwell's message, then the coordinator's
-        /// SetScreenEdge on the Normal queue — the order the probe's Background raise runs after.</summary>
+        /// SetScreenEdge on the Normal queue. The explicit Place against the rig's work area is the
+        /// seam that keeps a fake stage consistent (a no-op when the rig uses the real one).</summary>
         public void FlipTo(string edge)
         {
             _messenger.Send(new KeyboardEdgeToggledMessage());
-            _dispatcher.BeginInvoke(() => _window.SetScreenEdge(edge));
+            _dispatcher.BeginInvoke(() =>
+            {
+                _window.SetScreenEdge(edge);
+                _window.Place(WorkAreaDip, _window.ActualWidth, _window.ActualHeight, KeyboardMove.Flip);
+            });
             Pump();
         }
+
+        private static Rect ToDip(PhysicalRect r) => new(
+            DpiHelper.PhysicalToLogicalX(r.X), DpiHelper.PhysicalToLogicalY(r.Y),
+            DpiHelper.PhysicalToLogicalX(r.X + r.Width) - DpiHelper.PhysicalToLogicalX(r.X),
+            DpiHelper.PhysicalToLogicalY(r.Y + r.Height) - DpiHelper.PhysicalToLogicalY(r.Y));
 
         /// <summary>Drains the probe's Background raise and the window's layout/render work.</summary>
         private void Pump() => _dispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);

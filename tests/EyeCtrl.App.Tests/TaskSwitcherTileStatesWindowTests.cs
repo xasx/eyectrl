@@ -493,6 +493,77 @@ public class TaskSwitcherTileStatesWindowTests
     }
 
     /// <summary>
+    /// F-HINT: with a two-digit count the chip and the 24 DIP hint share ONE row on the owner's
+    /// 1920 DIP width — the chip right-aligned 32 DIP left of the hint, no overlap, no wrapping
+    /// and neither text clipped — in German (the widest shipped text) and English, at 100 % and
+    /// at the owner's 200 %. A wrapping or clipped hint is what the owner's "hint too small"
+    /// fix would turn into at the larger size if the row arithmetic were stale.
+    /// </summary>
+    [StaTheory]
+    [InlineData("en", 1.0)]
+    [InlineData("en", 2.0)]
+    [InlineData("de", 1.0)]
+    [InlineData("de", 2.0)]
+    public void ChipAndHint_ShareOneRow_AtTwoDigits_InGermanAndEnglish(string language, double scale)
+    {
+        var german = language == "de";
+        if (german) StringTable.Activate(ShippedGerman.Load());
+        try
+        {
+            using var laid = Laid.Open(Windows(64), scale: scale);   // 64 windows → chip 25
+            laid.RegisterFaces(Capacity);
+
+            var chipElement = laid.Find<Border>(laid.Root, "OverflowChip")!;
+            var chip = laid.Bounds(chipElement);
+            var hintElement = laid.Find<TextBlock>(laid.Root, "HintText")!;
+            var hint = laid.Bounds(hintElement);
+            var row = laid.Bounds(laid.Find<Grid>(laid.Root, "HintRow")!);
+            var chipText = Descendants<TextBlock>(chipElement).Single();
+
+            Check.That(chipElement.Visibility).IsEqualTo(Visibility.Visible);
+            Check.That(chipText.Text).IsEqualTo(german ? "Weitere Fenster: 25" : "More windows: 25");
+
+            var messages = new List<string>();
+            if (chipText.FontSize != hintElement.FontSize)
+                messages.Add($"the chip is {chipText.FontSize} DIP but the hint is {hintElement.FontSize} DIP");
+            if (hintElement.TextWrapping != TextWrapping.NoWrap || chipText.TextWrapping != TextWrapping.NoWrap)
+                messages.Add("a text is allowed to wrap");
+
+            var chipNatural = FitText.NaturalWidth(chipText, chipText.Text);
+            if (chipNatural > chipText.ActualWidth + 0.5)
+                messages.Add($"the chip needs {FitText.Dip(chipNatural)} DIP but is drawn in {FitText.Dip(chipText.ActualWidth)}");
+            var hintNatural = FitText.NaturalWidth(hintElement, hintElement.Text);
+            if (hintNatural > hintElement.ActualWidth + 0.5)
+                messages.Add($"the hint needs {FitText.Dip(hintNatural)} DIP but is drawn in {FitText.Dip(hintElement.ActualWidth)}");
+
+            // One row, side by side: the chip is 32 DIP left of the hint (the template's own
+            // margin), they never overlap, and both sit inside the row and the 1920 DIP window.
+            var gap = hint.Left - chip.Right;
+            if (gap < 31.25 || gap > 32.75)
+                messages.Add($"the chip→hint gap is {FitText.Dip(gap)} DIP, not 32");
+            if (chip.IntersectsWith(hint))
+                messages.Add($"the chip {Box(chip)} overlaps the hint {Box(hint)}");
+            if (!Inside(row, chip) || !Inside(row, hint))
+                messages.Add($"chip {Box(chip)} / hint {Box(hint)} leaves the hint row {Box(row)}");
+            if (chip.Left < 0 || hint.Right > ScreenWidth)
+                messages.Add($"the row leaves the {ScreenWidth} DIP window");
+            if (Math.Abs(((hint.Top + hint.Bottom) / 2) - ((row.Top + row.Bottom) / 2)) > 0.5)
+                messages.Add($"the hint is not vertically centred in the row: {Box(hint)} vs {Box(row)}");
+
+            Check.WithCustomMessage($"At {scale:0.0}x ({language}): " + string.Join("; ", messages))
+                .That(messages).IsEmpty();
+            _output.WriteLine($"at {scale:0.0}x ({language}): chip {Box(chip)} \"{chipText.Text}\" "
+                + $"({FitText.Dip(chipText.ActualWidth)} of {FitText.Dip(chipNatural)} DIP); "
+                + $"hint {Box(hint)} ({FitText.Dip(hintElement.ActualWidth)} of {FitText.Dip(hintNatural)} DIP); "
+                + $"gap {FitText.Dip(gap)} DIP; row {Box(row)}");
+        }
+        finally
+        {
+            if (german) StringTable.ResetToEmbeddedEnglish();
+        }
+    }
+
+    /// <summary>
     /// The chip's placement rules, measured in DIP at 1.0 and at the owner's 200 %: it must not
     /// overlap the ✕, it must keep ≥ 100 DIP edge-to-edge from the ✕'s hit CIRCLE (so gaze resting
     /// on the chip cannot fill the close dwell), it must stay in the row that is now text-height,
@@ -528,7 +599,8 @@ public class TaskSwitcherTileStatesWindowTests
             messages.Add($"the chip {Box(chip)} overlaps the ✕ disc {Box(disc)}");
 
         // The chip must fit the row WPF lays out (the row is no longer 124 DIP tall): its vertical
-        // margins were dropped to 0 so its 26.62 DIP pill fits the 43 DIP text row.
+        // margins were dropped to 0 so its 39.92 DIP pill (F-HINT: a 31.92 DIP title line plus
+        // 2 × 4 padding) fits the 56 DIP text row.
         if (!Inside(row, chip))
             messages.Add($"the chip {Box(chip)} leaves the hint row {Box(row)}");
 

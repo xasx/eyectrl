@@ -652,9 +652,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         window.PausePollForInput = () => _pausePoll?.Invoke() ?? false;
         _notes.Add(data);
         _windows.Add(window);
+        // K1: the FIRST placement is the Edit state's, so it must avoid the keyboard when the
+        // keyboard is already up at creation. A new note can be created while the keyboard is
+        // visible (the previous editor's commit-first hand-over keeps it up); BeginEditing below
+        // then takes the "already visible" branch and requests nothing, so no probe raise follows
+        // and this would be the ONLY placement the card ever gets. With an empty avoid list the
+        // card stays under the keyboard until an unrelated keyboard move re-derives it.
         _placements[data.Id] = NoteLayout.WithTagClearance(
-            NoteLayout.Place(data.Anchor, data.Side, CardSizeFor(data), WorkAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!,
-            _noteSettings.TextSizeDip);
+            PlaceFor(data, avoidKeyboard: true), _noteSettings.TextSizeDip);
 
         // Set the initial state before Show() so the first render builds the editor layout. The
         // placement the window renders first is the one its position comes from (P3 D2): apply
@@ -1436,6 +1441,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// clears either way (fixup m1: the note's own hide always runs after the ownership clear, so
     /// no distinction exists to make). The ⌨ Show-keyboard control registers in slot 1 exactly
     /// while the keyboard is hidden, so the raise re-registers the editing targets too.
+    /// <para>
+    /// K1 fixup-01 F2: when the raise actually MOVES the editing card, the activation chrome zones
+    /// are stale — they are re-published only on <c>NoteTargetsChangedMessage</c>, and the probe's
+    /// raise never sent one. Offers were then refused over the card's old spot and allowed over
+    /// the card's new one. A raise that leaves the placement unchanged stays silent, matching
+    /// <see cref="ApplyPlacementToWindow"/>'s identical-placement skip.
+    /// </para>
     /// </summary>
     private void OnKeyboardProbeChanged()
     {
@@ -1453,10 +1465,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             // editing card against the keyboard's CURRENT rects (state-driven avoid) BEFORE the
             // re-registration so the targets read the fresh placement. Place keeps the saved
             // side when it clears the rects and picks the first fitting of the cycle otherwise.
+            var before = _placements.TryGetValue(note.Id, out var previous) ? previous : null;
             ApplyPlacementToWindow(note);
+            bool moved = _placements.TryGetValue(note.Id, out var applied) && applied != before;
             Window(note.Id)?.SetKeyboardControlVisible(!visible); // mutant A's guard (review 01)
             RegisterSoleEditorTargets(note.Id);
             _dwellDetector.ResetAllState();
+            if (moved)
+                RaiseTargetsChanged();
         }
         else if (_movingNoteId is not null)
         {

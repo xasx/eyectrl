@@ -373,6 +373,49 @@ public class NoteKeyboardAvoidanceTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
+    [StaFact]
+    public void AKeyboardRePlaceThatMovesTheEditingCard_PublishesNoteTargetsChanged_Once()
+    {
+        // K1 fixup-01 F2: the activation chrome zones re-publish on NoteTargetsChangedMessage
+        // only. A probe raise that MOVES the Edit card must send exactly one; an identical raise
+        // (ApplyPlacementToWindow's skip) must send none, or the zones go stale and offers are
+        // refused over the card's old spot and allowed over the new one.
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = 36 });
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+        var raised = 0;
+        messenger.Register(new NoteManagerTests.NoteTargetsProbe(() => raised++));
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            probe.RectsProvider = () => new[] { ToPhysical(KeyboardTop), ToPhysical(EdgeBarTop) };
+            manager.CreateNoteAt(Phys(960, 300));
+            var id = manager.ActiveNotes[0].Id;
+            var placed = manager.PlacementForTest(id)!.Window;
+            int afterCreate = raised;
+
+            // Same rects: the derived placement is identical, so the skip stays silent.
+            probe.RaiseChanged();
+            Check.That(manager.PlacementForTest(id)!.Window).IsEqualTo(placed);
+            Check.WithCustomMessage("an unchanged keyboard re-place must not publish")
+                .That(raised).IsEqualTo(afterCreate);
+
+            // The keyboard moves down onto the card: the re-place moves it, so the zones must be
+            // re-published exactly once.
+            var moved = new Rect(KeyboardTop.Left, KeyboardTop.Top + 300, KeyboardTop.Width, KeyboardTop.Height);
+            probe.RectsProvider = () => new[] { ToPhysical(moved) };
+            probe.RaiseChanged();
+            Check.WithCustomMessage("the raise must move the card")
+                .That(manager.PlacementForTest(id)!.Window).IsNotEqualTo(placed);
+            Check.WithCustomMessage("a moved keyboard re-place must publish NoteTargetsChangedMessage exactly once")
+                .That(raised).IsEqualTo(afterCreate + 1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
     /// <summary>The ✓ Done (slot 0) and ↩ Discard (slot 3) dwell cells of an Edit placement must
     /// stay a key's reach clear of every rect the keyboard occupies — the cells are what the
     /// caretaker dwells on, not the card's chrome.</summary>
@@ -498,7 +541,15 @@ public class NoteKeyboardAvoidanceTests
         // The DRAWN placement: the manager grows the window by the tag's protrusion.
         var drawn = NoteLayout.WithTagClearance(placement!, textSize);
 
-        Check.WithCustomMessage($"the card of {sweep} must keep the clearance from the keyboard")
+        AssertDrawnPlacementKeepsClearance(drawn, keyboard, textSize, sweep);
+    }
+
+    /// <summary>The sweep's three rules (T6 fixup-07 F2): the card, every hit cell and the number
+    /// tag keep the 24 DIP clearance from the keyboard on the window that is DRAWN.</summary>
+    private static void AssertDrawnPlacementKeepsClearance(
+        NotePlacement drawn, Rect keyboard, double textSize, string label)
+    {
+        Check.WithCustomMessage($"the card of {label} must keep the clearance from the keyboard")
             .That(GapFrom(drawn.Card, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
 
         for (int slot = 0; slot < 4; slot++)
@@ -508,15 +559,111 @@ public class NoteKeyboardAvoidanceTests
                 drawn.Window.X + cx - (LayoutConstants.NoteCellDip / 2),
                 drawn.Window.Y + cy - (LayoutConstants.NoteCellDip / 2),
                 LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
-            Check.WithCustomMessage($"cell {slot} of {sweep} must keep the clearance from the keyboard")
+            Check.WithCustomMessage($"cell {slot} of {label} must keep the clearance from the keyboard")
                 .That(GapFrom(cell, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
         }
 
         var tag = NoteLayout.TagRect(drawn, textSize);
         var tagRect = new Rect(
             drawn.Window.X + tag.X, drawn.Window.Y + tag.Y, tag.Width, tag.Height);
-        Check.WithCustomMessage($"the number tag of {sweep} must keep the clearance from the keyboard")
+        Check.WithCustomMessage($"the number tag of {label} must keep the clearance from the keyboard")
             .That(GapFrom(tagRect, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+    }
+
+    // ── K1 (sitting 10): the OWNER's real keyboard geometry ──
+
+    /// <summary>The owner's real keyboard in DIP at key size 1.5 (sitting 10, 20.11): physical
+    /// (278, 0, 3284, 1325) at 2.0 = 1642 x 662.5 DIP at x 139 — 157 DIP wider and 87.5 DIP
+    /// taller than the 1418 x 575 the sweep modelled.</summary>
+    private static readonly Rect OwnerKeyboardTop = new(139, 0, 1642, 662.5);
+
+    /// <summary>The same keyboard docked at the bottom edge: top = 1152 - 662.5.</summary>
+    private static readonly Rect OwnerKeyboardBottom = new(139, 1152 - 662.5, 1642, 662.5);
+
+    /// <summary>The owner's real top keyboard YIELDED below the 140 DIP top toolbar: y 140-802.5.</summary>
+    private static readonly Rect OwnerKeyboardYieldedTop = new(139, 140, 1642, 662.5);
+
+    /// <summary>The real-keyboard sweep: the three variants above, the anchor rows of the old
+    /// sweep plus y 100/150 (just under the toolbar), all four sides and the four text sizes.</summary>
+    public static TheoryData<string> OwnerRealGeometrySweep()
+    {
+        var data = new TheoryData<string>();
+        double[] anchorsX = [100, 300, 960, 1600, 1820];
+        double[] anchorsY = [100, 150, 300, 520, 746, 1000];
+        var sides = new[] { NoteSide.Right, NoteSide.Left, NoteSide.Below, NoteSide.Above };
+        var sizes = new[] { 18.0, 28.0, 36.0, 48.0 };
+        foreach (var variant in new[] { "top", "bottom", "yielded" })
+            foreach (var x in anchorsX)
+                foreach (var y in anchorsY)
+                    foreach (var side in sides)
+                        foreach (var size in sizes)
+                            data.Add($"{variant}|{x}|{y}|{side}|{size}");
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(OwnerRealGeometrySweep))]
+    public void InEdit_OnTheOwnerRealKeyboard_TheCardItsCellsAndItsTag_KeepTheClearance(string sweep)
+    {
+        // K1 part 2: the same three rules on the keyboard the owner actually has. The docked
+        // keyboards leave a 425.5 DIP band (1088 - 662.5) under/over them, which fits the 362
+        // DIP drawn Edit card and its 24 DIP gap, so the rules must hold there.
+        var parts = sweep.Split('|');
+        var variant = parts[0];
+        double x = double.Parse(parts[1], CultureInfo.InvariantCulture);
+        double y = double.Parse(parts[2], CultureInfo.InvariantCulture);
+        var side = Enum.Parse<NoteSide>(parts[3]);
+        double textSize = double.Parse(parts[4], CultureInfo.InvariantCulture);
+
+        var keyboard = variant switch
+        {
+            "top" => OwnerKeyboardTop,
+            "bottom" => OwnerKeyboardBottom,
+            _ => OwnerKeyboardYieldedTop,
+        };
+        var card = new Size(
+            NoteLayout.CardWidthDip(textSize),
+            NoteLayout.CardHeightDip(textSize, 0, WorkArea.Height));
+
+        var placement = NoteLayout.Place(
+            Phys(x, y), side, card, WorkArea, new[] { keyboard }, Scale,
+            exclude: null, allowDisplaced: true,
+            topGrowthDip: NoteLayout.TagProtrusionDip(textSize));
+        Check.That(placement).IsNotNull();
+        var drawn = NoteLayout.WithTagClearance(placement!, textSize);
+
+        // The free band on the side the keyboard leaves for the card: under a top keyboard,
+        // above a bottom one. The yielded top keyboard leaves 285.5 DIP.
+        double freeBand = variant == "bottom"
+            ? keyboard.Top - Inset.Top
+            : Inset.Bottom - keyboard.Bottom;
+        if (freeBand < drawn.Window.Height + NoteLayout.Constants.AvoidGapDip)
+        {
+            // KNOWN GAP (pinned, not loosened): with the toolbar up, the yielded top keyboard
+            // leaves 285.5 DIP and the Edit card (340 control column + the tag's protrusion)
+            // needs 386 — no clear spot exists anywhere. The least-overlap fallback slides the
+            // card against the keyboard's bottom edge, overlapping it by exactly
+            // drawnHeight - freeBand (76.5 DIP at 36). Ticket K2a
+            // (note-controls-compact-and-bigger) compacts the Edit card and removes this gap;
+            // when it lands, this branch must become a clear-spot assertion.
+            Check.WithCustomMessage(
+                    $"{sweep}: the yielded keyboard must genuinely leave no clear spot "
+                    + $"(band {freeBand:F1}, drawn card {drawn.Window.Height:F1} + gap "
+                    + $"{NoteLayout.Constants.AvoidGapDip:F1})")
+                .That(freeBand).IsStrictlyLessThan(drawn.Window.Height + NoteLayout.Constants.AvoidGapDip);
+            Check.WithCustomMessage(
+                    $"{sweep}: the owner's yielded top keyboard (sitting 10) must leave 285.5 DIP "
+                    + "under the 140 DIP toolbar")
+                .That(freeBand).IsCloseTo(285.5, 1e-6);
+            Check.WithCustomMessage(
+                    $"{sweep}: the least-overlap fallback {drawn.Window} must overlap the yielded "
+                    + $"keyboard {keyboard} by exactly the band's shortfall")
+                .That(SignedClearance(drawn.Window, keyboard))
+                .IsCloseTo(freeBand - drawn.Window.Height, 1e-6);
+            return;
+        }
+
+        AssertDrawnPlacementKeepsClearance(drawn, keyboard, textSize, sweep);
     }
 
     // ── R1 (T6 fixup-08): the side's own clamped window competes ──

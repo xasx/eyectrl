@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Tests.Services;
 
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -408,7 +410,7 @@ public class NoteMoveFeedbackTests
             manager.OnGazeMoved(spot, present + 200_000);
             Check.That(manager.MovePreviewShownForTest).IsTrue();
 
-            // 300 DIP away: past the 60 DIP radius, so the settle window restarts and the
+            // 300 DIP away: past the 80 DIP radius, so the settle window restarts and the
             // preview has nothing to show.
             manager.OnGazeMoved(new PhysicalPoint(spot.X + 600, spot.Y), present + 300_000);
             Check.WithCustomMessage("an off-radius sample must drop the preview")
@@ -468,6 +470,248 @@ public class NoteMoveFeedbackTests
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
+
+    // ── the disc's hold (sitting 10 M1) and the Move log (sitting 10 M3) ──
+
+    [StaFact]
+    public void ThePlaceDisc_HoldsThroughSettlesNearTheAcceptedSpot_AndMovesOnlyBeyondTheHoldRadius()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            long present = 0;
+            NewMovingNote(manager, new PhysicalPoint(1600, 1000), ref present);
+            var spot = new PhysicalPoint(800, 1800); // DIP (400, 900), off the card
+
+            present = HoldGaze(manager, spot, present, 1200);
+            Check.That(manager.PlaceShownForTest).IsTrue();
+            var accepted = manager.PlaceCentroidForTest!.Value;
+            var discRect = manager.PlaceWindowRectForTest;
+
+            // A settle back ON the accepted spot — which sits ~115+ DIP from the disc, past the
+            // 88 DIP margin; exactly the look-back that kept moving the disc away (sitting 10).
+            // The hold radius pins it: the disc, its dwell and the outline stay put.
+            present = HoldGaze(manager, accepted, present, 1200);
+            Check.WithCustomMessage("a settle on the accepted spot must not move the disc")
+                .That(manager.PlaceWindowRectForTest).IsEqualTo(discRect);
+            Check.WithCustomMessage("the accepted spot itself is unchanged")
+                .That(manager.PlaceCentroidForTest).IsEqualTo(accepted);
+
+            // A settle 150 DIP below the accepted spot: past the disc's margin, inside the
+            // 200 DIP hold radius → still held. (Physical px: 300 px = 150 DIP at 200 %.)
+            var near = new PhysicalPoint(accepted.X, accepted.Y + 300);
+            present = HoldGaze(manager, near, present, 1200);
+            Check.WithCustomMessage("a settle 150 DIP from the accepted spot must not move the disc")
+                .That(manager.PlaceWindowRectForTest).IsEqualTo(discRect);
+
+            // A settle 250 DIP left of the accepted spot: beyond the hold radius → the disc
+            // relocates to the new spot.
+            var far = new PhysicalPoint(accepted.X - 500, accepted.Y); // 500 px = 250 DIP left
+            present = HoldGaze(manager, far, present, 1200);
+            Check.WithCustomMessage("a settle 250 DIP from the accepted spot must relocate the disc")
+                .That(manager.PlaceWindowRectForTest).IsNotEqualTo(discRect);
+            Check.WithCustomMessage("the disc relocates beside the NEW accepted spot")
+                .That(manager.PlaceCentroidForTest).IsEqualTo(far);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void ThePlaceDiscsDwell_SurvivesAHeldSettle_AndTheDiscStillPlaces()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: NoteTestBench.WorkAreaProvider);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            long present = 0;
+            NewMovingNote(manager, new PhysicalPoint(1600, 1000), ref present);
+            var spot = new PhysicalPoint(800, 1800);
+
+            present = HoldGaze(manager, spot, present, 1200);
+            Check.That(manager.PlaceShownForTest).IsTrue();
+            var accepted = manager.PlaceCentroidForTest!.Value;
+            var discRect = manager.PlaceWindowRectForTest;
+            var disc = PlaceDiscCentrePhysical(manager);
+
+            // Partial dwell on the disc: the arc is mid-fill when the owner's gaze wanders off.
+            for (var t = present; t <= present + 200_000; t += 100_000)
+                manager.OnGazeMoved(new PhysicalPoint(disc.X + 10_000, disc.Y), t);
+            for (var t = present + 250_000; t <= present + 350_000; t += 50_000)
+                manager.OnGazeMoved(disc, t);
+            present += 400_000;
+            Check.WithCustomMessage("the partial dwell reaches the disc's arc")
+                .That(manager.PlaceWindowForTest!.ProgressForTest).IsStrictlyGreaterThan(0.0);
+
+            // A held settle 150 DIP below the accepted spot (past the disc's margin, inside the
+            // hold radius): the disc — and the dwell target on it — hold still. Pre-M1 this
+            // settle relocated the disc and re-registered the target from under the dwell.
+            var near = new PhysicalPoint(accepted.X, accepted.Y + 300); // 300 px = 150 DIP down
+            present = HoldGaze(manager, near, present, 1200);
+            Check.WithCustomMessage("the held settle must not move the disc")
+                .That(manager.PlaceWindowRectForTest).IsEqualTo(discRect);
+
+            // The disc is still where it was: dwelling it completes the placement.
+            present = HoldGaze(manager, disc, present, 1200);
+            Check.WithCustomMessage("the disc survives the held settle and completes its dwell")
+                .That(manager.IsMoving).IsFalse();
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    /// <summary>Every settle outcome writes exactly its one content-free line (M3): on-card,
+    /// shown, held, moved — positions in DIP at one decimal place — and the placed end line
+    /// carries the move's duration and the settle tally. The injected clock makes the duration
+    /// exact; the injected sink captures the lines the way the log-line tests do.</summary>
+    [StaFact]
+    public void EverySettleOutcome_WritesItsOneContentFreeLine_AndThePlacedEndLine()
+    {
+        var lines = new List<string>();
+        long clock = 50_000;
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            clockMs: () => clock, workAreaDip: NoteTestBench.WorkAreaProvider,
+            settleInfoLog: lines.Add);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            long present = 0;
+            var id = NewMovingNote(manager, new PhysicalPoint(1600, 1000), ref present); // session starts at clock 50_000
+            var spot = new PhysicalPoint(800, 1800); // DIP (400, 900)
+
+            // on-card: the card's text area, away from the control column.
+            var card = manager.PlacementForTest(id)!.Card;
+            var cardCentre = new PhysicalPoint(
+                DpiHelper.LogicalToPhysicalX(card.Left + (card.Width / 2)),
+                DpiHelper.LogicalToPhysicalY(card.Top + (card.Height / 2)));
+            clock = 60_000;
+            present = HoldGaze(manager, cardCentre, present, 1200);
+            Check.WithCustomMessage("a settle on the card writes the on-card line")
+                .That(lines).HasElementThatMatches(l => l.StartsWith("NOTE-SETTLE out=on-card x=", StringComparison.Ordinal));
+
+            // shown: the first settle off the card raises the disc beside (400, 900).
+            clock = 70_000;
+            present = HoldGaze(manager, spot, present, 1200);
+            Check.That(manager.PlaceShownForTest).IsTrue();
+
+            // held: a settle back on the accepted spot (d = 0.0) leaves the disc alone.
+            clock = 80_000;
+            present = HoldGaze(manager, spot, present, 1200);
+
+            // moved: 250 DIP left of the accepted spot (500 physical px) relocates the disc.
+            var far = new PhysicalPoint(spot.X - 500, spot.Y); // DIP (150, 900)
+            clock = 90_000;
+            present = HoldGaze(manager, far, present, 1200);
+
+            // The final hold dwells the relocated disc: one more held settle (the disc's own
+            // margin), then the place dwell fires and the move ends at clock 100_000.
+            clock = 100_000;
+            present = HoldGaze(manager, PlaceDiscCentrePhysical(manager), present, 1200);
+            Check.That(manager.IsMoving).IsFalse();
+
+            var discCentre = PlaceDiscCentrePhysical(manager);
+            var discDip = new PhysicalPoint(
+                DpiHelper.PhysicalToLogicalX(discCentre.X), DpiHelper.PhysicalToLogicalY(discCentre.Y));
+            double discDistance = Math.Sqrt(
+                Math.Pow(discDip.X - 150.0, 2) + Math.Pow(discDip.Y - 900.0, 2));
+            var expected = new[]
+            {
+                $"NOTE-SETTLE out=on-card {DipText(cardCentre)}",
+                "NOTE-SETTLE out=shown x=400.0 y=900.0",
+                "NOTE-SETTLE out=held x=400.0 y=900.0 d=0.0",
+                "NOTE-SETTLE out=moved x=150.0 y=900.0 ox=400.0 oy=900.0 d=250.0",
+                $"NOTE-SETTLE out=held {DipText(discCentre)} d={discDistance.ToString("F1", CultureInfo.InvariantCulture)}",
+                "NOTE-MOVE end=placed ms=50000 settles=5 holds=2 moves=1",
+            };
+            Check.WithCustomMessage($"the settle/move-end lines must appear in order, one each:\n  {string.Join("\n  ", lines)}")
+                .That(lines).IsEqualTo(expected);
+
+            Check.WithCustomMessage("no line may carry note text")
+                .That(lines.Count(l => l.Contains("saved text", StringComparison.Ordinal))).IsEqualTo(0);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    /// <summary>The two other move ends write their lines too: cancelled (through the real
+    /// Cancel dwell) and otherside (the judged candidate applied), each with its own session's
+    /// duration and tally.</summary>
+    [StaFact]
+    public void TheCancelledAndOtherSideEnds_WriteTheirLines()
+    {
+        var lines = new List<string>();
+        long clock = 1_000_000;
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            clockMs: () => clock, workAreaDip: NoteTestBench.WorkAreaProvider,
+            settleInfoLog: lines.Add);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            long present = 0;
+            var id = NewMovingNote(manager, new PhysicalPoint(1600, 1000), ref present); // move 1 starts at clock 1_000_000
+            var spot = new PhysicalPoint(800, 1800);
+            // The Cancel cell's centre while the note is still on its original side — the cell
+            // the held settle and the Cancel dwell both ride.
+            var cancelCentreText = DipText(NoteTestBench.CellCentre(manager, id, 1));
+
+            present = HoldGaze(manager, spot, present, 1200); // shown: settles=1
+            Check.That(manager.PlaceShownForTest).IsTrue();
+
+            // The Cancel dwell: the held samples settle once on the card (settles=2), then the
+            // dwell completes and the move ends at clock 2_000_000.
+            clock = 2_000_000;
+            present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present, 1200);
+            Check.WithCustomMessage("the cancel dwell ends the move").That(manager.IsMoving).IsFalse();
+
+            // Move 2: pick the note up again (the Display set's slot 1 cell), settle, disc —
+            // then the Other-side activation ends it at clock 4_000_000.
+            clock = 3_000_000;
+            present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present, 1200);
+            Check.That(manager.IsMoving).IsTrue();
+            present = HoldGaze(manager, spot, present, 1200); // shown again: settles=1
+            Check.That(manager.PlaceShownForTest).IsTrue();
+            clock = 4_000_000;
+            manager.OtherSideForTest(id);
+            Check.WithCustomMessage("the other-side activation ends the move").That(manager.IsMoving).IsFalse();
+            Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+
+            var expected = new[]
+            {
+                "NOTE-SETTLE out=shown x=400.0 y=900.0",
+                $"NOTE-SETTLE out=on-card {cancelCentreText}",
+                "NOTE-MOVE end=cancelled ms=1000000 settles=2 holds=0 moves=0",
+                "NOTE-SETTLE out=shown x=400.0 y=900.0",
+                "NOTE-MOVE end=otherside ms=1000000 settles=1 holds=0 moves=0",
+            };
+
+            Check.WithCustomMessage($"the end lines must match the sessions:\n  {string.Join("\n  ", lines)}")
+                .That(lines).IsEqualTo(expected);
+
+            Check.WithCustomMessage("no line may carry note text")
+                .That(lines.Count(l => l.Contains("saved text", StringComparison.Ordinal))).IsEqualTo(0);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    /// <summary>A physical point rendered as the log's DIP position pair ("x=… y=…").</summary>
+    private static string DipText(PhysicalPoint physical) =>
+        string.Format(CultureInfo.InvariantCulture, "x={0:F1} y={1:F1}",
+            DpiHelper.PhysicalToLogicalX(physical.X), DpiHelper.PhysicalToLogicalY(physical.Y));
 
     // ── the place disc ──
 

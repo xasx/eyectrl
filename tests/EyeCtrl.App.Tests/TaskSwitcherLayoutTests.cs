@@ -318,8 +318,8 @@ public class TaskSwitcherLayoutTests
     [Fact]
     public void WhenTheKeepOutLeavesNoRow_TheClearanceGapIsDroppedFirst()
     {
-        // A 960 DIP top band leaves 184 DIP before the hint row: not one full row with the
-        // 24 DIP clearance, but one 182 DIP row once the gap is dropped. The edge margins stay,
+        // A 960 DIP top band leaves 160 DIP before the hint row with the 24 DIP clearance: not
+        // one full row. Dropping the gap leaves 184 DIP, which holds one 182 DIP row. The edge margins stay,
         // and so does the ✕'s own keep-out (960 > 131, so the band governs here).
         var layout = TaskSwitcherLayout.Compute(
             ScreenWidth, ScreenHeight, Band(0, 0, ScreenWidth, 960), "Top", tileCount: 63);

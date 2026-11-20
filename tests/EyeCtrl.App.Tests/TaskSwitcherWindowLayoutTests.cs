@@ -102,7 +102,8 @@ public class TaskSwitcherWindowLayoutTests
     /// F-HINT: the hint text and the overflow chip are one line of the SAME size — the 24 DIP
     /// title token in every theme — while the colour stays the secondary grey the owner chose
     /// over the brighter variant (options page B). Both halves are pinned: the XAML resource
-    /// reference (so a theme swap re-resolves the token) and the rendered properties (so a
+    /// reference (an x:Static token, read once at window load; every theme's title size is 24, so
+    /// a theme swap cannot change it) and the rendered properties (so a
     /// literal 14 would be caught even if the resource name stayed).
     /// </summary>
     [StaFact]

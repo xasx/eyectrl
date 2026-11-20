@@ -627,6 +627,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"note-control fired: control={Control} note={Number} distDip={DistanceDip} dwellMs={DwellMs}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
       "Literal": "\"status strip\"",
       "Count": 1
     },

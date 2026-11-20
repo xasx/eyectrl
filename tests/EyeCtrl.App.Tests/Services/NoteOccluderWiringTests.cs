@@ -106,7 +106,7 @@ public class NoteOccluderWiringTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
             strip.Card = new PhysicalRect(closeCenter.X - 200, closeCenter.Y - 44, 400, 88);
             for (long t = 0; t <= 1_500_000; t += 100_000)
@@ -145,7 +145,7 @@ public class NoteOccluderWiringTests
             {
                 var anchor = new PhysicalPoint(1600, 1000);
                 manager.AddNoteTargetsForTest(anchor);
-                var closeCenter = ButtonCentrePhysical(anchor, 3);
+                var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
                 for (long t = 0; t <= 2_000_000; t += 100_000)
                     manager.OnGazeMoved(closeCenter, t);
 
@@ -189,7 +189,7 @@ public class NoteOccluderWiringTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
             var away = new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y);
 
             banner.ShowBlocked(BlockedState);
@@ -277,7 +277,7 @@ public class NoteOccluderWiringTests
             {
                 var anchor = new PhysicalPoint(1600, 1000);
                 manager.AddNoteTargetsForTest(anchor);
-                var closeCenter = ButtonCentrePhysical(anchor, 3);
+                var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
                 for (long t = 0; t <= 2_000_000; t += 100_000)
                     manager.OnGazeMoved(closeCenter, t);
 
@@ -337,7 +337,7 @@ public class NoteOccluderWiringTests
             {
                 var anchor = new PhysicalPoint(1600, 1000);
                 manager.AddNoteTargetsForTest(anchor);
-                var closeCenter = ButtonCentrePhysical(anchor, 3);
+                var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
                 // Leave-before-arm: 300 ms outside the circle, then a 900 ms hold on ✕.
                 for (long t = 0; t <= 300_000; t += 100_000)
@@ -415,7 +415,7 @@ public class NoteOccluderWiringTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
             // The card sits exactly over ✕, visible: a full hold must not fire.
             trackStatus.Visible = true;
@@ -447,7 +447,7 @@ public class NoteOccluderWiringTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
             var occupant = new FakeSlotOccupant(
                 new PhysicalRect(closeCenter.X - 300, closeCenter.Y - 100, 600, 200));
@@ -520,7 +520,7 @@ public class NoteOccluderWiringTests
             {
                 var anchor = new PhysicalPoint(1600, 1000);
                 manager.AddNoteTargetsForTest(anchor);
-                var closeCenter = ButtonCentrePhysical(anchor, 3);
+                var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
                 // A 2 s hold on ✕ with the source throwing on every sample: nothing escapes,
                 // and the destructive dwell can never complete (fail closed).
@@ -612,8 +612,8 @@ public class NoteOccluderWiringTests
             // keyboard (P1 D5), which is not the behaviour under test.
             int showRequests = 0;
             messenger.Register<object, KeyboardShowRequestedMessage>(this, (_, _) => showRequests++);
-            var slot0 = ButtonCentrePhysical(anchor, 0); // ✓ Done in Edit — and ✕'s slot in Display
-            var slot1 = ButtonCentrePhysical(anchor, 1); // ⌨ Show keyboard (Edit only)
+            var slot0 = ButtonCentrePhysical(manager, anchor, 0); // ✓ Done in Edit — and ✕'s slot in Display
+            var slot1 = ButtonCentrePhysical(manager, anchor, 1); // ⌨ Show keyboard (Edit only)
 
             // The exemption must exempt nothing but Done: a held ⌨ — while still editing, so it
             // exists — under the throwing source stays gated and must never re-summon the
@@ -639,7 +639,7 @@ public class NoteOccluderWiringTests
 
             // The same held gaze now rests on ✕ (slot 2, P2 D8 — re-registered fresh by the
             // exit): the destructive control must stay gated by the fail-closed answer.
-            var slot2 = ButtonCentrePhysical(anchor, 3); // ✕ Close in Display
+            var slot2 = ButtonCentrePhysical(manager, anchor, 3); // ✕ Close in Display
             for (long t = 2_600_000; t <= 3_600_000; t += 100_000)
                 manager.OnGazeMoved(slot2, t);
             Check.WithCustomMessage(
@@ -674,7 +674,7 @@ public class NoteOccluderWiringTests
             var anchor = new PhysicalPoint(1600, 1000);
             var idA = manager.AddNoteTargetsForTest(anchor);
             var idB = manager.AddNoteTargetsForTest(new PhysicalPoint(3000, 2000));
-            var closeCenter = ButtonCentrePhysical(anchor, 3); // ✕ (P2 D8)
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3); // ✕ (P2 D8)
             var away = new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y);
 
             // 1. Latch ✕ under a held gaze: the gaze settles on ✕, then a neighbour's removal
@@ -713,6 +713,6 @@ public class NoteOccluderWiringTests
 
     /// <summary>A dwell button's centre in physical px, derived through the SAME placement the
     /// manager registered from (bench work area + <see cref="NoteLayout.Place"/>, P3).</summary>
-    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot) =>
-        NoteTestBench.CellCentreFromAnchor(anchor, slot);
+    private static PhysicalPoint ButtonCentrePhysical(NoteManager manager, PhysicalPoint anchor, int slot) =>
+        NoteTestBench.CellCentreAtAnchor(manager, anchor, slot);
 }

@@ -42,7 +42,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
             // A full 2 s hold on ✕, every sample carrying IsPaused: nothing may fire...
             for (long t = 0; t <= 2_000_000; t += 100_000)
@@ -54,7 +54,7 @@ public class NoteGateTests
             // ...and the same freeze holds the editor: a paused hold on Done must not exit Edit.
             var editId = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(4000, 1000));
             manager.Apply(new NoteAppend("draft"));
-            var doneCenter = ButtonCentrePhysical(new PhysicalPoint(4000, 1000), 0);
+            var doneCenter = ButtonCentrePhysical(manager, new PhysicalPoint(4000, 1000), 0);
             for (long t = 2_100_000; t <= 3_000_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(
                     new GazeFrame(doneCenter, t, IsInGap: false)) { IsPaused = true });
@@ -81,7 +81,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
             im.TogglePause(); // the only pause writer (P2 D1): CurrentState == Paused
             for (long t = 0; t <= 1_500_000; t += 100_000)
@@ -105,7 +105,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
             // Paused, held on ✕.
             for (long t = 0; t <= 1_000_000; t += 100_000)
@@ -145,7 +145,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
             messenger.Send(new EyeCareExerciseActiveMessage(true));
             for (long t = 0; t <= 2_000_000; t += 100_000)
@@ -186,7 +186,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
             messenger.Send(new CalibrationStateChangedMessage(state, 0));
             for (long t = 0; t <= 2_000_000; t += 100_000)
@@ -208,7 +208,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
             messenger.Send(new CalibrationStateChangedMessage(CalibrationState.Collecting, 0));
             for (long t = 0; t <= 1_000_000; t += 100_000)
@@ -307,7 +307,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
             PhysicalRect? strip = new PhysicalRect(closeCenter.X - 300, closeCenter.Y - 100, 600, 200);
             manager.SetOccluderSources(blockedBannerBounds: () => strip);
@@ -342,7 +342,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
             // The notice sits exactly over ✕: a full hold must not fire.
             occluding = new PhysicalRect(closeCenter.X - 300, closeCenter.Y - 100, 600, 200);
@@ -389,7 +389,7 @@ public class NoteGateTests
             var bottomHandle = new WindowInteropHelper(bottomWindow!).EnsureHandle();
             var topHandle = new WindowInteropHelper(topWindow!).EnsureHandle();
 
-            var bottomClose = ButtonCentrePhysical(anchorBottom, 3);
+            var bottomClose = ButtonCentrePhysical(manager, anchorBottom, 3);
 
             // The gaze is over the BOTTOM note's ✕, but the TOP window is hit-testably on top.
             tester.Answer = topHandle;
@@ -424,7 +424,7 @@ public class NoteGateTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             TypeIntoNewSavedNote(manager, "x", anchor);
-            var closeCenter = ButtonCentrePhysical(anchor, 3);
+            var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
             ArmThenHold(manager, closeCenter, startUs: 0);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
@@ -461,7 +461,7 @@ public class NoteGateTests
         using var manager = new NoteManager(messenger, sink: null, dwellRegistry: registry, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var anchor = new PhysicalPoint(1600, 1000);
         manager.AddNoteTargetsForTest(anchor);
-        var closeCenter = ButtonCentrePhysical(anchor, 3);
+        var closeCenter = ButtonCentrePhysical(manager, anchor, 3);
 
         using var router = new DwellTimeRouter(provider, registry); // applies the map on construction
 
@@ -542,7 +542,7 @@ public class NoteGateTests
             int i = 1;
             foreach (var slot in NoteLayout.SlotsFor(NoteState.Display))
             {
-                var centre = NoteTestBench.CellCentre(placement, slot);
+                var centre = NoteTestBench.CellCentre(placement, slot, NoteState.Display);
                 var expectedCell = new PhysicalRect(centre.X - half, centre.Y - half, half * 2, half * 2);
                 Check.That(rects[i]).IsEqualTo(expectedCell);
                 i++;
@@ -617,7 +617,7 @@ public class NoteGateTests
             var anchor = new PhysicalPoint(1600, 1000);
             var id = manager.AddEditingNoteTargetsForTest(anchor);
             manager.Apply(new NoteAppend("hello"));
-            var slot0 = ButtonCentrePhysical(anchor, 0);
+            var slot0 = ButtonCentrePhysical(manager, anchor, 0);
             var outPoint = new PhysicalPoint(slot0.X + 200, slot0.Y); // outside the 60 px circle
 
             for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
@@ -648,40 +648,52 @@ public class NoteGateTests
     [StaFact]
     public void AnEmptyNewNotesDone_StillLatchesTheNeighbourControl_UnderTheHeldGaze()
     {
-        // H6 (T1 fixup F2's scope): pin a new note exactly over a neighbour's Display control
-        // (Done and the neighbour's ✎ share slot 0 even after P2 D8's reorder), dwell its Done —
-        // the empty new note disappears, and the neighbour's ✎, under the same held gaze, must
-        // come back LATCHED, not live.
+        // H6 (T1 fixup F2's scope): pin a new note so its Edit-row ✓ Done lands exactly on a
+        // neighbour's Display ✎, dwell its Done — the empty new note disappears, and the
+        // neighbour's ✎, under the same held gaze, must come back LATCHED, not live.
+        //
+        // K2a moved the Edit controls into a row under the text, so the two no longer share a
+        // column slot by construction: the new note's anchor is SOLVED from the geometry so its
+        // row cell 0 sits on the neighbour's ✎ cell. Neighbour at DIP (700, 500), Display card
+        // 702 x 468: its ✎ is (1372, 332). A new note's Edit card is 560 x 194 with its row cell 0
+        // at (anchor.x + 204, anchor.y + 31), so the new anchor is (1168, 301) DIP = physical
+        // (2336, 602) — far enough left that the Right window's tail zone stays inside the 80 DIP
+        // inset. The assertion below pins the coincidence, so a future card change cannot silently
+        // turn this test into a no-op.
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
-            var anchor = new PhysicalPoint(1600, 1000);
+            var anchor = new PhysicalPoint(1400, 1000); // DIP (700, 500)
             // A REAL window: the liveness half dwells the neighbour's ✎, and StartEdit drives
             // the note's window.
             var neighbourId = TypeIntoNewSavedNote(manager, "neighbour", anchor);
-            var slot0 = ButtonCentrePhysical(anchor, 0);
+            var neighbourEdit = NoteTestBench.CellCentre(manager, neighbourId, 0);
 
             // The gaze settles on the spot before the pin, so the new note's Done is born latched.
-            for (long t = 0; t <= 200_000; t += 100_000) manager.OnGazeMoved(slot0, t);
+            for (long t = 0; t <= 200_000; t += 100_000) manager.OnGazeMoved(neighbourEdit, t);
 
-            manager.CreateNoteAt(anchor); // the new note's Done sits exactly on the neighbour's ✎
+            var newAnchor = new PhysicalPoint(2336, 602); // DIP (1168, 301)
+            manager.CreateNoteAt(newAnchor);
+            var newId = manager.ActiveNotes.First(n => n.Id != neighbourId).Id;
             Check.That(manager.IsEditing).IsTrue();
+            Check.WithCustomMessage("the new note's Edit-row Done must sit exactly on the neighbour's ✎")
+                .That(NoteTestBench.CellCentre(manager, newId, 0)).IsEqualTo(neighbourEdit);
 
             // Leave past the 150 ms release, return, and save-by-Done: an EMPTY new note
             // disappears (nothing was ever saved).
-            var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y);
+            var away = new PhysicalPoint(neighbourEdit.X + 10_000, neighbourEdit.Y);
             for (long t = 300_000; t <= 600_000; t += 100_000) manager.OnGazeMoved(away, t);
-            for (long t = 700_000; t <= 1_500_000; t += 100_000) manager.OnGazeMoved(slot0, t);
+            for (long t = 700_000; t <= 1_500_000; t += 100_000) manager.OnGazeMoved(neighbourEdit, t);
             Check.WithCustomMessage("the empty new note's Done must have fired and removed it")
                 .That(manager.ActiveNotes.Select(n => n.Id).Contains(neighbourId)).IsTrue();
             Check.That(manager.ActiveNotes).HasSize(1);
             Check.That(manager.IsEditing).IsFalse();
 
             // The neighbour's ✎ is back, under the still-held gaze: a full second must not fire.
-            for (long t = 1_600_000; t <= 2_600_000; t += 100_000) manager.OnGazeMoved(slot0, t);
+            for (long t = 1_600_000; t <= 2_600_000; t += 100_000) manager.OnGazeMoved(neighbourEdit, t);
             Check.WithCustomMessage(
                     "the empty-new exit must latch every target under the held gaze — the neighbour's "
                     + "✎ must not pull the saved note into Edit under eyes that never left")
@@ -689,7 +701,7 @@ public class NoteGateTests
 
             // Liveness: a leave and a return release the latch, and the ✎ works.
             for (long t = 2_700_000; t <= 2_900_000; t += 100_000) manager.OnGazeMoved(away, t);
-            for (long t = 3_000_000; t <= 3_800_000; t += 100_000) manager.OnGazeMoved(slot0, t);
+            for (long t = 3_000_000; t <= 3_800_000; t += 100_000) manager.OnGazeMoved(neighbourEdit, t);
             Check.That(manager.IsEditing).IsTrue();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -743,7 +755,7 @@ public class NoteGateTests
                 var topId = TypeIntoNewSavedNote(manager, "top", anchorTop);
                 var bottomHandle = new WindowInteropHelper(manager.WindowForTest(bottomId)!).EnsureHandle();
                 var topHandle = new WindowInteropHelper(manager.WindowForTest(topId)!).EnsureHandle();
-                var bottomClose = ButtonCentrePhysical(anchorBottom, 3);
+                var bottomClose = ButtonCentrePhysical(manager, anchorBottom, 3);
 
                 // The real hit test must resolve the gaze to one of the two note windows.
                 var root = new NoteHitTester().RootWindowAt(bottomClose);
@@ -784,8 +796,8 @@ public class NoteGateTests
 
     /// <summary>A dwell button's centre in physical px, derived through the SAME placement the
     /// manager registered from (bench work area + <see cref="NoteLayout.Place"/>, P3).</summary>
-    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot) =>
-        NoteTestBench.CellCentreFromAnchor(anchor, slot);
+    private static PhysicalPoint ButtonCentrePhysical(NoteManager manager, PhysicalPoint anchor, int slot) =>
+        NoteTestBench.CellCentreAtAnchor(manager, anchor, slot);
 
     /// <summary>Arms ✕ (a 200 ms excursion outside its circle, past the 150 ms release) and then
     /// holds the gaze on it for 900 ms — enough for a fresh 600 ms dwell to complete.</summary>

@@ -11,6 +11,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using Xunit;
@@ -19,14 +20,19 @@ using Xunit;
 /// T5 review-03 G1 (the reviewer's rendered-ink probe, adopted as assertions): every visible
 /// disc glyph's INK - measured by rendering the canvas with and without the label and diffing
 /// the pixels - must have its centre within 1.5 DIP of the disc centre and a radius of at most
-/// 22.5 DIP (the dwell arc's inner edge 24.5 minus 2 DIP of clearance, the #190 limit), for all
-/// four states x both themes at DPI 2.0. Box centring sat every glyph 6-10 DIP low and cannot
-/// pass this; only ink centring can.
+/// the dwell arc's inner edge minus 2 DIP of clearance (the #190 limit), for all four states x
+/// both themes at DPI 2.0. Box centring sat every glyph 6-10 DIP low and cannot pass this; only
+/// ink centring can. Since A2 the limit is DERIVED from the disc: the arc sits at
+/// <see cref="LayoutConstants.NoteButtonRadius"/> − 2 with a 3 DIP stroke (inner edge − 1.5),
+/// and the 2 DIP clearance follows it, so the 88 DIP disc's 51 DIP glyph keeps the same share.
 /// </summary>
 [Collection("WpfApplication")]
 public class NoteGlyphInkTests
 {
-    private const double MaxInkRadiusDip = 22.5;
+    /// <summary>The arc's inner edge (radius − 2 − the 3 DIP stroke's half) minus 2 DIP of
+    /// clearance: 38.5 DIP at A2's 44 DIP disc radius (it was the fixed 22.5 at the old 28).</summary>
+    private static readonly double MaxInkRadiusDip = LayoutConstants.NoteButtonRadius - 2.0 - 1.5 - 2.0;
+
     private const double MaxCentreOffsetDip = 1.5;
 
     [StaTheory]

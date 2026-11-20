@@ -261,12 +261,17 @@ public class NoteWindow : OverlayWindow
         _cardBorder = bg;
 
         // P4 D3: every hit-cell row gets its alpha-1 fill (P2 D2 layout rule 2 - the hit area
-        // sits on alpha > 0 pixels even where its disc does not reach). Drawn once for ALL rows
-        // like the buttons; UpdateButtonVisibility picks the state rows.
-        for (int row = 0; row < 4; row++)
+        // sits on alpha-1/255 pixels even where its disc does not reach). K2a: Edit draws its
+        // THREE cells in the row under the text; every other state keeps the four column rows.
+        // Drawn once per state for ALL its rows, like the buttons; UpdateButtonVisibility picks
+        // the state's occupied cells.
+        int cellRows = _state == NoteState.Edit ? 3 : 4;
+        for (int row = 0; row < cellRows; row++)
         {
             var (cx, cy) = _placement is { } wp
-                ? NoteLayout.ButtonCenter(wp, row)
+                ? (_state == NoteState.Edit
+                    ? NoteLayout.EditCellCenter(wp, row)
+                    : NoteLayout.ButtonCenter(wp, row))
                 : NoteLayout.ButtonCenter(_side, row, CardWidthDip);
             var fill = new Rectangle
             {
@@ -498,25 +503,28 @@ public class NoteWindow : OverlayWindow
         if (_state == NoteState.Edit)
         {
             // The static end marker (P1 D3): where a caret would blink in a real editor, a thin
-            // bar states plainly that typed text lands after everything shown.
+            // bar states plainly that typed text lands after everything shown. K2a: its height
+            // and gap come from NoteLayout, which also budgets them in the compact card's height,
+            // so the marker can never draw into the control row below.
             var endMarker = new Rectangle
             {
-                Width = ButtonRadius / 3,
-                Height = ButtonRadius / 3,
+                Width = NoteLayout.EditEndMarkerHeightDip,
+                Height = NoteLayout.EditEndMarkerHeightDip,
                 Fill = Tokens.BrushAccent,
                 HorizontalAlignment = HorizontalAlignment.Left,
-                Margin = new Thickness(10, 2, 0, 0)
+                Margin = new Thickness(10, NoteLayout.EditEndMarkerGapDip, 0, 0)
             };
             stack.Children.Add(endMarker);
         }
 
         _contentBorder.Child = stack;
 
-        // T5 review-01 B1: the text sits BESIDE the control column, never under it. The column
-        // hugs the card edge away from the tail, so the text area takes the remaining strip.
+        // T5 review-01 B1: the text sits BESIDE the control column, never under it. K2a: Edit has
+        // no column - its controls are a row UNDER the text - so the text block takes the card's
+        // text-side corner alone.
         var card = _placement is { } p ? NoteLayout.RectLocal(p)
             : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
-        bool columnOnLeft = _side == NoteSide.Left;
+        bool columnOnLeft = _state != NoteState.Edit && _side == NoteSide.Left;
         _contentBorder.Width = NoteLayout.TextColumnWidthDip(_textSize) + ButtonPadding;
         Canvas.SetLeft(_contentBorder, columnOnLeft ? card.Left + LayoutConstants.NoteColumnWidthDip : card.Left);
         Canvas.SetTop(_contentBorder, card.Top);
@@ -600,12 +608,18 @@ public class NoteWindow : OverlayWindow
     internal bool OverCapFadeForTest { get; private set; }
 
     /// <summary>The text area's available height in DIP: the card inner height minus the
-    /// paddings. The cap itself rode the placement - the manager derived the card height from
-    /// min(55 percent of the work area, 12 lines) - so the window clips to whatever fits it.</summary>
+    /// paddings, and in Edit minus the control row and the end marker's block (K2a) — so a long
+    /// draft clips to the end instead of drawing over the row. The cap itself rode the placement
+    /// — the manager derived the card height from the work area and the text — so the window
+    /// clips to whatever fits it.</summary>
     private double TextAreaHeightDip()
     {
-        double h = _placement is { } p ? NoteLayout.RectLocal(p).Height : NoteLayout.ControlsColumnHeightDip;
-        return Math.Max(1, h - (2 * ButtonPadding));
+        if (_placement is not { } p)
+            return Math.Max(1, NoteLayout.ControlsColumnHeightDip - (2 * ButtonPadding));
+        var card = NoteLayout.RectLocal(p);
+        if (_state == NoteState.Edit)
+            return NoteLayout.EditTextAreaHeightDip(card.Height, _textSize);
+        return Math.Max(1, card.Height - (2 * ButtonPadding));
     }
 
     /// <summary>Measures the wrapped text height in DIP the auto-height derives from (P4 D2):
@@ -712,9 +726,20 @@ public class NoteWindow : OverlayWindow
 
     public void SetState(NoteState state)
     {
+        // K2a: Edit draws a different tree (one row of three cells under the text), so a change
+        // between Edit and any other state must REBUILD from the applied placement — the manager
+        // applies the new card size before this flip, so the placement is already the right one.
+        bool relayout = (state == NoteState.Edit) != (_state == NoteState.Edit);
         _state = state;
         Dispatcher.Invoke(() =>
         {
+            if (relayout)
+            {
+                // Draw() re-runs the content, the border and the visibility passes itself, with
+                // the state already flipped and the new placement already applied.
+                Draw();
+                return;
+            }
             UpdateContent();
             UpdateBorder();
             UpdateButtonVisibility();
@@ -828,11 +853,12 @@ public class NoteWindow : OverlayWindow
             foreach (var (suffix, symbol, color, accessibleName, slot) in symbols)
             {
                 // Window-relative logical centre, shared with NoteManager dwell-target
-                // placement - column side follows the placement side (P3 D2.6), the slot maps
-                // 1:1 to its hit-cell row (P4 D3); the read rides the tag's top clearance so
-                // a grown window draws the cells at the same screen positions.
+                // placement - K2a: Edit's controls sit in their row of three cells under the
+                // text; every other state reads the column. The side decides the column, and the
+                // read rides the tag's top clearance so a grown window draws the cells at the
+                // same screen positions.
                 var (cx, cy) = _placement is { } bp
-                    ? NoteLayout.ButtonCenter(bp, slot)
+                    ? NoteLayout.ButtonCenter(bp, slot, _state)
                     : NoteLayout.ButtonCenter(_side, slot, CardWidthDip);
 
                 var ellipse = new Ellipse
@@ -891,7 +917,7 @@ public class NoteWindow : OverlayWindow
             _buttonLabels[$"{_noteId}:{suffix}"] = label;
             AttachCaretakerInput(label, suffix);
 
-            if (_cellFills.TryGetValue(slot, out var cell))
+            if (_cellFills.TryGetValue(NoteLayout.CellRowFor(_state, slot), out var cell))
                 AttachCaretakerInput(cell, suffix);
 
             var arcPath = new Path
@@ -930,14 +956,13 @@ public class NoteWindow : OverlayWindow
         // The P4 D3 slot table is the single truth (NoteLayout.SlotsFor): a state shows exactly
         // its table slots, and every other set EXISTs on the canvas (fixup B1) so every branch
         // must set every key explicitly - a fresh Ellipse default Visibility is Visible, and an
-        // untouched twin would render on top of the active set.
-        var slots = NoteLayout.SlotsFor(_state);
-        bool occupied(int slot) => slots.Contains(slot);
-
-        SetCellVisible(0, occupied(0));
-        SetCellVisible(1, occupied(1));
-        SetCellVisible(2, occupied(2));
-        SetCellVisible(3, occupied(3));
+        // untouched twin would render on top of the active set. K2a: Edit's slots map to its
+        // row's cells 0, 1 and 2 (the discard control is slot 3 but the third row cell).
+        var occupiedRows = new HashSet<int>();
+        foreach (var slot in NoteLayout.SlotsFor(_state))
+            occupiedRows.Add(NoteLayout.CellRowFor(_state, slot));
+        for (int row = 0; row < 4; row++)
+            SetCellVisible(row, occupiedRows.Contains(row));
 
         if (_state == NoteState.PendingUndo)
         {

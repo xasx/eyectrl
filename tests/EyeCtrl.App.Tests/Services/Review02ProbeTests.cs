@@ -35,7 +35,7 @@ public class Review02ProbeTests
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddEditingNoteTargetsForTest(anchor);
             manager.Apply(new NoteAppend("hello"));
-            var slot0 = Centre(anchor, 0);
+            var slot0 = Centre(manager, anchor, 0);
             double r = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NoteCellDip / 2);
             long t = 0;
             for (; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
@@ -63,7 +63,7 @@ public class Review02ProbeTests
             manager.AddNoteTargetsForTest(new PhysicalPoint(anchor.X + 20, anchor.Y + 10)); // A, 10x5 DIP away
             manager.AddEditingNoteTargetsForTest(anchor);                                   // B
             manager.Apply(new NoteAppend("second"));
-            var slot0 = Centre(anchor, 0);
+            var slot0 = Centre(manager, anchor, 0);
             long t = 0;
             for (; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
             Check.That(manager.IsEditing).IsFalse();
@@ -74,6 +74,6 @@ public class Review02ProbeTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
-    private static PhysicalPoint Centre(PhysicalPoint anchor, int slot) =>
-        NoteTestBench.CellCentreFromAnchor(anchor, slot);
+    private static PhysicalPoint Centre(NoteManager manager, PhysicalPoint anchor, int slot) =>
+        NoteTestBench.CellCentreAtAnchor(manager, anchor, slot);
 }

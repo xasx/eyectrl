@@ -17,6 +17,7 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.EyeCare;
 using EyeCtrl.ViewModels.Messages;
+using Microsoft.Extensions.Logging;
 
 public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     IRecipient<EyeCareExerciseActiveMessage>, IRecipient<CalibrationStateChangedMessage>,
@@ -27,6 +28,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private readonly DwellDetector _dwellDetector;
     private readonly IMessenger _messenger;
     private readonly IDwellDetectorRegistry? _dwellRegistry;
+    // A4 (sitting 10): one Information line per FIRED note control — the control, the note's
+    // number, the gaze's distance from the control's centre in whole DIP and the dwell the target
+    // required. Content-free by contract: no note text, no word, no position (only a distance).
+    // Optional so the headless seams and tests that never read a log stay argument-free; the
+    // App's DI passes the real logger.
+    private readonly ILogger<NoteManager>? _logger;
     // Never null (T2 fixup 01 M2, the plan's D2): an absent argument IS the production tester, so
     // deleting the wiring cannot silently switch the own-window conjunct off. Headless tests pass
     // the named <see cref="InactiveNoteHitTester"/> sentinel instead.
@@ -69,6 +76,24 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private readonly Dictionary<string, IntPtr> _targetWindows = new();
     private const int MaxNotes = 8;
     private const int DwellTimeMs = 600;
+
+    /// <summary>
+    /// A4 (sitting 10): the one Information line per FIRED note control. Content-free by
+    /// contract — the closed control id, the note's number, the gaze's distance from the
+    /// control's centre in WHOLE DIP (never a double: Serilog renders a double with the current
+    /// culture, and a German comma would break every parser) and the dwell the target required
+    /// in ms. NEVER the note's text, a word, a prediction or a screen position: a position plus
+    /// the layout would spell the text out, and a distance only says how far off the aim was.
+    /// The format lives in a const so the text-literal ratchet records it (category log).
+    /// </summary>
+    private const string NoteControlFiredLogFormat =
+        "note-control fired: control={Control} note={Number} distDip={DistanceDip} dwellMs={DwellMs}";
+
+    /// <summary>The controls A4 logs — the closed set of note dwell targets a card or chip can
+    /// fire. The Place-here SHOW and its relocations are M3's lines (note-move-settle); only the
+    /// FIRED <c>:place</c> control appears here.</summary>
+    private static readonly string[] LoggedControls =
+        ["edit", "move", "close", "done", "keyboard", "discard", "otherside", "cancel", "place", "undo"];
 
     /// <summary>
     /// The note dwell floor (P2 D6): adaptation may lengthen a note's dwell, never shorten it
@@ -279,9 +304,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         IDwellDetectorRegistry? dwellRegistry = null, INoteHitTester? hitTester = null,
         Func<long>? clockMs = null, INoteUndoTimer? undoTimer = null,
         Func<Rect>? workAreaDip = null, NoteSettings? noteSettings = null,
-        Action<string>? settleInfoLog = null)
+        Action<string>? settleInfoLog = null,
+        ILogger<NoteManager>? logger = null)
     {
         _messenger = messenger;
+        _logger = logger;
         _dwellDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: sink);
         _dwellDetector.TargetActivated += OnDetectorTargetActivated;
         _dwellDetector.TargetProgress += OnTargetProgress;
@@ -348,13 +375,20 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private Size CardSizeFor(NoteData note) => CardSizeFor(note, _noteSettings.TextSizeDip);
 
     /// <summary>The full card size for <paramref name="note"/> at an EXPLICIT text size
-    /// (T6 fixup-06 G1): the chip's captured size, which the current setting may no longer be.</summary>
+    /// (T6 fixup-06 G1): the chip's captured size, which the current setting may no longer be.
+    /// <para>
+    /// K2a: an EDITING note uses the compact Edit card (the text above, one row of three controls
+    /// below); Display, Move and the chips keep the four-row control column. Every placement, the
+    /// drawn window, the dwell registrations and the chrome rects read this one answer.
+    /// </para></summary>
     private Size CardSizeFor(NoteData note, double textSize)
     {
         double workHeight = WorkAreaDip().Height;
         string text = note.State == NoteState.Edit ? note.Draft : note.Text;
         double textHeight = Window(note.Id)?.MeasureTextHeightDip(text, textSize) ?? 0;
-        return new Size(NoteLayout.CardWidthDip(textSize), NoteLayout.CardHeightDip(textSize, textHeight, workHeight));
+        return note.State == NoteState.Edit
+            ? NoteLayout.EditCardSize(textSize, textHeight, workHeight)
+            : new Size(NoteLayout.CardWidthDip(textSize), NoteLayout.CardHeightDip(textSize, textHeight, workHeight));
     }
 
     /// <summary>
@@ -1119,6 +1153,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// targets' (P2 D9; the census classifies this file as a cue surface).</summary>
     private void OnUndoDetectorTargetActivated(string targetId)
     {
+        LogFiredControl(targetId);
         OnUndoActivated(targetId);
         _messenger.Send(new DwellActivationMessage());
     }
@@ -1723,7 +1758,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             double half = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteCellDip / 2);
             foreach (var slot in NoteLayout.SlotsFor(note.State))
             {
-                if (!TryColumnCentre(note.Id, slot, out var centre)) continue;
+                if (!TryColumnCentre(note.Id, slot, note.State, out var centre)) continue;
                 rects.Add(new PhysicalRect(centre.X - half, centre.Y - half, half * 2, half * 2));
             }
         }
@@ -1733,15 +1768,16 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         return rects;
     }
 
-    /// <summary>The drawn column button #<paramref name="slot"/>'s centre in physical px (P3 D2),
-    /// derived from the note's stored placement. False when the note has no placement (a windowless
-    /// test seam note before its first derivation — the test seams compute one at registration).</summary>
-    private bool TryColumnCentre(string noteId, int slot, out PhysicalPoint centre)
+    /// <summary>The drawn control for <paramref name="slot"/> in <paramref name="state"/>'s
+    /// centre in physical px (P3 D2; K2a: Edit's controls sit in their own row), derived from the
+    /// note's stored placement. False when the note has no placement (a windowless test seam note
+    /// before its first derivation — the test seams compute one at registration).</summary>
+    private bool TryColumnCentre(string noteId, int slot, NoteState state, out PhysicalPoint centre)
     {
         centre = default;
         if (!_placements.TryGetValue(noteId, out var placement))
             return false;
-        var (lx, ly) = NoteLayout.ButtonCenter(placement, slot);
+        var (lx, ly) = NoteLayout.ButtonCenter(placement, slot, state);
         centre = new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
             DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));
@@ -2723,19 +2759,20 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _targetWindows[$"{noteId}:close"] = handle;
     }
 
-    /// <summary>Builds a dwell target over the note's drawn column button #<paramref name="slot"/>
-    /// (P3 D2.6), read from the note's stored placement so the targets cannot drift from what the
-    /// window draws.</summary>
+    /// <summary>Builds a dwell target over the note's drawn control #<paramref name="slot"/>
+    /// (P3 D2.6; K2a: an editing note's controls sit in their row), read from the note's stored
+    /// placement so the targets cannot drift from what the window draws.</summary>
     private DwellTarget DwellTargetFor(string noteId, string suffix, int slot)
     {
         if (!_placements.TryGetValue(noteId, out var placement))
             throw new InvalidOperationException($"No placement derived for note {noteId} - derive one before registering its targets");
-        var (lx, ly) = NoteLayout.ButtonCenter(placement, slot);
+        var state = FindNote(noteId)?.State ?? NoteState.Display;
+        var (lx, ly) = NoteLayout.ButtonCenter(placement, slot, state);
         var center = new PhysicalPoint(
             DpiHelper.LogicalToPhysicalX(placement.Window.Left + lx),
             DpiHelper.LogicalToPhysicalY(placement.Window.Top + ly));
-        // P4 D3: the hit area is the whole 80x80 DIP cell (rect bounds), not the 56 DIP disc -
-        // the forgiving cell around the smaller visible disc.
+        // P4 D3, A2: the hit area is the whole 112x112 DIP cell (rect bounds), not the 88 DIP
+        // disc - the forgiving cell around the smaller visible disc.
         double half = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteCellDip / 2);
         return new DwellTarget(noteId + suffix,
             new PhysicalRect(center.X - half, center.Y - half, half * 2, half * 2), DwellTimeMs);
@@ -2750,8 +2787,42 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     // can -= the same handler it +='d.
     private void OnDetectorTargetActivated(string targetId)
     {
+        LogFiredControl(targetId);
         OnTargetActivated(targetId);
         _messenger.Send(new DwellActivationMessage());
+    }
+
+    /// <summary>
+    /// A4: one Information line per fired note control, written BEFORE the action runs — the
+    /// action may remove the note (✕ → chip) or flip the state, and the number the line needs is
+    /// still there now. Only the DETECTOR's activations call this: a caretaker touch or click has
+    /// no dwell and no gaze distance to report, so it is not a misfire signal.
+    /// <para>
+    /// The distance is the CURRENT sample's (the one that completed the dwell) to the registered
+    /// target's centre, converted to whole DIP; the dwell is the target's effective threshold
+    /// (adaptation may lengthen it). Both are integers by construction — see
+    /// <see cref="NoteControlFiredLogFormat"/> for why.
+    /// </para>
+    /// </summary>
+    private void LogFiredControl(string targetId)
+    {
+        if (_logger is null) return;
+        var parts = targetId.Split(':');
+        if (parts.Length != 2) return;
+        var (noteId, control) = (parts[0], parts[1]);
+        if (Array.IndexOf(LoggedControls, control) < 0) return;
+        var note = FindNote(noteId);
+        if (note is null) return;
+        var target = FindTarget(targetId);
+        if (target is null) return;
+
+        double dx = DpiHelper.PhysicalToLogicalX(target.Center.X)
+            - DpiHelper.PhysicalToLogicalX(_lastGazePoint.X);
+        double dy = DpiHelper.PhysicalToLogicalY(target.Center.Y)
+            - DpiHelper.PhysicalToLogicalY(_lastGazePoint.Y);
+        int distanceDip = (int)Math.Round(Math.Sqrt((dx * dx) + (dy * dy)));
+        int dwellMs = (int)(target.DwellTimeMicroseconds / MathConstants.MicrosecondsPerMillisecond);
+        _logger.LogInformation(NoteControlFiredLogFormat, control, note.Number, distanceDip, dwellMs);
     }
 
     private void OnTargetActivated(string targetId)

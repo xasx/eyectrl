@@ -255,13 +255,16 @@ public class NoteMoveAcceptanceTests
         try
         {
             long present = 0;
-            var id = NewMovingNote(manager, new PhysicalPoint(1600, 1000), ref present);
+            var id = NewMovingNote(manager, new PhysicalPoint(1800, 1000), ref present); // DIP (900, 500)
             Check.That(manager.PlacementForTest(id)!.Side).IsEqualTo(NoteSide.Right);
             var displayWindow = manager.PlacementForTest(id)!.Window;
 
             // The Other side cell is the move set's slot 0; the dwell applies the side cycle's
-            // next fitting side at once and returns to Display there (never the current side —
-            // the exclusion rule — which is why the placement flips to Left).
+            // next fitting side at once and returns to Display there (never the current side -
+            // the exclusion rule). Since A2 the Display card is 702 DIP wide, so the Left side
+            // needs its window's left edge past the 80 DIP inset: at the old (800, 500) anchor the
+            // Left window started at 62 and no longer fitted, and the cycle fell to Below. The
+            // anchor sits 100 DIP farther right so Left is a real side again.
             present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 0), present);
 
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);

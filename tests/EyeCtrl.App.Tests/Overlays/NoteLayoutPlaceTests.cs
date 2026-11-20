@@ -41,7 +41,7 @@ public class NoteLayoutPlaceTests
     [InlineData(1800, 600, NoteSide.Left)]   // right edge: Right cannot fit, cycle falls to Left
     [InlineData(960, 1100, NoteSide.Above)]  // bottom edge: card+tail only fits above
     [InlineData(960, 100, NoteSide.Below)]   // top edge: only below
-    [InlineData(200, 300, NoteSide.Right)]   // near the left edge: a clean Right fit (the P4 card needs y >= 234 DIP on the Right)   // near the top-left corner: the wider P4 card no longer fits clean - the clamp keeps the preferred on screen
+    [InlineData(200, 400, NoteSide.Right)]   // near the left edge: a clean Right fit (A2's 468 DIP card floor needs y >= 314 DIP on the Right)   // near the top-left corner: the wider P4 card no longer fits clean - the clamp keeps the preferred on screen
     public void TheSideCycle_FindsTheFirstFittingSide_AtEveryEdge(double x, double y, NoteSide expected)
     {
         var placement = Place(x, y);
@@ -264,27 +264,28 @@ public class NoteLayoutPlaceTests
     public void TheColumn_SitsOnTheCardEdgeAwayFromTheTail_PerSide()
     {
         // Hand-derived, independent of the members under test. The default card is
-        // 540 (text) + 100 (cell column) + 30 (gap) = 670 wide (R3: the default text size is
-        // 36 DIP); a cell column centre on the right edge sits at 670 - 10 (padding) - 40 (half
-        // cell) = 620; row 0 centres at 10 + 40 = 50 from the card top; the tail zone is 30 deep.
+        // 540 (text) + 132 (A2's 10 + 112 + 10 cell column) + 30 (gap) = 702 wide (R3: the
+        // default text size is 36 DIP); a cell column centre on the right edge sits at
+        // 702 - 10 (padding) - 56 (half the 112 cell) = 636; row 0 centres at 10 + 56 = 66 from
+        // the card top; the tail zone is 30 deep.
 
         // Right: tail left, column on the far right edge.
         var (rx, _) = ButtonCenter(NoteSide.Right, 0, Card.Width);
-        Check.That(rx).IsCloseTo(30 + 620, 1e-9);
+        Check.That(rx).IsCloseTo(30 + 636, 1e-9);
 
         // Left: tail right, column on the far left edge.
         var (lx, _) = ButtonCenter(NoteSide.Left, 0, Card.Width);
-        Check.That(lx).IsCloseTo(50, 1e-9);
+        Check.That(lx).IsCloseTo(66, 1e-9);
 
         // Below: tail at the top strip, column on the right edge, shifted DOWN by the tail.
         var (bx, by) = ButtonCenter(NoteSide.Below, 0, Card.Width);
-        Check.That(bx).IsCloseTo(620, 1e-9);
-        Check.That(by).IsCloseTo(30 + 50, 1e-9);
+        Check.That(bx).IsCloseTo(636, 1e-9);
+        Check.That(by).IsCloseTo(30 + 66, 1e-9);
 
         // Above: tail at the bottom, column on the right edge, no shift.
         var (ax2, ay2) = ButtonCenter(NoteSide.Above, 0, Card.Width);
-        Check.That(ax2).IsCloseTo(620, 1e-9);
-        Check.That(ay2).IsCloseTo(50, 1e-9);
+        Check.That(ax2).IsCloseTo(636, 1e-9);
+        Check.That(ay2).IsCloseTo(66, 1e-9);
     }
 
 

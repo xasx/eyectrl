@@ -577,6 +577,31 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"NOTE-MOVE end={0} ms={1:0} settles={2} holds={3} moves={4}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"NOTE-SETTLE out=held x={0:F1} y={1:F1} d={2:F1}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"NOTE-SETTLE out=moved x={0:F1} y={1:F1} ox={2:F1} oy={3:F1} d={4:F1}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"NOTE-SETTLE out=on-card x={0:F1} y={1:F1}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"NOTE-SETTLE out=shown x={0:F1} y={1:F1}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
       "Literal": "\"banner slot\"",
       "Count": 1
     },

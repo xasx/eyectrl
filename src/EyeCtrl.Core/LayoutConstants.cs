@@ -128,6 +128,14 @@ public static class LayoutConstants
     /// note buttons use, over the disc's centre.</summary>
     public const double NotePlaceHereHitRadiusDip = NoteButtonRadius;
 
+    /// <summary>How far from the ACCEPTED spot — the centroid that placed the disc — a new
+    /// accepted settle must lie before the Place-here disc relocates to it, in DIP (sitting 10
+    /// M1). Every settle at or under this distance from the accepted spot, or inside the disc's
+    /// own margin, is ignored: the disc, its dwell and the dashed outline hold still. Without it
+    /// the owner's look-back at the spot where the note should go sat ~115 DIP from the disc —
+    /// past the 88 DIP margin — and every settle there kept moving the disc away again.</summary>
+    public const double NotePlaceHereHoldRadiusDip = 200.0;
+
     // ── the Move preview (sitting 9): one click-through overlay for the settle ring and the
     // dashed landing outline ──
 

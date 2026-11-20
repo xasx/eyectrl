@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Services;
 
+using System.Globalization;
 using System.Windows;
 using System.Windows.Interop;
 using CommunityToolkit.Mvvm.Messaging;
@@ -159,6 +160,15 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private readonly NoteSettleTracker _settleTracker = new();
     // The accepted settle's centroid (physical px) the :place target will re-anchor to.
     private PhysicalPoint? _placeCentroid;
+    // The Move log session (sitting 10 M3): armed at StartMove, the end line reports the move's
+    // duration (on the injected ms clock) and what its accepted settles did. The settle lines
+    // themselves ride the constructor's sink seam — Serilog's Information in production, a
+    // capturing list in the headless tests.
+    private long _moveStartedMs;
+    private int _moveSettles;
+    private int _moveHolds;
+    private int _moveMoves;
+    private readonly Action<string> _settleInfo;
     // The Place-here window (P3 D4): one per manager, created lazily, never in DI. It is NOT
     // click-through, so the own-window conjunct can resolve it; Dispose closes it.
     private NotePlaceHereWindow? _placeWindow;
@@ -268,7 +278,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     public NoteManager(IMessenger messenger, IStruggleTelemetrySink? sink = null,
         IDwellDetectorRegistry? dwellRegistry = null, INoteHitTester? hitTester = null,
         Func<long>? clockMs = null, INoteUndoTimer? undoTimer = null,
-        Func<Rect>? workAreaDip = null, NoteSettings? noteSettings = null)
+        Func<Rect>? workAreaDip = null, NoteSettings? noteSettings = null,
+        Action<string>? settleInfoLog = null)
     {
         _messenger = messenger;
         _dwellDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: sink);
@@ -281,6 +292,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _undoDetector.TargetProgress += OnTargetProgress;
         // P2 D5's injected clock: an absent argument IS the production clock.
         _clockMs = clockMs ?? DefaultClockMs;
+        // M3 (sitting 10): the settle/move-end log lines' sink. A pre-formatted line per call —
+        // the formats are invariant-culture const strings (see SettleShownLine and friends).
+        _settleInfo = settleInfoLog ?? (static line => Serilog.Log.Information(line));
         _undoTimer = undoTimer;
         // P2 D2's production default (fixup 01 M2): null means "the real tester", never "none" —
         // the inactive case is the explicit sentinel, so it is visible at every call site.
@@ -1532,6 +1546,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         HideMovePreview();               // ...nor a stale settle ring or landing outline
         _settleTracker.Reset();
         _movingNoteId = id;
+        _moveStartedMs = _clockMs();     // the Move log session (sitting 10 M3) starts here
+        _moveSettles = _moveHolds = _moveMoves = 0;
         _dwellDetector.ClearTargets();
         _targetWindows.Clear();
         RegisterMoveTargetsForNote(note);
@@ -1593,6 +1609,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         if (_movingNoteId != noteId) return;
         if (FindNote(noteId) is not { } note) return;
+        WriteMoveEndLine("cancelled"); // M3 (sitting 10)
         LeaveMove(note);
     }
 
@@ -1604,6 +1621,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (_movingNoteId != noteId) return;
         if (FindNote(noteId) is not { } note) return;
         if (!_placements.TryGetValue(noteId, out var current)) return;
+        WriteMoveEndLine("otherside"); // M3 (sitting 10): the move ends here, flip or defensive exit
         // fixup-02 nit 2, review-03 tidy-up: apply the candidate the offer judged available,
         // whatever cycle step the avoid set landed it on. The old re-derive fallback was dead:
         // the Other-side target registers ONLY while _judgedOtherSideForMoving is non-null
@@ -1640,6 +1658,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var note = _notes.FirstOrDefault(n => n.Id == id);
         var window = _windows.FirstOrDefault(w => w.NoteId == id);
         if (note == null || window == null) return;
+        WriteMoveEndLine("placed"); // M3 (sitting 10): the session is over — before any teardown
         note.Anchor = newAnchor;
         HidePlaceHere(); // must run while _movingNoteId still names this move
         HideMovePreview();
@@ -1804,13 +1823,17 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     /// <summary>
     /// One accepted settle of the moving note's gaze (P3 D4): the centroid is judged against the
-    /// note's card (looking at the note you are holding is evidence, not intent) and against the
-    /// Place-here window's margin on a re-settle (the window holds still there — see
-    /// <see cref="ShowPlaceHere"/>). Otherwise the Place-here window appears beside the centroid
-    /// and is dwelled to re-anchor the note.
+    /// note's card (looking at the note you are holding is evidence, not intent) and, once the
+    /// Place-here window is up, against the disc's margin (sitting 9) and the ACCEPTED SPOT
+    /// (sitting 10 M1): a settle within <see cref="LayoutConstants.NotePlaceHereHoldRadiusDip"/>
+    /// of the centroid that placed the disc is ignored, so the disc, its dwell and the outline
+    /// hold still — only a genuinely new spot (beyond the hold radius) relocates the disc.
+    /// Otherwise the Place-here window appears beside the centroid and is dwelled to re-anchor
+    /// the note. Every accepted settle writes one content-free log line (sitting 10 M3).
     /// </summary>
     private void OnSettled(NoteData moving, PhysicalPoint centroidDip)
     {
+        _moveSettles++;
         var centroid = ToPhysicalPoint(centroidDip);
         if (_placements.TryGetValue(moving.Id, out var placement)
             && DipRectToPhysical(placement.Card).Contains(centroid))
@@ -1819,6 +1842,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             // already showing at the place disc's spot is left alone.
             if (!_placeShown)
                 HideMovePreview();
+            _settleInfo(SettleOnCardLine(centroidDip));
             return;
         }
 
@@ -1836,10 +1860,95 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             if (new PhysicalRect(
                     disc.X - detour, disc.Y - detour,
                     detour * 2, detour * 2).Contains(centroid))
+            {
+                _moveHolds++;
+                _settleInfo(SettleHeldLine(centroidDip, DistanceToAcceptedSpotDip(centroidDip)));
                 return;
+            }
+
+            // Sitting 10 M1: the disc relocates only when the new settle is genuinely ELSEWHERE —
+            // beyond the hold radius from the accepted spot, the centroid that placed the disc
+            // (_placeCentroid). The owner's look-back at the spot where the note should go sat
+            // ~115 DIP from the disc (past the margin, well inside this radius) and kept moving
+            // the disc away; inside the radius the disc, its dwell and the outline hold still.
+            if (_placeCentroid is { } accepted)
+            {
+                var acceptedDip = ToDipPoint(accepted);
+                double distanceDip = DipDistance(acceptedDip, centroidDip);
+                if (distanceDip <= LayoutConstants.NotePlaceHereHoldRadiusDip)
+                {
+                    _moveHolds++;
+                    _settleInfo(SettleHeldLine(centroidDip, distanceDip));
+                    return;
+                }
+                _moveMoves++;
+                _settleInfo(SettleMovedLine(centroidDip, acceptedDip, distanceDip));
+                ShowPlaceHere(moving, centroid); // the disc relocates; the accepted spot moves with it
+                return;
+            }
+            // _placeShown without a centroid cannot happen (ShowPlaceHere sets both), but a
+            // defensive fall-through re-shows rather than throwing on a wiring anomaly.
         }
 
+        _settleInfo(SettleShownLine(centroidDip));
         ShowPlaceHere(moving, centroid);
+    }
+
+    // ── the Move log (sitting 10 M3): one content-free line per settle outcome and per move end ──
+
+    /// <summary>The line formats. Invariant culture by construction (the static formatters below
+    /// pass <see cref="CultureInfo.InvariantCulture"/>), positions in DIP at one decimal place,
+    /// no note text — a settle line names only the outcome and where the gaze rested.</summary>
+    private const string SettleOnCardLineFormat = "NOTE-SETTLE out=on-card x={0:F1} y={1:F1}";
+    private const string SettleShownLineFormat = "NOTE-SETTLE out=shown x={0:F1} y={1:F1}";
+    private const string SettleHeldLineFormat = "NOTE-SETTLE out=held x={0:F1} y={1:F1} d={2:F1}";
+    private const string SettleMovedLineFormat = "NOTE-SETTLE out=moved x={0:F1} y={1:F1} ox={2:F1} oy={3:F1} d={4:F1}";
+    private const string MoveEndLineFormat = "NOTE-MOVE end={0} ms={1:0} settles={2} holds={3} moves={4}";
+
+    /// <summary>Settle on the moving note's own card — ignored (looking at the note you are
+    /// holding is evidence, not intent).</summary>
+    internal static string SettleOnCardLine(PhysicalPoint centroidDip) =>
+        string.Format(CultureInfo.InvariantCulture, SettleOnCardLineFormat, centroidDip.X, centroidDip.Y);
+
+    /// <summary>First settle off the card: the Place-here disc appears beside the spot.</summary>
+    internal static string SettleShownLine(PhysicalPoint centroidDip) =>
+        string.Format(CultureInfo.InvariantCulture, SettleShownLineFormat, centroidDip.X, centroidDip.Y);
+
+    /// <summary>Settle inside the disc's margin or within the hold radius of the accepted spot:
+    /// ignored, the disc holds still. The distance to the accepted spot (DIP) rides the line.</summary>
+    internal static string SettleHeldLine(PhysicalPoint centroidDip, double distanceDip) =>
+        string.Format(CultureInfo.InvariantCulture, SettleHeldLineFormat,
+            centroidDip.X, centroidDip.Y, distanceDip);
+
+    /// <summary>Settle beyond the hold radius: the disc relocates to the new spot. The old spot
+    /// (ox/oy) and the relocation distance (d, DIP) ride the line.</summary>
+    internal static string SettleMovedLine(PhysicalPoint newSpotDip, PhysicalPoint oldSpotDip, double distanceDip) =>
+        string.Format(CultureInfo.InvariantCulture, SettleMovedLineFormat,
+            newSpotDip.X, newSpotDip.Y, oldSpotDip.X, oldSpotDip.Y, distanceDip);
+
+    /// <summary>The move's end: placed, cancelled or otherside, with the move's duration (ms on
+    /// the injected clock) and the accepted settles' tally (total, held, moved).</summary>
+    internal static string MoveEndLine(string end, double durationMs, int settles, int holds, int moves) =>
+        string.Format(CultureInfo.InvariantCulture, MoveEndLineFormat,
+            end, durationMs, settles, holds, moves);
+
+    /// <summary>The move session's end line (sitting 10 M3), written while
+    /// <see cref="_movingNoteId"/> still names the move and the session counters are current.</summary>
+    private void WriteMoveEndLine(string end) =>
+        _settleInfo(MoveEndLine(end,
+            Math.Max(0, _clockMs() - _moveStartedMs), _moveSettles, _moveHolds, _moveMoves));
+
+    /// <summary>The settle's distance from the accepted spot (the centroid that placed the disc)
+    /// in DIP — the measure M1 holds on and the held lines carry. 0 when no disc is up (the
+    /// margin arm never runs then).</summary>
+    private double DistanceToAcceptedSpotDip(PhysicalPoint centroidDip) =>
+        _placeCentroid is { } accepted ? DipDistance(ToDipPoint(accepted), centroidDip) : 0.0;
+
+    private static double DipDistance(PhysicalPoint a, PhysicalPoint b)
+    {
+        double dx = a.X - b.X;
+        double dy = a.Y - b.Y;
+        return Math.Sqrt((dx * dx) + (dy * dy));
     }
 
     /// <summary>(P3 D4) Puts the Place-here window beside an accepted settle's centroid —
@@ -2444,6 +2553,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _notes.Add(data);
         _movingNoteId = data.Id;
         _settleTracker.Reset();
+        _moveStartedMs = _clockMs();     // the Move log session arms with StartMove's body (M3)
+        _moveSettles = _moveHolds = _moveMoves = 0;
         RegisterMoveTargetsForNote(data);
         _dwellDetector.ResetAllState();
         LatchTargetsUnderTheGaze();

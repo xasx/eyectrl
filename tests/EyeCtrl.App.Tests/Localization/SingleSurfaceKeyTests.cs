@@ -64,6 +64,9 @@ public class SingleSurfaceKeyTests
         // and the failure frame the coordinator wraps around a raw exception message.
         ("src/EyeCtrl.App/Views/RestartNotices.cs", ["language-recovery"]),
         ("src/EyeCtrl.App/Services/SafetySetupFlow.cs", ["settings"]),
+        // Task 12: the first-run guide's raise renders every card's texts (the GuideSurface's
+        // step titles/bodies/choices and the toolbar-summon success swap) from the guide surface.
+        ("src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs", ["guide"]),
         ("src/EyeCtrl.App/Services/SelfRestartStrategy.cs", ["language-recovery"]),
         ("src/EyeCtrl.App/Services/AppRestartCoordinator.cs", ["language-recovery"]),
         ("src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml", ["caregiver-alert"]),

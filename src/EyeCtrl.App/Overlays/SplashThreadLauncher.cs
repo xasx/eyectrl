@@ -60,10 +60,53 @@ internal sealed class SplashThreadHandle
     private readonly SplashDpiReport _dpi = new();
     private volatile bool _disposed;
 
+    // The exit latch: ExitFinished fires on the SPLASH thread; continuations run on the
+    // dispatcher of the thread that REGISTERED (the main thread in production). Two fallback
+    // latches cover a splash thread that never raises ExitFinished: its dispatcher's
+    // ShutdownStarted event (subscribed in the ctor — a faulted thread still shuts down via
+    // Dispose, r2 F17) and the HasShutdownStarted check at registration time (r1 F20).
+    private readonly object _exitGate = new();
+    private readonly List<(Dispatcher Dispatcher, Action Action)> _exitContinuations = new();
+    private bool _exited;
+
     internal SplashThreadHandle(Dispatcher splashDispatcher, ISplashWindow window)
     {
         _splashDispatcher = splashDispatcher;
         _window = window;
+        window.ExitFinished += OnWindowExitFinished;              // fires on the splash thread
+        splashDispatcher.ShutdownStarted += (_, _) => OnWindowExitFinished();  // EventHandler (r3 F2)
+    }
+
+    /// <summary>
+    /// Runs <paramref name="onMainThread"/> once, on the registering thread's dispatcher, after
+    /// the splash's <see cref="ISplashWindow.ExitFinished"/> — or immediately when the exit
+    /// already happened, the splash dispatcher shut down, or the handle is disposed.
+    /// </summary>
+    internal void WhenExited(Action onMainThread)
+    {
+        ArgumentNullException.ThrowIfNull(onMainThread);
+        var dispatcher = Dispatcher.CurrentDispatcher;     // the registering thread (main, in prod)
+        bool fireNow;
+        lock (_exitGate)
+        {
+            fireNow = _exited || _disposed || _splashDispatcher.HasShutdownStarted;
+            if (!fireNow) _exitContinuations.Add((dispatcher, onMainThread));
+        }
+        if (fireNow) _ = dispatcher.BeginInvoke(onMainThread);
+    }
+
+    private void OnWindowExitFinished()
+    {
+        List<(Dispatcher, Action)> toRun;
+        lock (_exitGate)
+        {
+            if (_exited) return;
+            _exited = true;
+            toRun = new List<(Dispatcher, Action)>(_exitContinuations);
+            _exitContinuations.Clear();
+        }
+        foreach (var (dispatcher, action) in toRun)
+            _ = dispatcher.BeginInvoke(action);
     }
 
     internal void ShowNoTrackerSentence() => Post("ShowNoTrackerSentence", w => w.ShowNoTrackerSentence());

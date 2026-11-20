@@ -59,12 +59,19 @@ public class DwellButtonProgressBarContrastTests
     /// <summary>
     /// Every fill a real <c>DwellButton</c> is constructed with, for <paramref name="theme"/>.
     ///
-    /// <c>AccentDanger</c> is deliberately NOT included: <c>SettingsWindow.FillFor</c> maps
-    /// BOTH <c>ButtonKind.Reset</c> and <c>ButtonKind.Delete</c> to <c>AccentWarning</c>
-    /// (<c>ResetBase</c>/<c>DeleteBase</c>), and <c>SettingsWindow</c>'s one other AccentDanger
-    /// consumer — <c>CloseButton</c> — is a plain XAML <c>Border</c> with its own hand-rolled
-    /// dwell visual, not a <c>DwellButton</c>. No <c>DwellButton.ProgressBar</c> is drawn on
-    /// AccentDanger today, so a preset here would gate a pairing that cannot occur.
+    /// <c>ToggleOn</c> and <c>AccentDanger</c> joined when the first-run guide's cards became
+    /// <c>DwellButton</c>s coloured by <c>ModalButtonPalette</c> per kind (2026-11-18 owner
+    /// follow-up): the guide's Affirmative cards ride <c>ToggleOn</c> and its Negative cards —
+    /// the Skip/Later row buttons and the chrome Close — ride <c>AccentDanger</c>. Neither
+    /// passes on the bar's own fill everywhere (Accent-vs-ToggleOn lands ~3.0-3.1 on Midnight/
+    /// Ember but ~1.1-2.1 elsewhere; Accent-vs-AccentDanger stays at ~2.0-2.5), so on these
+    /// fills the halo is load-bearing, as it already is for AccentWarning — the gate's
+    /// best-of-both quantity is exactly the form that covers them.
+    ///
+    /// <c>SettingsWindow.FillFor</c> maps BOTH <c>ButtonKind.Reset</c> and <c>ButtonKind.Delete</c>
+    /// to <c>AccentWarning</c> (<c>ResetBase</c>/<c>DeleteBase</c>), and <c>SettingsWindow</c>'s
+    /// one other AccentDanger consumer — <c>CloseButton</c> — is a plain XAML <c>Border</c> with
+    /// its own hand-rolled dwell visual, not a <c>DwellButton</c>.
     ///
     /// The Quick Actions and Task Switcher close targets are no longer ProgressBar consumers
     /// either (close-arc ticket): both are <c>DwellArcButton</c> discs, and that factory's
@@ -86,6 +93,11 @@ public class DwellButtonProgressBarContrastTests
         // fill alone today; the point is that it is now GATED rather than merely fine.
         yield return ("SurfaceLight (the DwellToggle switch)", theme.SurfaceLight);
         yield return ("AccentWarning (Reset/Delete)", theme.AccentWarning);
+        // The first-run guide's palette-kind cards (ModalButtonPalette): Affirmative → ToggleOn,
+        // Negative (Skip/Later and the chrome Close) → AccentDanger. Added when those cards
+        // became DwellButtons — see the class doc.
+        yield return ("ToggleOn (the guide's Affirmative cards)", theme.ToggleOn);
+        yield return ("AccentDanger (the guide's Negative cards and chrome Close)", theme.AccentDanger);
         // Retained deliberately, though no bar is drawn on a preset any more: a swatch is a
         // SurfaceMedium card (already listed above) carrying the preset colour on an inner chip,
         // and the bar sits on the card. Over-gating costs nothing and these four are the exact

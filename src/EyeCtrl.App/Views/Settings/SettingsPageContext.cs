@@ -90,13 +90,6 @@ internal sealed class SettingsPageContext
     public Func<string> ReadClipboard { get; }
 
     /// <summary>
-    /// Re-runs the one-time safety setup chain (the General page's "Run safety setup again" row),
-    /// whatever <c>SafetySetupDone</c> says. An init property, not a constructor parameter, so the
-    /// stable ctor signature above is left alone; the shell supplies it, headless contexts keep the no-op.
-    /// </summary>
-    public Action RunSafetySetup { get; init; } = () => { };
-
-    /// <summary>
     /// C9 S6f's setup gateways — the „Erweitert" page's update/rollback/uninstall rows. Null in a
     /// degraded host (headless test contexts, a host without the App composition): the Advanced
     /// page then builds without the three setup rows, like the General page without supervision.

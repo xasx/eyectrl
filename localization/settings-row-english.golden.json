@@ -1180,8 +1180,8 @@
           "Modal": null
         },
         {
-          "Id": "g_safety",
-          "Label": "Run Safety Setup Again",
+          "Id": "g_guide",
+          "Label": "Run the introduction guide",
           "Description": null,
           "Modal": null
         },

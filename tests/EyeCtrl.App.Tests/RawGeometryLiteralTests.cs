@@ -103,6 +103,17 @@ public class RawGeometryLiteralTests
             "the Place-here label font binds the guarded TextSizeDip setting (T6 fixup-06 G1) - a value no token can express",
         ["src/EyeCtrl.App/Overlays/SplashWindow.xaml"] =
             "the tile radius is the mark's own pinned geometry (spec §4.1, half the 75 DIP centre) via SplashLayout.TileCornerRadius through x:Static - theme-independent, no Tokens member can express it, and the CornerRadius pool admits only Tokens forms",
+        // First-run guide: the owner-approved FULLSCREEN surface (live-check amendment,
+        // 2026-11-18; supersedes spec §5's centered-card scale). The approved mockups
+        // (DiagnosticGuideMockupFullscreen) are the pinned layout, and their typography — the
+        // 56 DIP title and 32 DIP body — is approved literal geometry no Tokens member expresses.
+        ["src/EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml"] =
+            "the guide's owner-approved fullscreen surface (2026-11-18 live-check amendment) - the edge-to-edge SurfaceDark surface carries the approved mockups' pinned typography (56 DIP title, 32 DIP body), a scale no Tokens member expresses",
+        // The code-built card faces carry the same approved fullscreen geometry: the 12-DIP card
+        // radius and the 40/32 DIP label/read-out literals are the approved mockups' pinned scale
+        // (the fdb92cd0 token-ramp font fix is superseded by the same amendment).
+        ["src/EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml.cs"] =
+            "the code-built guide cards' owner-approved fullscreen geometry (2026-11-18 live-check amendment) - the 12 DIP card radius and the 40/32 DIP dwell read-out, glyph and chip-label faces are the approved mockups' pinned scale",
         // Task 12 migrated the last nine files onto ContainerRatio, so every scanned file's
         // geometry and typography values come from the token surface. A new entry for a MIGRATION
         // leftover is a regression, not a step: it means a literal was written and waved through.

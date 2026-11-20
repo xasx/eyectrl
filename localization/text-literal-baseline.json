@@ -316,6 +316,16 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml.cs",
+      "Literal": "$\"{_vm.DwellTimeMs} ms\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml.cs",
+      "Literal": "$\"{ms} ms\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs",
       "Literal": "\"lag_mark\"",
       "Count": 1
@@ -443,6 +453,21 @@
     {
       "Path": "src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs",
       "Literal": "\"task-switcher\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs",
+      "Literal": "\"Bottom\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs",
+      "Literal": "\"Left\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/SettingsUiCoordinator.cs",
+      "Literal": "\"Top\"",
       "Count": 1
     },
     {

@@ -528,6 +528,12 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     // the toolbar band is the gaze-reachable unpause affordance (pause deliberately does not gate toolbar dwell).
     protected override bool DwellActiveWhilePaused => true;
 
+    /// <summary>While the first-run guide owns the screen, every non-Pause activation is inert
+    /// (§5 claim 7): the summoned toolbar is a display, not a control surface. Pause stays live
+    /// (the deliberate emergency path). Null (tests, non-guide wiring) = not gated. Assigned by
+    /// Task 12's wiring.</summary>
+    internal Func<bool>? GuideOpenGate { get; set; }
+
     protected override void OnTargetActivated(string targetId)
     {
         // Every activation passes through the engine (Task 6): any fire ends a deliberate pass,
@@ -539,6 +545,14 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             btn.DwellProgress = 0;
             btn.IsHighlighted = false;
         }
+
+        // First-run guide (§5 claim 7): while the gate reports the guide open, every non-Pause
+        // activation stops here — the summoned toolbar is a display, not a control surface, and
+        // Pause stays live as the deliberate emergency path. Checked AFTER the progress/highlight
+        // reset above so a gated press still cleans the button's visual state; the dwell cue is
+        // not stopped (the base publishes after this method returns) — accepted, r3 F19.
+        if (targetId != "Pause" && GuideOpenGate?.Invoke() == true)
+            return;
 
         switch (targetId)
         {

@@ -753,6 +753,54 @@ public class ToolbarAutoHideControllerTests
         sut.ReassertVisibility(); // no exception
     }
 
+    // ── Guide-hidden hold + ResetToHidden (first-run guide) ──
+
+    [Fact]
+    public void GuideHiddenHold_SuppressesTheAsyncForceShow_FromSuspend()
+    {
+        var sut = NewController();
+        var fake = new FakeVisibility();
+        sut.Attach(fake);
+
+        DriveToHidden(sut);                       // the extracted off-toolbar sample loop
+        Check.That(sut.StateName).IsEqualTo("Hidden");
+
+        sut.SetGuideHiddenHold(true);             // the hold FIRST (r1 F11's order)...
+        sut.SetSuspended(true);                   // ...then the suspend
+        Check.That(fake.ForceShowCalls).IsEqualTo(0);   // the posted ForceShow is suppressed (r3 F2a)
+        Check.That(sut.StateName).IsEqualTo("Hidden");
+    }
+
+    [Fact]
+    public void GuideHiddenHold_NeutralizesReassertVisibility()
+    {
+        var sut = NewController();
+        var fake = new FakeVisibility();
+        sut.Attach(fake);
+        sut.SetGuideHiddenHold(true);
+
+        sut.ReassertVisibility();                 // calibration transitions call this unconditionally
+
+        Check.That(fake.SetActiveCalls).IsEmpty(); // no dwell re-arm (r3 F2b)
+    }
+
+    [Fact]
+    public void ResetToHidden_PutsTheControllerInHidden_ForAnImmediateSummon()
+    {
+        var sut = NewController();
+        var fake = new FakeVisibility();
+        sut.Attach(fake);
+        sut.ResetToVisible();
+        Check.That(sut.StateName).IsEqualTo("Visible");
+
+        sut.ResetToHidden();
+
+        Check.That(sut.StateName).IsEqualTo("Hidden");
+        Check.That(fake.HideCalls).IsGreaterOrEqualThan(1);
+        // A past-edge summon now detects immediately — Feed's Hidden case runs with no
+        // 5 s hide-delay wait (r4 F2).
+    }
+
     // ── helpers ──
 
     private static ToolbarAutoHideController NewController(bool enabled = true, string edge = Edge,
@@ -762,6 +810,18 @@ public class ToolbarAutoHideControllerTests
 
     private static GazePoint CreateSample(double x, double y, bool valid)
         => new(x, y, 0, valid);
+
+    /// <summary>
+    /// The off-toolbar sample drive extracted from <see cref="GazeBackOnToolbar_ResetsHideCountdown"/>:
+    /// the same <c>sut.Feed(CreateSample(x, y, valid: true), timestampUs)</c> pattern advanced past
+    /// <c>_hideDelayUs</c> (5 s), so the controller auto-hides — the way tests reach Hidden without
+    /// <see cref="ToolbarAutoHideController.HideForTest"/>.
+    /// </summary>
+    private static void DriveToHidden(ToolbarAutoHideController sut)
+    {
+        for (long t = 0; t <= 5_100_000; t += 100_000)
+            sut.Feed(CreateSample(960, 500, valid: true), t); // (960,500) off-toolbar
+    }
 
     // ── fake ──
     private sealed class FakeVisibility : IToolbarVisibility

@@ -19,6 +19,7 @@ public sealed class SetupNoticeWatch : IDisposable
     private readonly Action<TimeSpan, Action> _schedule;
     private readonly Func<DateTimeOffset> _now;
     private readonly Func<Action, IDisposable?>? _fileChange;
+    private readonly Func<bool>? _isGuideOpen;
 
     private DateTimeOffset _startedAt;
     private bool _started;
@@ -38,18 +39,22 @@ public sealed class SetupNoticeWatch : IDisposable
     /// path); the callback must arrive on the UI thread, which the App's wrapper guarantees. The
     /// returned disposable is released when the watch finishes. Tests pass a disposable recorder
     /// and drive polls.</param>
+    /// <param name="isGuideOpen">Whether the first-run guide holds the screen; while it does, the
+    /// checks and the expiry window both pause, and the guide's close pokes once (r4 F3, r1 F24).</param>
     public SetupNoticeWatch(
         SetupLastNoticeService service,
         TimeSpan window,
         TimeSpan interval,
         Action<TimeSpan, Action> schedule,
         Func<DateTimeOffset> now,
-        Func<Action, IDisposable?>? fileChange = null)
+        Func<Action, IDisposable?>? fileChange = null,
+        Func<bool>? isGuideOpen = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
         _now = now ?? throw new ArgumentNullException(nameof(now));
         _fileChange = fileChange;
+        _isGuideOpen = isGuideOpen;
         if (window <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(window));
         if (interval <= TimeSpan.Zero || interval > window)
@@ -63,6 +68,13 @@ public sealed class SetupNoticeWatch : IDisposable
 
     /// <summary>True when the window closed (after a notice, or with none).</summary>
     public bool IsDone => _done;
+
+    /// <summary>Guide opened or closed: closing pokes once (r4 F3).</summary>
+    /// <param name="open">True when the first-run guide has opened.</param>
+    public void OnGuideOpenChanged(bool open)
+    {
+        if (!open) Poke();
+    }
 
     /// <summary>
     /// Starts watching: one immediate check (a record from the previous session still shows at
@@ -88,7 +100,7 @@ public sealed class SetupNoticeWatch : IDisposable
             _fileWatch = null;
         }
 
-        if (_service.CheckStartup())
+        if (CheckStartupWhenGuideClosed())
         {
             NoticeShown = true;
             if (IsCurrentSessionRecord())
@@ -107,7 +119,7 @@ public sealed class SetupNoticeWatch : IDisposable
         if (_done)
             return;
 
-        if (_service.CheckStartup())
+        if (CheckStartupWhenGuideClosed())
         {
             NoticeShown = true;
             if (IsCurrentSessionRecord())
@@ -117,7 +129,9 @@ public sealed class SetupNoticeWatch : IDisposable
             }
         }
 
-        if (_now() - _startedAt >= _window)
+        // The 90 s window must not run out behind the guide (r1 F24): expiry is deferred while
+        // GuideOpen, and the guide's close-time poke shows the notice then.
+        if (_now() - _startedAt >= _window && !GuideOpen)
         {
             Finish();
             return;
@@ -127,13 +141,16 @@ public sealed class SetupNoticeWatch : IDisposable
     }
 
     /// <summary>The file-change path: check right away, never re-arm the poll chain (it runs on its
-    /// own, so change storms cannot multiply timers).</summary>
+    /// own, so change storms cannot multiply timers). A poke before <see cref="Start" /> is a
+    /// no-op: the App subscribes the guide-close poke at construction (S2-1 defers the Start into
+    /// the guide-closed handler), so the startup guide's close lands on a not-yet-started watch —
+    /// and must not read, show, or finish it; Start's own immediate check then handles the record.</summary>
     internal void Poke()
     {
-        if (_done)
+        if (!_started || _done)
             return;
 
-        if (!_service.CheckStartup())
+        if (!CheckStartupWhenGuideClosed())
             return;
 
         NoticeShown = true;
@@ -145,6 +162,13 @@ public sealed class SetupNoticeWatch : IDisposable
     /// own outcome, as opposed to a previous session's record surfaced at the immediate check.</summary>
     private bool IsCurrentSessionRecord() =>
         _service.LastShownTime is { } shown && shown > _startedAt;
+
+    /// <summary>r4 F3 + r1 F24: CheckStartup writes setup-notice-shown.json BEFORE _show (no burn
+    /// behind the guide), and the expiry window must not run out while the guide holds the
+    /// screen — both skip while GuideOpen; the close-time poke shows then.</summary>
+    private bool GuideOpen => _isGuideOpen?.Invoke() ?? false;
+
+    private bool CheckStartupWhenGuideClosed() => !GuideOpen && _service.CheckStartup();
 
     private void Finish()
     {

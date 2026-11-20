@@ -40,6 +40,8 @@ public class NoteGateCensusTests
             "suspender", "the eye-care banner — a RecomputeSuspension reason (ModalSuspended)"),
         ["EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml.cs"] = (
             "suspender", "full-screen and click-through for the whole break — EyeCareExerciseActiveMessage"),
+        ["EyeCtrl.App/Overlays/FirstRunGuideWindow.xaml"] = (
+            "suspender", "the first-run guide — a RecomputeSuspension reason (guide, ActivationOfferCoordinator); its ModalSuspended flag is the note gate's suspender input"),
         ["EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml.cs"] = (
             "suspender", "the full-screen magnifier — ManualSelectionActive/ManualSelectionActionMenuVisible"),
         ["EyeCtrl.App/Overlays/ModesMenuWindow.xaml.cs"] = (

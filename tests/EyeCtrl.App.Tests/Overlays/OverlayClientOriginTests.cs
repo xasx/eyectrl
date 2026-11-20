@@ -99,6 +99,7 @@ public class OverlayClientOriginTests
         "EdgeButtonBarWindow",
         "EyeCareBannerWindow",
         "EyeCareExerciseWindow",
+        "FirstRunGuideWindow",
         "GlassBackdropWindow",
         "KeyboardWindow",
         "LagMarkWindow",
@@ -213,6 +214,12 @@ public class OverlayClientOriginTests
         if (type == typeof(BlockedInputBannerWindow)) return new BlockedInputBannerWindow(present: _ => { });
         // The lag-mark button's dwell time is required, so it gets its own factory (T0(a)).
         if (type == typeof(LagMarkWindow)) return new LagMarkWindow(dwellMs: 700);
+        // The guide window takes its view model; built over throwaway defaults, never shown —
+        // the gate only needs the HWND for the client-origin read (FirstRunGuideWindowTests' shape).
+        if (type == typeof(FirstRunGuideWindow))
+            return new FirstRunGuideWindow(new FirstRunGuideViewModel(
+                new WeakReferenceMessenger(), 0, new EyeCtrlSettings(),
+                sink: null, dwellRegistry: null));
         if (type == typeof(SubPixelProbeWindow)) return BuildSubPixelProbeWindow();
 
         var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)

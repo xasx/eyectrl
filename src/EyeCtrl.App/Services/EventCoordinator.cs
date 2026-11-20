@@ -81,6 +81,18 @@ public class EventCoordinator : IEventCoordinator
         remove => _modal.SettingsOpenChanged -= value;
     }
 
+    /// <summary>Whether the first-run guide owns the screen (forwards
+    /// <see cref="ModalInteractionState.GuideOpen"/>).</summary>
+    internal bool IsGuideOpen => _modal.GuideOpen;
+
+    /// <summary>Raised after <see cref="IsGuideOpen"/> flips; subscribers read
+    /// <see cref="IsGuideOpen"/>, not the argument.</summary>
+    internal event Action<bool>? GuideOpenChanged
+    {
+        add => _modal.GuideOpenChanged += value;
+        remove => _modal.GuideOpenChanged -= value;
+    }
+
     /// <summary>Whether the sub-pixel probe window is up (SP-8 fixup 01 F1: the restart notice
     /// host treats it exactly like Settings).</summary>
     internal bool IsProbeOpen => _modal.ProbeOpen;
@@ -125,6 +137,18 @@ public class EventCoordinator : IEventCoordinator
     {
         RequireInitialized(nameof(SetSupervisionToggle));
         _settingsUi!.SetSupervisionToggle(service);
+    }
+
+    /// <summary>Hands the splash handle to the settings-UI coordinator (the guide's latched
+    /// show). The coordinator stores it (r1 F15). Internal: the handle type is App-internal.</summary>
+    internal void SetSplashHandle(SplashThreadHandle? handle) => _settingsUi?.SetSplashHandle(handle);
+
+    /// <summary>The guide raise's failure fallback: starts the status-card presenter when the
+    /// coordinator's unwind runs (r2 F13 — App has no coordinator field of its own).</summary>
+    internal Action? StatusCardsFallback
+    {
+        get => _settingsUi?.StatusCardsFallback;
+        set { if (_settingsUi is not null) _settingsUi.StatusCardsFallback = value; }
     }
 
     /// <summary>Hands the C9 S6f setup-gateways factory (the „Erweitert" update/rollback/uninstall

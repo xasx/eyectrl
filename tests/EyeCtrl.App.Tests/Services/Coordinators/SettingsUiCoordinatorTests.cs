@@ -376,4 +376,224 @@ public class SettingsUiCoordinatorTests
         public void SetPausedDim(bool dimmed) { }
         public void SetPinned(bool pinned) { }
     }
+
+    // ── S2-3: the safety chain's id → OnChosen map is consumed ONCE per card ─────────────────────
+
+    /// <summary>IGuideSurface stand-in (the flow's one route — the shape FirstRunGuideFlowTests
+    /// drives, here for the coordinator's dispatch half). Records the steps it is told to show and
+    /// the closes, like the flow test's fake — the real-dispatch pin observes them.</summary>
+    private sealed class FakeGuideSurface : IGuideSurface
+    {
+        public List<FirstRunGuideStep> Shown { get; } = new();
+        public List<string> SafetyMessages { get; } = new();
+        public IReadOnlyList<ModalChoice>? LastSafetyChoices;
+        public int CloseCount { get; private set; }
+        public void ShowStep(FirstRunGuideStep step) => Shown.Add(step);
+        public void ShowSafetyCard(string message, IReadOnlyList<ModalChoice> choices)
+        {
+            SafetyMessages.Add(message);
+            LastSafetyChoices = choices;
+        }
+        public void HideCard() { }
+        public void ShowCard() { }
+        public void Close() => CloseCount++;
+    }
+
+    /// <summary>Drives the coordinator's private dispatch (reflection invoke — the established
+    /// pattern here and in SupervisorTrayIconTests).</summary>
+    private static void InvokeGuideChoice(SettingsUiCoordinator coordinator, string id)
+    {
+        typeof(SettingsUiCoordinator)
+            .GetMethod("OnGuideChoice", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(coordinator, [id]);
+    }
+
+    /// <summary>A headless coordinator + flow driven to the Safety step with its chain started,
+    /// mirroring GuideSurface.ShowSafetyCard's RememberSafetyActions call.</summary>
+    private static (SettingsUiCoordinator Coordinator, FakeGuideSurface Surface, FirstRunGuideFlow Flow)
+        SafetyCoordinator()
+    {
+        var coordinator = NewCoordinator();
+        var surface = new FakeGuideSurface();
+        var settings = new EyeCtrlSettings();
+        var flow = new FirstRunGuideFlow(settings, trackerPresent: true, toolbarTaskAvailable: true,
+            surface,
+            (showModal, onEnded) => new SafetySetupFlow(settings, supervision: null, showModal,
+                applyAndSave: () => { }, setSimpleSettingsUi: _ => { }, onEnded: onEnded));
+        typeof(SettingsUiCoordinator)
+            .GetField("_guideFlow", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(coordinator, flow);
+
+        flow.Start();
+        flow.Advance();          // → MeetDwell
+        flow.Skip();             // → DwellTime
+        flow.Advance();          // → Calibrate
+        flow.Skip();             // → ToolbarTask
+        flow.Skip();             // → Theme
+        flow.Advance();          // → Safety
+        flow.BeginSafetyQuestions();
+        coordinator.RememberSafetyActions(surface.LastSafetyChoices!);
+        return (coordinator, surface, flow);
+    }
+
+    [Fact]
+    public void SafetyActionMap_IsConsumedOnce_AndRepopulatedByTheNextCard()
+    {
+        var (coordinator, surface, _) = SafetyCoordinator();
+        try
+        {
+            Check.That(surface.SafetyMessages).HasSize(1);   // question 0 on the surface
+
+            // The fired id forwards once: the chain advances to question 1...
+            InvokeGuideChoice(coordinator, "safety_yes");
+            Check.That(surface.SafetyMessages.Count).IsEqualTo(2);
+
+            // ...and is CONSUMED — the same id again must not fire twice: the map is cleared by
+            // the dispatch and only the NEXT card's render repopulates it. A delegate that
+            // survived the consumption would answer an old question twice (the session-lifetime
+            // singleton hazard the map's clear exists for).
+            InvokeGuideChoice(coordinator, "safety_yes");
+            Check.That(surface.SafetyMessages.Count).IsEqualTo(2);
+
+            // The next card's render repopulates the map; the same id fires again.
+            coordinator.RememberSafetyActions(surface.LastSafetyChoices!);
+            InvokeGuideChoice(coordinator, "safety_yes");
+            Check.That(surface.SafetyMessages.Count).IsEqualTo(3);
+        }
+        finally
+        {
+            coordinator.Dispose();
+        }
+    }
+
+    // ── the REAL dispatch drives every action row (re-review r2) ────────────────────────────────
+    //
+    // FirstRunGuideFlowTests pins the rows' flow-level effects with DispatchRow — a hand copy of
+    // OnGuideChoice's switch. That catches a missing flow case, but NOT a production remap of an
+    // id to a no-op (the S1 shape: the VM clears every chrome target before dispatching, so a
+    // no-op strand is a target-less card under all the guide's claims). This table is the same
+    // expected rows, driven through the coordinator's REAL OnGuideChoice on a flow it owns.
+
+    private sealed record Row(FirstRunGuideStep Step, string Id, string Effect, FirstRunGuideStep? ExpectedStep);
+
+    private static readonly Row[] ActionRowTable =
+    [
+        new(FirstRunGuideStep.Welcome, "guide_start", "advance", FirstRunGuideStep.MeetDwell),
+        new(FirstRunGuideStep.Welcome, "guide_later", "close-abandoned", null),
+        new(FirstRunGuideStep.MeetDwell, "guide_dwell_skip", "skip", FirstRunGuideStep.DwellTime),
+        new(FirstRunGuideStep.DwellTime, "guide_dwelltime_continue", "advance", FirstRunGuideStep.Calibrate),
+        // guide_calibrate_now has NO flow-level call: the dispatch maps it to StartCalibration and
+        // the flow only moves on NotifyCalibrationEnded (or the refusal guard re-shows).
+        new(FirstRunGuideStep.Calibrate, "guide_calibrate_now", "wiring-side", null),
+        new(FirstRunGuideStep.Calibrate, "guide_calibrate_skip", "skip", FirstRunGuideStep.ToolbarTask),
+        new(FirstRunGuideStep.ToolbarTask, "guide_toolbar_continue", "advance", FirstRunGuideStep.Theme),
+        new(FirstRunGuideStep.ToolbarTask, "guide_toolbar_skip", "skip", FirstRunGuideStep.Theme),
+        new(FirstRunGuideStep.Theme, "guide_theme_continue", "advance", FirstRunGuideStep.Safety),
+        new(FirstRunGuideStep.Safety, "guide_safety_begin", "safety-chain", null),
+        new(FirstRunGuideStep.Done, "guide_done_finish", "close-finished", null),
+    ];
+
+    /// <summary>A fresh headless coordinator owning a real flow driven to <paramref name="step"/>
+    /// through the flow itself (the safety-map test's shape); the row under test is what goes
+    /// through OnGuideChoice, so a setup failure can never masquerade as a dispatch failure.</summary>
+    private static (SettingsUiCoordinator Coordinator, FakeGuideSurface Surface, FirstRunGuideFlow Flow)
+        GuideCoordinatorAt(FirstRunGuideStep step)
+    {
+        var coordinator = NewCoordinator();
+        var surface = new FakeGuideSurface();
+        var settings = new EyeCtrlSettings();
+        var flow = new FirstRunGuideFlow(settings, trackerPresent: true, toolbarTaskAvailable: true,
+            surface,
+            (showModal, onEnded) => new SafetySetupFlow(settings, supervision: null, showModal,
+                applyAndSave: () => { }, setSimpleSettingsUi: _ => { }, onEnded: onEnded));
+        typeof(SettingsUiCoordinator)
+            .GetField("_guideFlow", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(coordinator, flow);
+
+        flow.Start();
+        if (step != FirstRunGuideStep.Welcome)
+        {
+            flow.Advance();                                    // → MeetDwell
+            if (step != FirstRunGuideStep.MeetDwell)
+            {
+                flow.Skip();                                   // → DwellTime
+                if (step != FirstRunGuideStep.DwellTime)
+                {
+                    flow.Advance();                            // → Calibrate
+                    if (step != FirstRunGuideStep.Calibrate)
+                    {
+                        flow.Skip();                           // → ToolbarTask
+                        if (step != FirstRunGuideStep.ToolbarTask)
+                        {
+                            flow.Skip();                       // → Theme
+                            if (step != FirstRunGuideStep.Theme)
+                            {
+                                flow.Advance();                // → Safety
+                                if (step == FirstRunGuideStep.Done)
+                                {
+                                    flow.BeginSafetyQuestions();   // the chain starts
+                                    for (var i = 0; i < 4; i++)
+                                        surface.LastSafetyChoices!.Single(c => c.Id == "safety_yes").OnChosen!.Invoke();
+                                    surface.LastSafetyChoices!.Single(c => c.Id == "safety_basic").OnChosen!.Invoke();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Check.That(surface.Shown[^1]).IsEqualTo(step);
+        return (coordinator, surface, flow);
+    }
+
+    [Fact]
+    public void EveryActionRowChoice_ThroughTheRealDispatch_NeverASilentNoOp()
+    {
+        foreach (var row in ActionRowTable)
+        {
+            var (coordinator, surface, flow) = GuideCoordinatorAt(row.Step);
+            try
+            {
+                GuideExitReason? exit = null;
+                flow.Closed += reason => exit = reason;
+
+                InvokeGuideChoice(coordinator, row.Id);
+
+                switch (row.Effect)
+                {
+                    case "advance":
+                    case "skip":
+                        Check.WithCustomMessage($"{row.Step}.{row.Id} must move the flow")
+                            .That(surface.Shown[^1]).IsEqualTo(row.ExpectedStep!.Value);
+                        break;
+                    case "close-abandoned":
+                        Check.WithCustomMessage($"{row.Step}.{row.Id} must close the flow")
+                            .That(surface.CloseCount).IsEqualTo(1);
+                        Check.That(exit).IsEqualTo(GuideExitReason.Abandoned);
+                        break;
+                    case "close-finished":
+                        Check.WithCustomMessage($"{row.Step}.{row.Id} must close the flow")
+                            .That(surface.CloseCount).IsEqualTo(1);
+                        Check.That(exit).IsEqualTo(GuideExitReason.Finished);
+                        break;
+                    case "safety-chain":
+                        Check.WithCustomMessage($"{row.Step}.{row.Id} must start the safety chain")
+                            .That(surface.SafetyMessages.Count).IsEqualTo(1);
+                        break;
+                    case "wiring-side":
+                        // guide_calibrate_now: the dispatch maps it to StartCalibration, whose
+                        // headless preconditions (the raised guide's vm and surface, the Context)
+                        // this harness deliberately does not build — the invoke is a guarded
+                        // return here, so nothing is assertable beyond not throwing. The step's
+                        // escapability is proven by the calibrate_skip row above, exactly as the
+                        // flow-table test does for its Skip row.
+                        break;
+                }
+            }
+            finally
+            {
+                coordinator.Dispose();
+            }
+        }
+    }
 }

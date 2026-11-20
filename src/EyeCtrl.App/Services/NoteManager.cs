@@ -652,9 +652,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         window.PausePollForInput = () => _pausePoll?.Invoke() ?? false;
         _notes.Add(data);
         _windows.Add(window);
+        // K1: the FIRST placement is the Edit state's, so it must avoid the keyboard when the
+        // keyboard is already up at creation. A new note can be created while the keyboard is
+        // visible (the previous editor's commit-first hand-over keeps it up); BeginEditing below
+        // then takes the "already visible" branch and requests nothing, so no probe raise follows
+        // and this would be the ONLY placement the card ever gets. With an empty avoid list the
+        // card stays under the keyboard until an unrelated keyboard move re-derives it.
         _placements[data.Id] = NoteLayout.WithTagClearance(
-            NoteLayout.Place(data.Anchor, data.Side, CardSizeFor(data), WorkAreaDip(), new List<Rect>(), DpiHelper.ScaleX)!,
-            _noteSettings.TextSizeDip);
+            PlaceFor(data, avoidKeyboard: true), _noteSettings.TextSizeDip);
 
         // Set the initial state before Show() so the first render builds the editor layout. The
         // placement the window renders first is the one its position comes from (P3 D2): apply

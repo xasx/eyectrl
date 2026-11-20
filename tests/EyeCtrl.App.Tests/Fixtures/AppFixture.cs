@@ -10,14 +10,18 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using EyeCtrl.Core.Services;
 
 /// <summary>
 /// Launches EyeCtrl.App.exe in --test-mode and provides helpers for UI tests.
 /// Shared across all tests in a collection via xUnit ICollectionFixture.
 /// <para>
-/// SETTINGS ISOLATION: the app reads <c>%APPDATA%/EyeCtrl/settings.json</c> once at launch and
-/// writes it back (debounced) whenever settings change. When UI tests are enabled,
-/// <see cref="InitializeAsync"/> backs the owner's file up to
+/// SETTINGS ISOLATION: the launched exe is a DEV build (a test bin, never under
+/// <c>Program Files\EyeCtrl*</c>), so since the dev-profile guard it reads and writes
+/// <c>%APPDATA%\EyeCtrl.Dev\settings.json</c> — never the owner's real file. This fixture
+/// resolves the SAME profile (<see cref="EyeCtrl.Core.Services.ProfileLocation"/>) for its
+/// backup/force/restore dance, which therefore protects the dev profile's settings between gated
+/// runs: <see cref="InitializeAsync"/> backs the dev file up to
 /// <c>settings.json.ui_test_backup</c> and forces <c>general.simpleSettingsUi=false</c> so the
 /// launched app starts in advanced mode; <see cref="DisposeAsync"/> kills the app, waits up to
 /// 5&nbsp;s for the process to die (its debounced writer must be dead before the restore, or a
@@ -28,7 +32,7 @@ using System.Text.Json.Nodes;
 /// CAVEAT: a test-host crash mid-run leaves <c>settings.json.ui_test_backup</c> behind for
 /// manual restore — and the next gated run REFUSES to start until it is resolved:
 /// <see cref="InitializeAsync"/> throws rather than overwrite it, because the leftover backup
-/// holds the owner's ORIGINAL while the live <c>settings.json</c> may already be test-mutated,
+/// holds the profile's ORIGINAL while the live <c>settings.json</c> may already be test-mutated,
 /// and copying over the backup would destroy the original (impl review I4/F3).
 /// </para>
 /// </summary>
@@ -43,7 +47,7 @@ public class AppFixture : IAsyncLifetime
     private bool _hadSettingsFile;
 
     private static string SettingsPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "settings.json");
+        ProfileLocation.Current.Directory, "settings.json");
 
     private static readonly JsonSerializerOptions SettingsJsonOptions = new()
     {

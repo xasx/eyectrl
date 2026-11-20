@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System;
 using System.Diagnostics;
 using System.IO;
+using EyeCtrl.Core.Services;
 
 /// <summary>
 /// Locates and starts the EyeCtrl supervisor.
@@ -76,11 +77,27 @@ public static class SupervisorLauncher
 
         try
         {
-            return Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = false }) is not null;
+            // A parent that resolved non-dev (installed or real-by-flag) forwards the flag, so the
+            // supervisor it brings up resolves the same profile — a supervised pair is dev+dev or
+            // real+real, never split (see ProfileLocation).
+            var psi = BuildStartInfo(exePath, forwardRealProfile: !ProfileLocation.Current.IsDev);
+            return Process.Start(psi) is not null;
         }
         catch
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// The start info for one launch. Pure so the forwarding decision is testable without
+    /// starting a process; production passes "this process resolved non-dev".
+    /// </summary>
+    internal static ProcessStartInfo BuildStartInfo(string exePath, bool forwardRealProfile)
+    {
+        var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
+        if (forwardRealProfile)
+            psi.ArgumentList.Add(ProfileLocation.RealProfileArgument);
+        return psi;
     }
 }

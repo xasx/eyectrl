@@ -12,7 +12,8 @@ public sealed record ParsedSetupCommand(
     bool? KeepData,
     string? RunId,
     string? SourceSetupExe,
-    string? Error)
+    string? Error,
+    bool RealProfile = false)
 {
     /// <summary>True for a job only the elevated re-launch may use.</summary>
     public bool IsInternal => Job is SetupJob.InternalPrepareUpdate
@@ -40,6 +41,7 @@ public static class SetupCommandLine
 
         Options:
           --keep | --delete       Pass the uninstall data choice to the elevated step.
+          --real-profile          Use the real %APPDATA%\EyeCtrl (the installed-update flow).
           --help                  Show this text.
         """;
 
@@ -71,25 +73,51 @@ public static class SetupCommandLine
     {
         if (args.Count < 2 || args[1].StartsWith("--", StringComparison.Ordinal))
             return Fail("update requires a package directory");
-        if (args.Count > 2)
-            return Fail("update takes exactly one package directory");
 
         // F3: Setup's cwd is neutral, so a relative directory would resolve somewhere else and
         // surface later as a misleading "package damaged". Refuse it before anything starts.
         if (!Path.IsPathFullyQualified(args[1]))
             return Fail("update requires an absolute package directory");
-        return new ParsedSetupCommand(SetupJob.Update, args[1], false, null, null, null, null);
+
+        var realProfile = false;
+        for (var i = 2; i < args.Count; i++)
+        {
+            switch (args[i].ToLowerInvariant())
+            {
+                case "--real-profile":
+                    realProfile = true;
+                    break;
+                default:
+                    return Fail($"unknown option '{args[i]}'");
+            }
+        }
+
+        return new ParsedSetupCommand(SetupJob.Update, args[1], false, null, null, null, null, realProfile);
     }
 
-    private static ParsedSetupCommand ParseSimple(SetupJob job, IReadOnlyList<string> args) =>
-        args.Count > 1
-            ? Fail($"{job.ToString().ToLowerInvariant()} takes no arguments")
-            : new ParsedSetupCommand(job, null, false, null, null, null, null);
+    private static ParsedSetupCommand ParseSimple(SetupJob job, IReadOnlyList<string> args)
+    {
+        var realProfile = false;
+        for (var i = 1; i < args.Count; i++)
+        {
+            switch (args[i].ToLowerInvariant())
+            {
+                case "--real-profile":
+                    realProfile = true;
+                    break;
+                default:
+                    return Fail($"{job.ToString().ToLowerInvariant()} takes no arguments");
+            }
+        }
+
+        return new ParsedSetupCommand(job, null, false, null, null, null, null, realProfile);
+    }
 
     private static ParsedSetupCommand ParseUninstall(IReadOnlyList<string> args)
     {
         var quiet = false;
         bool? keep = null;
+        var realProfile = false;
         for (var i = 1; i < args.Count; i++)
         {
             switch (args[i].ToLowerInvariant())
@@ -105,12 +133,15 @@ public static class SetupCommandLine
                     if (keep is not null) return Fail("--keep and --delete are mutually exclusive");
                     keep = false;
                     break;
+                case "--real-profile":
+                    realProfile = true;
+                    break;
                 default:
                     return Fail($"unknown option '{args[i]}'");
             }
         }
 
-        return new ParsedSetupCommand(SetupJob.Uninstall, null, quiet, keep, null, null, null);
+        return new ParsedSetupCommand(SetupJob.Uninstall, null, quiet, keep, null, null, null, realProfile);
     }
 
     private static ParsedSetupCommand ParseInternal(IReadOnlyList<string> args)
@@ -124,6 +155,7 @@ public static class SetupCommandLine
         string? source = null;
         bool? keep = null;
         var quiet = false;
+        var realProfile = false;
 
         for (var i = 2; i < args.Count; i++)
         {
@@ -146,6 +178,9 @@ public static class SetupCommandLine
                     break;
                 case "--delete":
                     keep = false;
+                    break;
+                case "--real-profile":
+                    realProfile = true;
                     break;
                 default:
                     if (!arg.StartsWith("--", StringComparison.Ordinal) && packageDir is null)
@@ -186,7 +221,7 @@ public static class SetupCommandLine
         if (job is SetupJob.InternalPrepareRunCopy && string.IsNullOrWhiteSpace(source))
             return Fail("prepare-run-copy requires --source");
 
-        return new ParsedSetupCommand(job.Value, packageDir, quiet, keep, runId, source, null);
+        return new ParsedSetupCommand(job.Value, packageDir, quiet, keep, runId, source, null, realProfile);
     }
 
     private static ParsedSetupCommand Fail(string error) =>

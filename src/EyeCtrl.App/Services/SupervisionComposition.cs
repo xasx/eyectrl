@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System;
 using EyeCtrl.App.Startup;
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 
 /// <summary>
@@ -18,19 +19,42 @@ public static class SupervisionComposition
     /// Builds the launch-at-logon reconciliation from <c>StartOnBootPolicy</c>. It reads the
     /// enable flag and the registration probe LIVE at each call, so a handler that runs after a
     /// row toggle reconciles with the current world — not the value captured at startup.
+    /// <para>
+    /// A dev build reconciles NOTHING: the <c>HKCU\…\Run\EyeCtrl</c> value is shared machine
+    /// state the installed build owns. Applying a dev profile's StartOnBoot would either point
+    /// the owner's logon at a worktree exe or DELETE the owner's real registration — a lockout
+    /// at the next logon. One log line says it was skipped.
+    /// </para>
     /// </summary>
     /// <param name="settings">Live settings; <c>General.StartOnBoot</c> is the user's preference.</param>
     /// <param name="startupRegistrar">Where the reconciled decision is applied.</param>
     /// <param name="isLaunchRegistered">Whether something other than the app is registered to
     /// launch it (see <c>SupervisorLaunchRegistration</c>).</param>
+    /// <param name="isDevBuild">Whether Run-key writes are forbidden for this build. Defaults to
+    /// the process's resolved profile; injectable so a test can exercise the production logic as
+    /// the installed build would run it (a test host is always a dev build).</param>
     public static Action CreateRunKeyReconciler(
         EyeCtrlSettings settings,
         IStartupRegistrar startupRegistrar,
-        Func<bool> isLaunchRegistered) =>
-        () => startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(
-            supervised: settings.Supervision.Enabled,
-            settings.General.StartOnBoot,
-            isLaunchRegistered()));
+        Func<bool> isLaunchRegistered,
+        Func<bool>? isDevBuild = null) =>
+        () =>
+        {
+            if ((isDevBuild ?? DefaultDevGuard)())
+            {
+                Serilog.Log.Information(
+                    "Profile: dev build — Run-key reconciliation skipped; the installed build owns the Run key.");
+                return;
+            }
+
+            startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(
+                supervised: settings.Supervision.Enabled,
+                settings.General.StartOnBoot,
+                isLaunchRegistered()));
+        };
+
+    /// <summary>The production dev-build guard: this process's resolved profile.</summary>
+    private static readonly Func<bool> DefaultDevGuard = () => ProfileLocation.Current.IsDev;
 
     /// <summary>
     /// Re-runs <paramref name="reconcileRunKey"/> whenever <c>General.StartOnBoot</c> changes —
@@ -66,11 +90,13 @@ public static class SupervisionComposition
     /// <see cref="CreateForProduction"/> uses it for both consumers of the composition, so no
     /// call site passes the probe itself.
     /// </summary>
+    /// <param name="isDevBuild">The dev-build guard; see <see cref="CreateRunKeyReconciler"/>.</param>
     public static Action CreateProductionRunKeyReconciler(
         EyeCtrlSettings settings,
-        IStartupRegistrar startupRegistrar) =>
+        IStartupRegistrar startupRegistrar,
+        Func<bool>? isDevBuild = null) =>
         CreateRunKeyReconciler(
-            settings, startupRegistrar, () => SupervisorLaunchRegistration.IsRegistered);
+            settings, startupRegistrar, () => SupervisorLaunchRegistration.IsRegistered, isDevBuild);
 
     /// <summary>
     /// Composes the bring-up, the toggle and the startup ensure over the given settings file.
@@ -81,6 +107,9 @@ public static class SupervisionComposition
     /// <param name="isSupervisorConnected">Cheap cached read of the delivery freshness (no IPC);
     /// the row's truthful status and retry condition. The active pipe probe is
     /// <paramref name="tryReachSupervisor"/>.</param>
+    /// <param name="isDevBuild">The Run-key dev-build guard; see
+    /// <see cref="CreateRunKeyReconciler"/>. Production omits it (the resolved profile decides);
+    /// a test that asserts reconciliation semantics passes <c>() =&gt; false</c>.</param>
     /// <returns>The shared bring-up, the toggle and the write-free startup ensure.</returns>
     public static (SupervisorBringUp BringUp, SupervisionToggleService Toggle, SupervisorStartupEnsure StartupEnsure)
         Create(
@@ -94,9 +123,10 @@ public static class SupervisionComposition
         Func<bool> isLaunchRegistered,
         Func<bool> isSupervisorConnected,
         Action<Action> runInBackground,
-        Action<Action> postToUi)
+        Action<Action> postToUi,
+        Func<bool>? isDevBuild = null)
     {
-        var reconcileRunKey = CreateRunKeyReconciler(settings, startupRegistrar, isLaunchRegistered);
+        var reconcileRunKey = CreateRunKeyReconciler(settings, startupRegistrar, isLaunchRegistered, isDevBuild);
         return Compose(
             settings, settingsFilePath, reconcileRunKey, enablePublishing, launchSupervisor,
             tryReachSupervisor, isSupervisorInstalled, isSupervisorConnected, runInBackground, postToUi);
@@ -116,6 +146,9 @@ public static class SupervisionComposition
     /// freshness lambda exists to drift.</param>
     /// <returns>The bring-up, the toggle, the live Run-key reconciler they share, and the presence
     /// predicate <c>App.xaml.cs</c> hands to the crash handler.</returns>
+    /// <param name="isDevBuild">The Run-key dev-build guard; see
+    /// <see cref="CreateRunKeyReconciler"/>. Production omits it (the resolved profile decides);
+    /// a test that asserts reconciliation semantics passes <c>() =&gt; false</c>.</param>
     public static (SupervisorBringUp BringUp, SupervisionToggleService Toggle, Action ReconcileRunKey, Func<bool> IsSupervisorPresent)
         CreateForProduction(
             EyeCtrlSettings settings,
@@ -123,9 +156,10 @@ public static class SupervisionComposition
             IStartupRegistrar startupRegistrar,
             Func<HeartbeatPublisher?> publisher,
             Action<Action> runInBackground,
-            Action<Action> postToUi)
+            Action<Action> postToUi,
+            Func<bool>? isDevBuild = null)
     {
-        var reconcileRunKey = CreateProductionRunKeyReconciler(settings, startupRegistrar);
+        var reconcileRunKey = CreateProductionRunKeyReconciler(settings, startupRegistrar, isDevBuild);
         var isSupervisorPresent = CreateSupervisorPresencePredicate(
             () => publisher()?.LastDeliveredUtc,
             () => DateTime.UtcNow,

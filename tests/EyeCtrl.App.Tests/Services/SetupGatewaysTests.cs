@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Setup;
 using EyeCtrl.Setup.Abstractions;
 
@@ -70,12 +71,93 @@ public class SetupGatewaysTests
             return this;
         }
 
-        public SetupGateways Create() => new(
+        public SetupGateways Create(bool forwardRealProfile = false) => new(
             () => CurrentProcessPath, Paths, Fs, Metadata, Catalog, Signatures, Policy, Launcher, Exit,
             neutralWorkingDirectory: NeutralDirectory,
             warn: Warnings.Add,
             setupSessionLive: () => SetupSessionLive,
-            utcNow: () => Now);
+            utcNow: () => Now,
+            // The test host is a dev build; explicit false keeps every argument assertion speaking
+            // for a dev parent. The D3 tests pass true to speak for the installed App.
+            forwardRealProfile: () => forwardRealProfile);
+    }
+
+    // The harness's fake roots: the installed product lives at C:\PFakes\EyeCtrl, so its profile
+    // is C:\AppDataFakes\EyeCtrl.
+    private static ProfileLocation InstalledAppProfile() => ProfileLocation.Resolve(
+        @"C:\PFakes\EyeCtrl\EyeCtrl.App.exe",
+        isDebugBuild: false,
+        args: [],
+        @"C:\PFakes",
+        @"C:\AppDataFakes",
+        @"C:\LocalFakes");
+
+    /// <summary>
+    /// Fixup 01 D3 for the App side: the ACTUAL argv the hand-off launched, resolved under the
+    /// Setup rule, must land on the installed App's profile folder (the uninstall delete target),
+    /// its log root (the pass rule), setup-last.json, and its session mutex name.
+    /// </summary>
+    private static void AssertSetupResolvesTheInstalledProfile(
+        string entryPoint, string setupExePath, string commandLine)
+    {
+        var installed = InstalledAppProfile();
+        var arguments = SplitArguments(commandLine);
+        var setup = ProfileLocation.Resolve(
+            setupExePath, isDebugBuild: false, arguments,
+            @"C:\PFakes", @"C:\AppDataFakes", @"C:\LocalFakes",
+            isSetupProcess: true);
+        var paths = SetupPaths.FromProfile(setup);
+        var detail = $"Setup resolved {setup.ModeToken} dir={setup.Directory} reason={setup.Reason}";
+
+        Check.WithCustomMessage(
+                $"{entryPoint}: the installed App's own profile must be the harness's installed " +
+                $"product (mutant MF moves this to EyeCtrl.Dev). {detail}")
+            .That(installed.Directory).IsEqualTo(Paths.AppDataRoot);
+        Check.WithCustomMessage(
+                $"{entryPoint}: a Release Setup must use the installed App's profile folder. {detail}")
+            .That(paths.AppDataRoot).IsEqualTo(installed.Directory);
+        Check.WithCustomMessage(
+                $"{entryPoint}: the pass rule must read the installed App's log root. {detail}")
+            .That(paths.LogsRoot).IsEqualTo(Path.Combine(installed.Directory, "logs"));
+        Check.WithCustomMessage(
+                $"{entryPoint}: setup-last.json must land in the installed App's profile. {detail}")
+            .That(paths.RecordPath).IsEqualTo(Path.Combine(installed.Directory, "setup-last.json"));
+        Check.WithCustomMessage(
+                $"{entryPoint}: the session mutex must be the installed App's session name. {detail}")
+            .That(setup.SetupSessionMutexName).IsEqualTo(installed.SetupSessionMutexName);
+    }
+
+    /// <summary>Splits the hand-off's one-string command line the way Windows would (quoted runs
+    /// are single tokens).</summary>
+    private static string[] SplitArguments(string commandLine)
+    {
+        var tokens = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var inQuotes = false;
+        foreach (var c in commandLine)
+        {
+            if (c == '"')
+            {
+                inQuotes = !inQuotes;
+                continue;
+            }
+
+            if (!inQuotes && char.IsWhiteSpace(c))
+            {
+                if (current.Length > 0)
+                {
+                    tokens.Add(current.ToString());
+                    current.Clear();
+                }
+                continue;
+            }
+
+            current.Append(c);
+        }
+
+        if (current.Length > 0)
+            tokens.Add(current.ToString());
+        return tokens.ToArray();
     }
 
     private static SetupUpdateOffer OfferFor(string folder = "2.0.0") =>
@@ -436,6 +518,51 @@ public class SetupGatewaysTests
         Check.That(SetupPaths.IsUnder(Paths.InstallRoot, launch.WorkingDirectory)).IsFalse();
         Check.That(harness.Exit.Signals).IsEmpty();
         Check.That(harness.Exit.Shutdowns).IsZero();
+    }
+
+    // ─── fixup 01 D3: the App's hand-offs, resolved end to end ──────────────────────────
+
+    [Fact]
+    public void UpdateOfferHandoff_ForwardsTheFlag_AndTheSetupResolvesTheInstalledProfile()
+    {
+        var harness = new Harness().Installed();
+        var gateways = harness.Create(forwardRealProfile: true);
+
+        Check.That(gateways.StartUpdateHandoff(OfferFor())).IsEqualTo(SetupHandoffStart.Started);
+
+        var launch = harness.Launcher.Calls.Single();
+        Check.That(launch.Arguments).Contains("--real-profile");
+        Check.That(launch.Arguments).StartsWith("update \"");
+        AssertSetupResolvesTheInstalledProfile(
+            "Settings → Update offer", launch.Executable, launch.Arguments);
+    }
+
+    [Fact]
+    public void RollbackHandoff_ForwardsTheFlag_AndTheSetupResolvesTheInstalledProfile()
+    {
+        var harness = new Harness().Installed();
+        var gateways = harness.Create(forwardRealProfile: true);
+
+        Check.That(gateways.StartRollbackHandoff()).IsEqualTo(SetupHandoffStart.Started);
+
+        var launch = harness.Launcher.Calls.Single();
+        Check.That(launch.Arguments).IsEqualTo("rollback --real-profile");
+        AssertSetupResolvesTheInstalledProfile(
+            "Settings → Rollback", launch.Executable, launch.Arguments);
+    }
+
+    [Fact]
+    public void UninstallHandoff_ForwardsTheFlag_AndTheSetupResolvesTheInstalledProfile()
+    {
+        var harness = new Harness().Installed();
+        var gateways = harness.Create(forwardRealProfile: true);
+
+        Check.That(gateways.StartUninstallHandoff()).IsEqualTo(SetupHandoffStart.Started);
+
+        var launch = harness.Launcher.Calls.Single();
+        Check.That(launch.Arguments).IsEqualTo("uninstall --real-profile");
+        AssertSetupResolvesTheInstalledProfile(
+            "Settings → Uninstall", launch.Executable, launch.Arguments);
     }
 
     [Fact]

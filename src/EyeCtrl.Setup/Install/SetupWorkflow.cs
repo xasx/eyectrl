@@ -1,5 +1,6 @@
 namespace EyeCtrl.Setup.Install;
 
+using EyeCtrl.Core.Services;
 using EyeCtrl.Setup.Abstractions;
 using EyeCtrl.Setup.Display;
 
@@ -25,15 +26,22 @@ public sealed class SetupWorkflow
     private readonly ISetupClock _clock;
     private readonly ISetupLog _log;
     private readonly ISetupDisplayFactory _displayFactory;
+    private readonly Func<bool> _forwardRealProfile;
 
     /// <summary>Creates the workflow.</summary>
+    /// <param name="forwardRealProfile">Whether <c>--real-profile</c> rides along to the run
+    /// copy. Defaults to "this process resolved non-dev" under the SETUP rule (see
+    /// <see cref="SetupProcessProfile"/>), so every Release Setup forwards the flag and a Debug
+    /// one without the flag does not; injectable so tests can drive both arms — the resolver is
+    /// static per process and a test host is always a dev build.</param>
     public SetupWorkflow(
         SetupPaths paths, IElevationPolicy policy, IElevationBroker broker, AppStartService appStart,
         SupervisionStartPlanner planner,
         IFileSystem fileSystem, IProcessControl processes, IUninstallChoice uninstallChoice,
         IRunIdGenerator runIds, IPackageMetadataReader metadata, IResultRecorder recorder,
         ISetupEnvironment environment, ISetupClock clock, ISetupLog log,
-        ISetupDisplayFactory? displayFactory = null)
+        ISetupDisplayFactory? displayFactory = null,
+        Func<bool>? forwardRealProfile = null)
     {
         _paths = paths;
         _policy = policy;
@@ -50,6 +58,8 @@ public sealed class SetupWorkflow
         _clock = clock;
         _log = log;
         _displayFactory = displayFactory ?? NullSetupDisplayFactory.Instance;
+        _forwardRealProfile = forwardRealProfile
+            ?? (() => !SetupProcessProfile.Location.IsDev);
     }
 
     /// <summary>Installs the package and applies the three-part pass rule, rolling back on a
@@ -428,6 +438,15 @@ public sealed class SetupWorkflow
             return FinishRefused(verb, prepare, display);
 
         var runCopy = _paths.RunSetupExePath(runId);
+
+        // --real-profile rides along to the run copy whenever this Setup resolved non-dev (the
+        // SETUP rule: every Release Setup does, wherever it runs from). That is belt and braces
+        // next to D1 — the run copy would resolve the installed product's real profile on its own
+        // — and it is what keeps a Debug Setup started with --real-profile real in the child too.
+        // Always forwarding a non-dev parent's flag also means a future Setup-rule change cannot
+        // silently split parent and child.
+        if (_forwardRealProfile())
+            arguments = arguments.Append(ProfileLocation.RealProfileArgument).ToArray();
 
         // The run copy applies the swap, so it must not inherit (and hold) the installed folder.
         var pid = _processes.Start(runCopy, SetupWorkingDirectory.Neutral, arguments);

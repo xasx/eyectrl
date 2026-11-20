@@ -5,8 +5,12 @@ using System.Threading;
 /// <summary>Named-mutex single-instance guard: the second process to call <see cref="TryAcquire"/> fails.</summary>
 public sealed class SingleInstanceGuard : IDisposable
 {
-    /// <summary>Default production mutex name. Injectable for tests (per-test isolation).</summary>
-    public const string DefaultMutexName = @"Local\EyeCtrl.App.Singleton";
+    /// <summary>
+    /// Default production mutex name — resolved per build: a dev build takes the
+    /// <c>.Dev</c>-suffixed name so it can never block or probe the installed App's instance
+    /// (see <see cref="ProfileLocation"/>). Injectable for tests (per-test isolation).
+    /// </summary>
+    public static string DefaultMutexName => ProfileLocation.Current.AppSingletonMutexName;
     private readonly string _mutexName;
     private Mutex? _mutex;
     private bool _owned;

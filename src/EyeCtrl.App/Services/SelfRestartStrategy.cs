@@ -4,6 +4,7 @@ using System;
 using System.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Services;
 
 /// <summary>The child process a restart launched, narrowed to what the parent needs.</summary>
 public interface IRestartChild
@@ -52,6 +53,7 @@ public sealed class SelfRestartStrategy
     private readonly Func<string?> _resolveExePath;
     private readonly Func<ProcessStartInfo, IRestartChild> _launch;
     private readonly Func<EventWaitHandle, TimeSpan, bool> _waitForReady;
+    private readonly Func<bool> _forwardRealProfile;
     private readonly TimeSpan _readyWait;
 
     /// <summary>Creates a strategy with explicit seams (tests supply fakes).</summary>
@@ -63,16 +65,22 @@ public sealed class SelfRestartStrategy
     /// waits on the real named event; tests ignore the handle and return a canned result.
     /// </param>
     /// <param name="readyWait">How long to wait for that signal.</param>
+    /// <param name="forwardRealProfile">Whether the replacement carries
+    /// <c>--real-profile</c>. Defaults to "this process resolved non-dev", so a real-by-flag
+    /// parent never restarts into a dev child (a new App in the installed folder also resolves
+    /// real by location; forwarding keeps the contract independent of that).</param>
     public SelfRestartStrategy(
         Func<string?> resolveExePath,
         Func<ProcessStartInfo, IRestartChild> launch,
         Func<EventWaitHandle, TimeSpan, bool> waitForReady,
-        TimeSpan readyWait)
+        TimeSpan readyWait,
+        Func<bool>? forwardRealProfile = null)
     {
         _resolveExePath = resolveExePath;
         _launch = launch;
         _waitForReady = waitForReady;
         _readyWait = readyWait;
+        _forwardRealProfile = forwardRealProfile ?? (() => !ProfileLocation.Current.IsDev);
     }
 
     /// <summary>The production wiring: the real apphost path, Process.Start, and the named event.</summary>
@@ -133,8 +141,14 @@ public sealed class SelfRestartStrategy
             // C9 S3: ShellExecute. S1a measured that a plain CreateProcess of the uiAccess
             // App fails with 740 even from the UIAccess App itself; ShellExecute starts the
             // replacement with UIAccess and returns a usable handle. The handoff argument is
-            // the same one the CreateProcess path passed.
-            child = _launch(new ProcessStartInfo(exePath, RestartHandoff.Argument) { UseShellExecute = true });
+            // the same one the CreateProcess path passed; --real-profile rides along when this
+            // process resolved non-dev, so the replacement resolves the same profile (a
+            // real-by-flag parent would otherwise hand over to a dev child that signals a
+            // different ready event and leaves the parent waiting out the full timeout).
+            var arguments = RestartHandoff.Argument;
+            if (_forwardRealProfile())
+                arguments += " " + ProfileLocation.RealProfileArgument;
+            child = _launch(new ProcessStartInfo(exePath, arguments) { UseShellExecute = true });
         }
         catch
         {

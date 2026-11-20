@@ -62,6 +62,21 @@ public class ProcessControllerTests
     }
 
     [Fact]
+    public void Launch_WithRealProfile_ForwardsTheFlagToTheApp()
+    {
+        // The dev-build profile guard: a supervisor started with --real-profile relaunches the App
+        // with the flag so the supervised pair never splits its profile (dev+dev or real+real).
+        ProcessStartInfo? capturedPsi = null;
+        var handle = new FakeProcessHandle(4242, hasExited: false);
+        var controller = new ProcessController(psi => { capturedPsi = psi; return handle; }, _ => null);
+
+        controller.Launch("test.exe", paused: true, realProfile: true);
+
+        Check.That(capturedPsi).IsNotNull();
+        Check.That(capturedPsi!.ArgumentList).ContainsExactly("--paused", "--real-profile");
+    }
+
+    [Fact]
     public void Launch_WithWin32TrustFailure_PropagatesTheErrorForTheCallerToClassify()
     {
         // C9 fixup-01: ProcessController neither logs nor classifies the failure. The exception

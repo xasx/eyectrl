@@ -9,6 +9,7 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Prediction;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;   // UIConstants (edge-bar anchor radius)
 using EyeCtrl.ViewModels.Messages;
@@ -60,7 +61,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     protected override void OnInitialize()
     {
         var context = Context!;
-        _appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
+        // The one profile resolver — never a raw OS folder here (the ratchet test enforces that
+        // the AppData special folders appear only in ProfileLocation). A dev build of the App
+        // therefore reads its dictionaries and model registry from the dev profile.
+        _appDataDir = ProfileLocation.Current.Directory;
 
         var messenger = context.Messenger;
 

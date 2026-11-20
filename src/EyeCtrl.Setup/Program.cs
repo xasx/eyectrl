@@ -37,6 +37,15 @@ public static class Program
             FileSetupLog.TryCreate(SetupLogContext.For(command, Environment.ProcessId)),
             new ConsoleSetupLog());
 
+        // The profile line, before anything reads or writes the profile: the log file above is the
+        // first profile write, and its folder already IS the resolved profile's. On record before
+        // the composition touches settings or the record. The SETUP rule (see
+        // SetupComposition.ProcessProfile → SetupProcessProfile): a Release Setup maintains the
+        // installed product, so its profile is the installed App's wherever this exe runs from;
+        // only a Debug Setup without the flag is dev.
+        var profile = SetupComposition.ProcessProfile;
+        log.Info($"Profile: {profile.ModeToken} dir={profile.Directory} reason={profile.Reason}");
+
         try
         {
             var paths = SetupComposition.ProductionPaths();

@@ -459,9 +459,11 @@ public sealed class SupervisorRequestServiceTests : IDisposable
         service.Save(settings);
 
         // The App's production wiring: the live reconciler re-runs on every StartOnBoot change.
+        // isDevBuild:false — installed-build semantics; the dev guard has its own tests.
         var registrar = new FakeRegistrar();
         SupervisionComposition.ReconcileRunKeyOnStartOnBootChange(
-            settings, SupervisionComposition.CreateRunKeyReconciler(settings, registrar, () => false));
+            settings, SupervisionComposition.CreateRunKeyReconciler(
+                settings, registrar, () => false, isDevBuild: () => false));
 
         var saves = 0;
         var handler = new SupervisorRequestHandler(

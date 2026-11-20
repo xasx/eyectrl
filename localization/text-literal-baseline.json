@@ -426,11 +426,6 @@
       "Count": 1
     },
     {
-      "Path": "src/EyeCtrl.App/Services/AppBootstrapper.cs",
-      "Literal": "\"EyeCtrl\"",
-      "Count": 1
-    },
-    {
       "Path": "src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs",
       "Literal": "\"Bottom\"",
       "Count": 1
@@ -478,11 +473,6 @@
     {
       "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
       "Literal": "\"suspended\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/HeartbeatPublisher.cs",
-      "Literal": "\"eyectrl_watch\"",
       "Count": 1
     },
     {
@@ -623,11 +613,6 @@
     {
       "Path": "src/EyeCtrl.App/Services/RestartHandoff.cs",
       "Literal": "\"--restart-handoff\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/RestartHandoff.cs",
-      "Literal": "@\"Local\\EyeCtrl.App.RestartReady\"",
       "Count": 1
     },
     {
@@ -1313,16 +1298,6 @@
     {
       "Path": "src/EyeCtrl.Supervisor/Fallback/FallbackAtLauncher.cs",
       "Literal": "@\"SOFTWARE\\WOW6432Node\\Tobii Dynavox\\Snap Core First\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/Ipc/HeartbeatPipeServer.cs",
-      "Literal": "\"eyectrl_watch\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/Program.cs",
-      "Literal": "@\"Local\\EyeCtrl.Supervisor.Singleton\"",
       "Count": 1
     },
     {

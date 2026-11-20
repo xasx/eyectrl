@@ -14,6 +14,7 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Ipc;
 using EyeCtrl.Platform.Interop;
@@ -23,10 +24,14 @@ using Microsoft.Extensions.Logging;
 public sealed class ExternalDwellService : IDisposable
 {
     /// <summary>
-    /// The production pipe name the cooperating dwell app connects to. Shared with the SDK client
-    /// via <see cref="DwellPipe.Name"/> so server and client cannot drift.
+    /// The production pipe name this instance serves on: the wire contract
+    /// (<see cref="DwellPipe.Name"/>, shared with the SDK client so server and client cannot
+    /// drift) plus the build's name suffix. A dev build serves the <c>.Dev</c>-suffixed name, so
+    /// released-SDK dwell clients — which only ever look for <see cref="DwellPipe.Name"/> — keep
+    /// reaching the installed App and never hand their dwell events to a dev build. See
+    /// <see cref="ProfileLocation"/>.
     /// </summary>
-    public const string DefaultPipeName = DwellPipe.Name;
+    public static string DefaultPipeName => DwellPipe.Name + ProfileLocation.Current.NameSuffix;
 
     /// <summary>
     /// Named pipe this instance serves on. Defaults to <see cref="DefaultPipeName"/>; tests pass a

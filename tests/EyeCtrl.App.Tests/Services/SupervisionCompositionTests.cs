@@ -60,7 +60,10 @@ public class SupervisionCompositionTests
                 isLaunchRegistered: () => true,
                 isSupervisorConnected: () => true,
                 runInBackground: work => work(),
-                postToUi: work => work());
+                postToUi: work => work(),
+                // Installed-build semantics: a test host is a dev build and a dev build never
+                // touches the Run key (the dev guard has its own tests).
+                isDevBuild: () => false);
         }
 
         public bool OnDiskEnabled() =>
@@ -115,12 +118,14 @@ public class SupervisionCompositionTests
     public void RunKeyReconciler_ReadsTheLiveFlag()
     {
         // F6 pin: the startup StartOnBoot handler reconciles with the CURRENT world, not the
-        // supervision value captured when the handler was registered.
+        // supervision value captured when the handler was registered. isDevBuild:false because a
+        // test host is a dev build and a dev build never touches the Run key (the dev guard has
+        // its own tests) — this one pins the INSTALLED build's reconciliation semantics.
         var settings = new EyeCtrlSettings();
         settings.General.StartOnBoot = true;
         var registrar = new FakeStartupRegistrar();
         var reconcile = SupervisionComposition.CreateRunKeyReconciler(
-            settings, registrar, () => true);
+            settings, registrar, () => true, isDevBuild: () => false);
 
         settings.Supervision.Enabled = true;
         reconcile();
@@ -150,7 +155,8 @@ public class SupervisionCompositionTests
                 settings, path, registrar,
                 publisher: () => null,
                 runInBackground: work => work(),
-                postToUi: work => work());
+                postToUi: work => work(),
+                isDevBuild: () => false);   // installed-build semantics; the dev guard has its own tests
 
             reconcile();
 

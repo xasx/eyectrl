@@ -1,6 +1,7 @@
 namespace EyeCtrl.Setup;
 
 using System.Threading;
+using EyeCtrl.Core.Services;
 
 /// <summary>
 /// One Setup at a time, across processes: a session-local named mutex held for the whole life of
@@ -34,10 +35,27 @@ using System.Threading;
 public static class SetupSessionGuard
 {
     /// <summary>
-    /// The session-local name every public mutating verb holds. Shared with the App's pre-hand-off
-    /// probe through this constant, so the two sides cannot drift.
+    /// The session-local name every public mutating verb holds, resolved under the SETUP rule
+    /// through the process's one accessor (see <see cref="SetupProcessProfile"/>): a Release Setup
+    /// is the installed product's maintenance tool wherever its exe runs from (Program Files, the
+    /// run copy under <c>EyeCtrl.run\</c>, the update inbox), so it always takes the installed
+    /// session's unsuffixed name and one session guard covers every real Setup start. A Debug
+    /// Setup without <c>--real-profile</c> takes the <c>.Dev</c>-suffixed name.
     /// </summary>
-    public const string SessionMutexName = @"Local\EyeCtrl.Setup.Session";
+    public static string SessionMutexName => SetupProcessProfile.SessionMutexName;
+
+    /// <summary>
+    /// The profile the session name is derived from — the SETUP rule's instance. Internal so the
+    /// wiring test can assert object identity (values alone are equal in a Debug test host).
+    /// </summary>
+    internal static ProfileLocation SessionProfile => SetupProcessProfile.Location;
+
+    /// <summary>
+    /// The name the APP probes before its hand-offs: the installed Setup's session name from the
+    /// App's own resolution. The installed App is non-dev and probes the unsuffixed name; a dev
+    /// App probes its own suffixed name (and never offers a hand-off at all).
+    /// </summary>
+    public static string AppProbeMutexName => ProfileLocation.Current.SetupSessionMutexName;
 
     /// <summary>
     /// How long a run copy (the hand-off child) waits for its launcher to release the session.
@@ -109,13 +127,15 @@ public static class SetupSessionGuard
 
     /// <summary>
     /// Whether a Setup session is held right now. The App's pre-hand-off probe; never creates the
-    /// mutex and never throws.
+    /// mutex and never throws. Defaults to <see cref="AppProbeMutexName"/> (the name this App's
+    /// installed Setup takes); Setup itself passes <see cref="SessionMutexName"/> implicitly
+    /// through <see cref="TryEnter"/>.
     /// </summary>
     public static bool IsSessionLive(string? name = null)
     {
         try
         {
-            if (!Mutex.TryOpenExisting(name ?? SessionMutexName, out var existing))
+            if (!Mutex.TryOpenExisting(name ?? AppProbeMutexName, out var existing))
                 return false;
 
             existing.Dispose();

@@ -1,5 +1,7 @@
 namespace EyeCtrl.Setup;
 
+using EyeCtrl.Core.Services;
+
 /// <summary>
 /// The five install folders under Program Files, plus the user-data paths Setup only reads (and
 /// the one result record it may write). All path decisions in the engine go through this type, so
@@ -9,12 +11,22 @@ public sealed class SetupPaths
 {
     /// <summary>Creates the layout from the three OS roots the composition supplies.</summary>
     /// <param name="programFilesRoot">Usually <c>C:\Program Files</c>.</param>
-    /// <param name="appDataRoot">Usually <c>%APPDATA%</c>; EyeCtrl's folder is appended.</param>
+    /// <param name="appDataRoot">Usually <c>%APPDATA%</c>; the profile folder is appended.</param>
     /// <param name="localAppDataRoot">Usually <c>%LOCALAPPDATA%</c>; the inbox is appended.</param>
-    public SetupPaths(string programFilesRoot, string appDataRoot, string localAppDataRoot)
+    /// <param name="profileFolderName">The profile folder under the roaming root —
+    /// <c>EyeCtrl</c> (default, unchanged for the tests' fake roots) or <c>EyeCtrl.Dev</c> for a
+    /// dev build. Production passes the resolver's folder via <see cref="FromProfile"/>.</param>
+    public SetupPaths(string programFilesRoot, string appDataRoot, string localAppDataRoot, string? profileFolderName = null)
+        : this(programFilesRoot, appDataRoot, localAppDataRoot, profileFolderName, profile: null)
+    {
+    }
+
+    private SetupPaths(
+        string programFilesRoot, string appDataRoot, string localAppDataRoot,
+        string? profileFolderName, ProfileLocation? profile)
     {
         ProgramFilesRoot = Normalize(programFilesRoot);
-        AppDataRoot = Normalize(Path.Combine(appDataRoot, "EyeCtrl"));
+        AppDataRoot = Normalize(Path.Combine(appDataRoot, profileFolderName ?? "EyeCtrl"));
         LocalAppDataRoot = Normalize(localAppDataRoot);
         InboxRoot = Normalize(Path.Combine(localAppDataRoot, "EyeCtrl", "updates"));
 
@@ -23,7 +35,32 @@ public sealed class SetupPaths
         StagingRoot = Path.Combine(ProgramFilesRoot, SetupConstants.StagingFolderName);
         FailedRoot = Path.Combine(ProgramFilesRoot, SetupConstants.FailedFolderName);
         RunRoot = Path.Combine(ProgramFilesRoot, SetupConstants.RunFolderName);
+        Profile = profile;
     }
+
+    /// <summary>
+    /// The layout for a resolved profile (see
+    /// <see cref="EyeCtrl.Core.Services.ProfileLocation"/>): the same three OS roots the resolver
+    /// read, with the build's own profile folder — <c>EyeCtrl.Dev</c> for a dev build, so a dev
+    /// Setup's record, logs and notice reads stay out of the owner's profile. Setup passes the
+    /// SETUP rule's resolution (<c>ProfileLocation.CurrentSetup</c>), which is the installed
+    /// product's real profile for every Release Setup. The inbox root is deliberately NOT split:
+    /// it holds the packages the installed product installs.
+    /// </summary>
+    public static SetupPaths FromProfile(ProfileLocation profile) => new(
+        profile.ProgramFilesRoot,
+        profile.RoamingRoot,
+        profile.LocalAppDataRoot,
+        profile.FolderName,
+        profile);
+
+    /// <summary>
+    /// The resolver instance this layout was built from, or null for a layout built from raw
+    /// strings (tests). <see cref="FromProfile"/> keeps it so a behavioural test can pin WHICH
+    /// resolution fed the Setup paths — object identity, because in a Debug test host the App
+    /// rule and the Setup rule produce equal values.
+    /// </summary>
+    public ProfileLocation? Profile { get; }
 
     /// <summary>The Program Files root (no trailing separator).</summary>
     public string ProgramFilesRoot { get; }

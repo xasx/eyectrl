@@ -17,11 +17,15 @@ public sealed class FileHeldButtonMarker : IHeldButtonMarker
     public const string FileName = "drag-left-button-held";
 
     /// <summary>
-    /// <c>%APPDATA%\EyeCtrl\drag-left-button-held</c> — the folder the App and the Supervisor
-    /// already share (settings.json, logs).
+    /// The marker inside the profile folder — <c>%APPDATA%\EyeCtrl\drag-left-button-held</c> for
+    /// the installed build, <c>EyeCtrl.Dev</c> for a dev build. The folder is the one the App and
+    /// the Supervisor both resolve (<see cref="ProfileLocation"/>), so a dev App and a dev
+    /// Supervisor share the DEV marker while the installed pair keeps its own — a dev
+    /// Supervisor's post-kill release must never fire on the strength of the owner's real
+    /// marker, and a dev App's backstop must not clear it.
     /// </summary>
     public static string DefaultPath => System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", FileName);
+        ProfileLocation.Current.Directory, FileName);
 
     private readonly string _path;
 

@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
@@ -35,8 +36,8 @@ public class TaskSwitcherWindowLayoutTests
             var tiles = (ScrollViewer)window.FindName("TilesScroll")!;
             var hintRow = (Grid)window.FindName("HintRow")!;
 
-            // A 112 DIP docked top band on the owner's 1920 × 1200 screen: area (40,136,1840,1021),
-            // block 1728x910 (F-CORNER's text-only hint row left the extra height).
+            // A 112 DIP docked top band on the owner's 1920 × 1200 screen: area (40,136,1840,1008),
+            // block 1728x910 (F-CORNER's text-only hint row, now 56 DIP after F-HINT).
             var top = TaskSwitcherLayout.Compute(
                 1920, 1200, new TaskSwitcherLayout.DipRect(0, 0, 1920, 112), "Top", tileCount: 63);
             window.ApplyLayout(top, screenWidthDip: 1920);
@@ -49,10 +50,11 @@ public class TaskSwitcherWindowLayoutTests
 
             // "Row height = what WPF lays out": the row reserves the CEILING of the hint text's
             // natural one-line height including its margins, so the tile block lands on a whole
-            // DIP (205.5, 411 device px at 200 %) and the text is never clipped. The ✕ is no
+            // DIP (199.0, 398 device px at 200 %) and the text is never clipped. The ✕ is no
             // longer in the row (F-CORNER moved it to the window's top-right corner), so the old
             // 100 DIP disc + 24 is gone; measuring the live text keeps the coupling — a font
-            // change that grew the text would leave it clipped, and this check notices.
+            // change that grew the text would leave it clipped, and this check notices. F-HINT:
+            // the 24 DIP title line measures 31.92 DIP, so the reserve is 56.
             var hint = (TextBlock)window.FindName("HintText")!;
             hint.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             var hintNeeds = hint.DesiredSize.Height;   // includes the TextBlock's own margin
@@ -63,6 +65,12 @@ public class TaskSwitcherWindowLayoutTests
                 .That(TaskSwitcherLayout.HintRowHeight >= hintNeeds
                       && TaskSwitcherLayout.HintRowHeight < hintNeeds + 1)
                 .IsTrue();
+            Check.WithCustomMessage(
+                    $"The hint row reserves {TaskSwitcherLayout.HintRowHeight} DIP, but the whole-DIP "
+                    + $"ceiling of the measured {hintNeeds} DIP hint is {Math.Ceiling(hintNeeds)} — the "
+                    + "row pin must be the ceiling, not a stale larger or smaller number (F-HINT: 56).")
+                .That(TaskSwitcherLayout.HintRowHeight).IsEqualTo(Math.Ceiling(hintNeeds));
+            Check.That(TaskSwitcherLayout.HintRowHeight).IsEqualTo(56);
             Check.WithCustomMessage("the hint row still reserves the old close-disc height")
                 .That(TaskSwitcherLayout.HintRowHeight).IsStrictlyLessThan(TaskSwitcherWindow.CloseButtonSize);
 
@@ -89,6 +97,65 @@ public class TaskSwitcherWindowLayoutTests
             window.Close();   // PrepareCloaked created the HWND; release it
         }
     }
+
+    /// <summary>
+    /// F-HINT: the hint text and the overflow chip are one line of the SAME size — the 24 DIP
+    /// title token in every theme — while the colour stays the secondary grey the owner chose
+    /// over the brighter variant (options page B). Both halves are pinned: the XAML resource
+    /// reference (so a theme swap re-resolves the token) and the rendered properties (so a
+    /// literal 14 would be caught even if the resource name stayed).
+    /// </summary>
+    [StaFact]
+    public void HintAndChip_UseTheTitleSizeToken_AndStaySecondaryGrey()
+    {
+        var xaml = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Overlays", "TaskSwitcherWindow.xaml"));
+        var hintStart = xaml.IndexOf("x:Name=\"HintText\"", StringComparison.Ordinal);
+        var chipStart = xaml.IndexOf("x:Name=\"OverflowChip\"", StringComparison.Ordinal);
+        Check.That(hintStart).IsStrictlyGreaterThan(-1);
+        Check.That(chipStart).IsStrictlyGreaterThan(-1);
+        var hintElement = xaml[hintStart..xaml.IndexOf("/>", hintStart, StringComparison.Ordinal)];
+        var chipElement = xaml[chipStart..xaml.IndexOf("</Border>", chipStart, StringComparison.Ordinal)];
+        foreach (var (what, element) in new[] { ("hint", hintElement), ("chip", chipElement) })
+        {
+            Check.WithCustomMessage($"The {what} no longer uses FontSizeTitle.")
+                .That(element.Contains("FontSize=\"{StaticResource FontSizeTitle}\"")).IsTrue();
+            Check.WithCustomMessage($"The {what} must not fall back to the 14 DIP body-large size.")
+                .That(element.Contains("FontSizeBodyLarge")).IsFalse();
+            Check.WithCustomMessage($"The {what} colour must stay BrushTextSecondary (the owner chose grey over the brighter variant).")
+                .That(element.Contains("Foreground=\"{StaticResource BrushTextSecondary}\"")).IsTrue();
+        }
+
+        // Rendered, in the shipped default theme: the token resolves to 24 DIP and BOTH elements
+        // carry it. The chip is the one mutant (c) leaves at 14 DIP; comparing the two font sizes
+        // is what makes that mutant die even if the hint alone were re-pinned.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = InvisibleTestWindow.PrepareCloaked(new TaskSwitcherWindow());
+        try
+        {
+            var hint = (TextBlock)window.FindName("HintText")!;
+            var chip = (Border)window.FindName("OverflowChip")!;
+            var chipText = (TextBlock)chip.Child;
+
+            Check.That(Tokens.FontSizeTitle).IsEqualTo(24);
+            Check.That(hint.FontSize).IsEqualTo(Tokens.FontSizeTitle);
+            Check.WithCustomMessage(
+                    $"The chip is {chipText.FontSize} DIP but the hint is {hint.FontSize} DIP — they must "
+                    + "stay one line of the same size (F-HINT).")
+                .That(chipText.FontSize).IsEqualTo(hint.FontSize);
+            Check.That(BrushColor(hint.Foreground)).IsEqualTo(Tokens.TextSecondary);
+            Check.That(BrushColor(chipText.Foreground)).IsEqualTo(Tokens.TextSecondary);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static Color BrushColor(Brush? brush) =>
+        brush is SolidColorBrush solid
+            ? solid.Color
+            : throw new InvalidOperationException($"{brush} is not a solid brush.");
 
     /// <summary>
     /// Source-scan pin: ShowFullScreen must hand the coordinator's keep-out to the pure helper
@@ -156,7 +223,7 @@ public class TaskSwitcherWindowLayoutTests
 
         Check.That(layout.Area.Y).IsEqualTo(136);
         Check.That(layout.Block.X).IsEqualTo(420);
-        Check.That(layout.Block.Y).IsCloseTo(555.5, 1e-9);
+        Check.That(layout.Block.Y).IsCloseTo(549.0, 1e-9);
         Check.That(layout.Block.Width).IsEqualTo(1080);
         Check.That(layout.Block.Height).IsEqualTo(182);
     }
@@ -176,7 +243,7 @@ public class TaskSwitcherWindowLayoutTests
 
         var viewport = InRoot(arranged.Root, arranged.Scroll);
         Check.That(viewport.Left).IsEqualTo(420);
-        Check.That(viewport.Top).IsCloseTo(555.5, 1e-9);
+        Check.That(viewport.Top).IsCloseTo(549.0, 1e-9);
         Check.That(viewport.Width).IsEqualTo(1080);
         Check.That(viewport.Height).IsEqualTo(182);
 
@@ -211,7 +278,7 @@ public class TaskSwitcherWindowLayoutTests
 
         var viewport = InRoot(arranged.Root, arranged.Scroll);
         Check.That(viewport.Left).IsEqualTo(96);
-        Check.That(viewport.Top).IsCloseTo(191.5, 1e-9);
+        Check.That(viewport.Top).IsCloseTo(185.0, 1e-9);
         Check.That(viewport.Width).IsEqualTo(1728);
         Check.That(viewport.Height).IsEqualTo(910);
 

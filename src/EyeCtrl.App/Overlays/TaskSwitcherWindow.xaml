@@ -199,11 +199,13 @@
         <Grid Grid.Row="1" x:Name="HintRow">
             <!-- F-CORNER: the hint row is TEXT ONLY now. The ✕ moved to the window's top-right
                  corner (the backdrop hide ✕'s 53 DIP inset), so this row reserves only what the
-                 hint text needs: one 18.62 DIP line plus its 12 DIP top/bottom margins = 42.62,
-                 reserved at the whole-DIP ceiling (43) so the tile block lands on a whole DIP.
+                 hint text needs: one 31.92 DIP line at the 24 DIP title size (F-HINT, the owner's
+                 "hint too small") plus its 12 DIP top/bottom margins = 55.92, reserved at the
+                 whole-DIP ceiling (56) so the tile block lands on a whole DIP.
                  TaskSwitcherLayout.HintRowHeight holds the reserve and TaskSwitcherWindowLayoutTests
-                 holds it against WPF's own layout. The freed 81 DIP went into the tile area, which
-                 is what let a fifth row survive under a 200 DIP band.
+                 holds it against WPF's own layout. Even after F-HINT the row stays far shorter than
+                 the 124 DIP pre-F-CORNER strip, which is what let a fifth row survive under a
+                 200 DIP band.
 
                  S2-B fixup-01: the row is THREE columns — the chip lives in the left STAR column,
                  the hint in the middle Auto column — so showing the chip can never move the hint.
@@ -219,8 +221,11 @@
                  that column's end — i.e. 32 DIP left of the hint's left edge. The ✕ is now in the
                  opposite (top-right) corner, so the chip's distance from it is the whole screen
                  diagonal; the old 100 DIP clearance rule survives trivially, and the chip's
-                 vertical margins dropped to zero so it fits the text-height row. It never changes
-                 a column's size: the star column absorbs it. Not a dwell target. -->
+                 vertical margins dropped to zero so it fits the text-height row. F-HINT sets the
+                 chip's text to FontSizeTitle too, so chip and hint stay one line of the SAME size.
+                 Its 12,4 padding and corner radius are unchanged: the 39.92 DIP pill still fits
+                 the 56 DIP row, and the look rules never pin either. It never changes a column's
+                 size: the star column absorbs it. Not a dwell target. -->
             <Border x:Name="OverflowChip" Grid.Column="0" HorizontalAlignment="Right"
                     Margin="0,0,32,0" Padding="12,4"
                     VerticalAlignment="Center" IsHitTestVisible="False"
@@ -228,10 +233,10 @@
                     CornerRadius="{StaticResource StandardCornerRadius}"
                     Visibility="{Binding HasOverflow, Converter={StaticResource BoolToVisibility}}">
                 <TextBlock Text="{Binding OverflowCount, StringFormat={loc:T 'overlays.taskSwitcher.overflow', AsTemplate=True}}"
-                           Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"/>
+                           Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeTitle}"/>
             </Border>
             <TextBlock x:Name="HintText" Grid.Column="1" Text="{loc:T 'overlays.taskSwitcher.hint'}"
-                       Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}"
+                       Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeTitle}"
                        HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,12"/>
         </Grid>
         <!-- F-CORNER: the close disc — the owner's "Put the close button in the upper right

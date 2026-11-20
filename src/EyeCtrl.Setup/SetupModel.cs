@@ -140,6 +140,9 @@ public static class SetupConstants
     public const string FailedFolderName = "EyeCtrl.failed";
     public const string RunFolderName = "EyeCtrl.run";
 
+    /// <summary>The one .lnk file name both shell shortcuts use (Start menu and desktop).</summary>
+    public const string ShortcutName = "EyeCtrl.lnk";
+
     public const string RepairRunOnceName = "EyeCtrlRepair";
     public const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     public const string RunOnceKeyPath = @"Software\Microsoft\Windows\CurrentVersion\RunOnce";

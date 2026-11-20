@@ -57,21 +57,22 @@ public sealed class SetupComposition
         var metadata = new PackageMetadataReader(fileSystem);
         var recorder = new ResultRecorder(paths, fileSystem, guard, log);
         var appsAndFeatures = new AppsAndFeaturesWriter(paths, registry, guard, fileSystem, log);
+        var shortcuts = new ShortcutWriter(paths, fileSystem, new WindowsShellLinkWriter(), guard, log);
         var runCopies = new RunCopyManager(
             paths, fileSystem, guard, signature, new WinTrustCatalogMemberVerifier(),
             new CatalogFileHasher(), log);
         var staging = new StagingService(paths, fileSystem, guard, catalog, log);
         var journal = new InstallJournalStore(paths, fileSystem, guard, log);
         var state = new InstallStateMachine(
-            paths, fileSystem, registry, guard, appsAndFeatures, metadata, journal, log);
+            paths, fileSystem, registry, guard, appsAndFeatures, shortcuts, metadata, journal, log);
         var stop = new StopCoordinator(
             paths, processes, new CoreHeldButtonRecovery(paths), log);
         var appStart = new AppStartService(processes, new WindowsAppLogProbe(paths), clock, log);
         var appDataDeletion = new PhysicalAppDataDeletion(paths);
         var phaseResults = new ElevatedPhaseResultStore(paths, fileSystem, guard, log);
         var elevated = new ElevatedOperations(
-            paths, policy, runCopies, staging, stop, state, appsAndFeatures, appDataDeletion,
-            phaseResults, log);
+            paths, policy, runCopies, staging, stop, state, appsAndFeatures, shortcuts,
+            appDataDeletion, phaseResults, log);
         var broker = new ShellExecuteElevationBroker(
             paths, elevated, environment, new WindowsElevationState(), policy,
             new ShellExecuteRunAsLauncher(log), phaseResults, log);
@@ -188,8 +189,9 @@ public sealed class SetupComposition
     /// <c>EyeCtrl.Dev</c> only for a Debug Setup without <c>--real-profile</c>. The path set is
     /// the installed App's by construction: the pass rule reads that App's startup line from
     /// <c>LogsRoot</c>, the record and session mutex belong to the installed product, and the
-    /// uninstall delete target is its <c>AppDataRoot</c>. Shared by the composition and the file
-    /// log so both name exactly the same paths.
+    /// uninstall delete target is its <c>AppDataRoot</c>. The machine shortcut folders resolve
+    /// inside <see cref="SetupPaths.FromProfile"/> (per-machine, not per-profile). Shared by the
+    /// composition and the file log so both name exactly the same paths.
     /// </summary>
     internal static SetupPaths ProductionPaths() => SetupPaths.FromProfile(ProcessProfile);
 

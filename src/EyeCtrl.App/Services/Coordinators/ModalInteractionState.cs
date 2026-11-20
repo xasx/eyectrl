@@ -132,4 +132,55 @@ internal sealed class ModalInteractionState
     /// in the guide's restore/unwind paths.
     /// </summary>
     public volatile bool GuideRingWanted;
+
+    // volatile: read on the gaze thread (RingMayReshow's calibration exception, like GuideRingWanted),
+    // written on the UI thread by the guide's calibration lifecycle.
+    private volatile bool _guideCalibrationActive;
+
+    /// <summary>
+    /// True while a calibration the guide started is between its first Collecting/Training message
+    /// and its terminal Idle/Cancelled — INCLUDING the Active/Failed result card, whose
+    /// Retry/Accept a gaze user can only reach through the activation path the guide suspends
+    /// (ruling D3, PR-review n1): the guide's wiring releases its fixation-suppression claim and
+    /// sets this flag so the guide's offer-suspension reason and the ring re-show gate stand down
+    /// for the calibration surface. That is exactly a NORMAL calibration's state — the engine's
+    /// own <c>FixationSuppressor.Calibration</c> claim (not a suspension reason) is what blocks
+    /// offers while gaze is collected. Assigning raises
+    /// <see cref="GuideCalibrationActiveChanged"/>. <see cref="GuideOpen"/> itself is NOT flipped
+    /// mid-calibration: the guide's other claims (banner hold, toolbar hold, notice defers) stay
+    /// held, and the deferred notices must not replay over the calibration window.
+    /// </summary>
+    public bool GuideCalibrationActive
+    {
+        get => _guideCalibrationActive;
+        set
+        {
+            if (_guideCalibrationActive == value) return;
+            _guideCalibrationActive = value;
+            RaiseGuideCalibrationActiveChanged(value);
+        }
+    }
+
+    /// <summary>Raised after <see cref="GuideCalibrationActive"/> flips, on the UI thread.
+    /// Per-subscriber try/catch like <see cref="GuideOpenChanged"/>; subscribers read the
+    /// property, not the argument (re-entrancy).</summary>
+    public event Action<bool>? GuideCalibrationActiveChanged;
+
+    private void RaiseGuideCalibrationActiveChanged(bool active)
+    {
+        var subscribers = GuideCalibrationActiveChanged;
+        if (subscribers is null) return;
+
+        foreach (var subscriber in subscribers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<bool>)subscriber)(active);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "A GuideCalibrationActiveChanged subscriber threw; the remaining subscribers still run");
+            }
+        }
+    }
 }

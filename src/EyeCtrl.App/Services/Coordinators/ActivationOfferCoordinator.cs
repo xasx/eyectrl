@@ -112,6 +112,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         _modal.SettingsOpenChanged += OnSettingsOpenChanged;
         _modal.ProbeOpenChanged += OnProbeOpenChanged;
         _modal.GuideOpenChanged += OnGuideOpenChanged;
+        _modal.GuideCalibrationActiveChanged += OnGuideCalibrationActiveChanged;
         context.TaskSwitcherVM.PropertyChanged += OnTaskSwitcherVMPropertyChanged;
         context.QuickActionsGridVM.PropertyChanged += OnQuickActionsGridVMPropertyChanged;
 
@@ -208,6 +209,8 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
 
     private void OnGuideOpenChanged(bool _) => RecomputeSuspension();
 
+    private void OnGuideCalibrationActiveChanged(bool _) => RecomputeSuspension();
+
     private void OnTaskSwitcherVMPropertyChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(TaskSwitcherViewModel.IsVisible))
@@ -235,7 +238,12 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
             reasons.Add("Settings");
         if (_modal.ProbeOpen)
             reasons.Add("probe");
-        if (_modal.GuideOpen)
+        // D3 (PR-review n1): while a calibration the guide started is up — through the result
+        // card, whose Retry/Accept a gaze user reaches through this very activation path — the
+        // guide reason stands down, exactly as in a normal calibration run (which has NEVER
+        // carried a suspension reason; the engine's FixationSuppressor.Calibration claim blocks
+        // offers while gaze is collected, and the result card needs the path live).
+        if (_modal.GuideOpen && !_modal.GuideCalibrationActive)
             reasons.Add("guide");
         if (Context.TaskSwitcherVM.IsVisible)
             reasons.Add("task switcher");
@@ -371,6 +379,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         _modal.SettingsOpenChanged -= OnSettingsOpenChanged;
         _modal.ProbeOpenChanged -= OnProbeOpenChanged;
         _modal.GuideOpenChanged -= OnGuideOpenChanged;
+        _modal.GuideCalibrationActiveChanged -= OnGuideCalibrationActiveChanged;
         Context.TaskSwitcherVM.PropertyChanged -= OnTaskSwitcherVMPropertyChanged;
         Context.QuickActionsGridVM.PropertyChanged -= OnQuickActionsGridVMPropertyChanged;
     }

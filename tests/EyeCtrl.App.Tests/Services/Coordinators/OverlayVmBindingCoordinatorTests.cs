@@ -709,6 +709,27 @@ public class OverlayVmBindingCoordinatorTests
     }
 
     [Fact]
+    public void RingMayReshow_IsTrue_WhileTheGuidesCalibrationRuns_EvenGuideOpen()
+    {
+        // Ruling D3 (PR-review n1): the guide's calibration window is the second exception. The
+        // guide is hidden and the calibration result card's Retry/Accept need the ring — the two
+        // completion sites in OverlayMessageCoordinator re-show it through this very predicate,
+        // which the guide's GuideOpen claim used to keep false for the whole guide lifetime (a
+        // silently bad calibration auto-accepted after 12 s with Retry unreachable).
+        var modal = new ModalInteractionState();
+        var vmBinding = new OverlayVmBindingCoordinator(modal);
+
+        modal.GuideOpen = true;
+        Check.That(vmBinding.RingMayReshow).IsFalse();   // the guide owns the screen, no calibration
+        modal.GuideCalibrationActive = true;             // Collecting through the result card
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+        modal.GuideCalibrationActive = false;            // Idle/Cancelled: the guide's again
+        Check.That(vmBinding.RingMayReshow).IsFalse();
+        modal.GuideOpen = false;
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+    }
+
+    [Fact]
     public void AResumeVisibilityFlip_DuringTheGuidesRingWantedStep_ShowsTheRing()
     {
         // The handler-level mirror of the flip above: the pause hides (any state, ungated — the

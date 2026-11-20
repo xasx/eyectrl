@@ -612,6 +612,44 @@ public class ActivationOfferCoordinatorTests
     }
 
     [StaFact]
+    public void TheGuidesCalibrationWindow_LiftsTheGuideSuspension_WhileItRuns()
+    {
+        // Ruling D3 (PR-review n1): while a calibration the guide started is up — Collecting/
+        // Training AND the Active/Failed result card, whose Retry/Accept a gaze user reaches
+        // through this very activation path — the "guide" reason stands down, restoring exactly
+        // a NORMAL calibration's state (which has never carried a suspension reason; the
+        // engine's FixationSuppressor.Calibration claim does the Collecting/Training blocking).
+        // Mutations: drop the `&& !_modal.GuideCalibrationActive` term → the settle under the
+        // calibration stays refused, red; drop the GuideCalibrationActiveChanged subscription →
+        // the flag's flip never recomputes, both asserts red.
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        // Guide open, no calibration: the whole-lifetime suspension rule holds.
+        s.Modal.GuideOpen = true;    // raises GuideOpenChanged → RecomputeSuspension
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("the open guide must suspend offers (the D3 exception is "
+                                + "calibration-only)")
+            .That(Settle(s, 500, 500)).IsNull();
+        Check.That(s.Coordinator.ModalSuspended).IsTrue();
+
+        // Calibration running (Collecting through the result card): the guide reason lifts.
+        s.Modal.GuideCalibrationActive = true;   // raises → the recompute drops the reason
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("the calibration window must lift the guide reason — the result "
+                                + "card's Retry/Accept are reached through this path")
+            .That(Settle(s, 600, 600)).IsNotNull();
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
+
+        // Calibration ended (Idle/Cancelled): the guide re-claims its suspension.
+        s.Modal.GuideCalibrationActive = false;
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("the guide must re-claim the suspension once calibration ends")
+            .That(Settle(s, 700, 700)).IsNull();
+        Check.That(s.Coordinator.ModalSuspended).IsTrue();
+    }
+
+    [StaFact]
     public void ModalSuspended_TracksTheCombinedSuspension_AndReadsFalseBeforeInitialization()
     {
         // P2 D1: the note gate's suspender input. The note predicate is wired BEFORE the offer

@@ -182,6 +182,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Guide);
         _modal.GuideOpen = false;
         _modal.GuideRingWanted = false;                    // the step-5 exception dies with the guide
+        _modal.GuideCalibrationActive = false;             // D3: the calibration window's exception too
         _safetyActions.Clear();                            // no fired choice survives a failed raise
         _quickActions.SetSummonSuspended("guide", false);
         _toolbar.SetGuideHold(false);
@@ -338,6 +339,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Guide);  // claim 1
             _modal.GuideOpen = false;
             _modal.GuideRingWanted = false;                // the step-5 exception dies with the guide
+            _modal.GuideCalibrationActive = false;         // D3: a calibration still mid-run must not keep the window's stand-down past the guide
             _safetyActions.Clear();                        // no fired choice outlives the guide (singleton)
             _quickActions.SetSummonSuspended("guide", false);
             _toolbar.SetGuideHold(false);
@@ -428,6 +430,16 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             {
                 collected = true;
                 _calibrationCeiling?.Dispose();
+                // D3 (PR-review n1): while calibration runs, the guide behaves like it isn't
+                // there for the calibration surface. Release the guide's fixation-suppression
+                // claim — the result card's Retry/Accept are gaze-activation targets, dead under
+                // suppression — and flag the window so the guide's offer-suspension reason and
+                // the ring re-show gate stand down for it too. This is exactly a NORMAL
+                // calibration's state: the engine keeps FixationSuppressor.Calibration during
+                // Collecting/Training, so nothing offers while gaze is collected. The claim API
+                // is idempotent per owner, so the per-target Collecting re-sends are no-ops.
+                _modal.GuideCalibrationActive = true;
+                context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Guide);
                 _guideWindow?.HideGuide();
             }
             else if (m.State is CalibrationState.Idle or CalibrationState.Cancelled)
@@ -436,6 +448,16 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
                 _calibrationCeiling?.Dispose();
                 context.Dispatcher.BeginInvoke(() =>
                 {
+                    // The symmetric re-claim (D3), only while the guide is still up: a guide
+                    // that ended mid-calibration already released in Restore, and re-acquiring
+                    // here would leak the claim past its death. The flag clears BEFORE ShowGuide
+                    // — the re-shown card is the guide's again — and the step NotifyCalibration
+                    // Ended enters next owns the ring (ToolbarTask wants it, the others hide it).
+                    if (_guideFlow is not null && _modal.GuideOpen)
+                    {
+                        _modal.GuideCalibrationActive = false;
+                        context.GazeEngine.AcquireFixationSuppression(FixationSuppressor.Guide);
+                    }
                     _guideWindow?.ShowGuide();
                     context.OverlayManager.PauseIndicator.RaiseToTop();   // spec §5, like every show
                     _guideFlow?.NotifyCalibrationEnded();   // renders step 5 — no Calibrate flicker (r3 F12)

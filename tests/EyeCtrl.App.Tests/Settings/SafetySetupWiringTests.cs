@@ -125,4 +125,71 @@ public class SafetySetupWiringTests
                                 + "re-burn the marker behind the guide.")
             .That(Regex.Matches(app, @"_setupNoticeWatch\s*\??\.Start\s*\(\s*\)")).HasSize(2);
     }
+
+    [Fact]
+    public void TheGuideCalibrationLifecycle_StandsDownAndReclaimsTheGuideClaims_InStepWithTheFlag()
+    {
+        // Ruling D3 (PR-review n1): "Calibrate now" from the guide must not strand the guide's
+        // claims over the calibration surface — the result card's Retry/Accept are gaze-activation
+        // targets, dead under the guide's fixation suppression, its offer suspension and the ring
+        // gate. Collecting/Training releases the claim and sets the flag; Idle/Cancelled clears
+        // the flag and re-acquires BEFORE ShowGuide, and only while the guide is still up (a guide
+        // that ended mid-calibration already released in Restore — a blind re-acquire would leak
+        // the claim past its death). Comment-stripped (B9 M2): a comment that merely mentions the
+        // calls must not satisfy the pin.
+        var flat = Squash(SourceScanner.StripComments(Read(
+            "src", "EyeCtrl.App", "Services", "Coordinators", "SettingsUiCoordinator.cs")));
+
+        // The StartCalibration body: from its declaration to the request send that ends it.
+        var start = flat.IndexOf("private void StartCalibration()", StringComparison.Ordinal);
+        var send = flat.IndexOf(
+            "context.Messenger.Send(new CalibrationRequestedMessage());", StringComparison.Ordinal);
+        Check.WithCustomMessage("StartCalibration and its closing request send must both exist")
+            .That(start >= 0 && send > start).IsTrue();
+        var method = flat[start..send];
+
+        // Collecting/Training: the flag goes up and the guide's suppression claim comes down,
+        // together in that branch.
+        var collecting = method.IndexOf(
+            "if (m.State is CalibrationState.Collecting or CalibrationState.Training)",
+            StringComparison.Ordinal);
+        var idle = method.IndexOf(
+            "else if (m.State is CalibrationState.Idle or CalibrationState.Cancelled)",
+            StringComparison.Ordinal);
+        Check.WithCustomMessage("the calibration state branches must exist in this order")
+            .That(collecting >= 0 && idle > collecting).IsTrue();
+        var collectingBranch = method[collecting..idle];
+        Check.WithCustomMessage("the Collecting branch must set the calibration flag")
+            .That(collectingBranch.Contains("_modal.GuideCalibrationActive = true;")).IsTrue();
+        Check.WithCustomMessage("the Collecting branch must release the guide's fixation suppression")
+            .That(collectingBranch.Contains(
+                "context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Guide);")).IsTrue();
+
+        // Idle/Cancelled: guarded on the guide still being up, flag cleared and claim re-acquired
+        // BEFORE the guide window re-shows.
+        var idleBranch = method[idle..];
+        Check.WithCustomMessage("the re-claim must be guarded — a guide that ended mid-calibration "
+                                + "already released, and a blind re-acquire leaks the claim")
+            .That(idleBranch.Contains("if (_guideFlow is not null && _modal.GuideOpen)")).IsTrue();
+        var flagClear = idleBranch.IndexOf(
+            "_modal.GuideCalibrationActive = false;", StringComparison.Ordinal);
+        var reacquire = idleBranch.IndexOf(
+            "context.GazeEngine.AcquireFixationSuppression(FixationSuppressor.Guide);",
+            StringComparison.Ordinal);
+        var showGuide = idleBranch.IndexOf("_guideWindow?.ShowGuide();", StringComparison.Ordinal);
+        Check.WithCustomMessage("the Idle/Cancelled branch must clear the flag, re-acquire, and "
+                                + "only then re-show the guide")
+            .That(flagClear >= 0 && reacquire > flagClear && showGuide > reacquire).IsTrue();
+
+        // Every guide exit clears the flag too: the raise-failure unwind and the close restore.
+        var unwind = flat.IndexOf("private void UnwindPartialRaise(", StringComparison.Ordinal);
+        var restore = flat.IndexOf("void Restore(GuideExitReason reason)", StringComparison.Ordinal);
+        Check.WithCustomMessage("the unwind and restore regions must exist in this order")
+            .That(unwind >= 0 && restore > unwind).IsTrue();
+        Check.WithCustomMessage("UnwindPartialRaise must clear the calibration flag")
+            .That(flat[unwind..restore].Contains("_modal.GuideCalibrationActive = false;")).IsTrue();
+        var restoreEnd = flat.IndexOf("_guideFlow.Closed += ", StringComparison.Ordinal);
+        Check.WithCustomMessage("Restore must clear the calibration flag")
+            .That(flat[restore..restoreEnd].Contains("_modal.GuideCalibrationActive = false;")).IsTrue();
+    }
 }

@@ -373,6 +373,49 @@ public class NoteKeyboardAvoidanceTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
+    [StaFact]
+    public void AKeyboardRePlaceThatMovesTheEditingCard_PublishesNoteTargetsChanged_Once()
+    {
+        // K1 fixup-01 F2: the activation chrome zones re-publish on NoteTargetsChangedMessage
+        // only. A probe raise that MOVES the Edit card must send exactly one; an identical raise
+        // (ApplyPlacementToWindow's skip) must send none, or the zones go stale and offers are
+        // refused over the card's old spot and allowed over the new one.
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = 36 });
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+        var raised = 0;
+        messenger.Register(new NoteManagerTests.NoteTargetsProbe(() => raised++));
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            probe.RectsProvider = () => new[] { ToPhysical(KeyboardTop), ToPhysical(EdgeBarTop) };
+            manager.CreateNoteAt(Phys(960, 300));
+            var id = manager.ActiveNotes[0].Id;
+            var placed = manager.PlacementForTest(id)!.Window;
+            int afterCreate = raised;
+
+            // Same rects: the derived placement is identical, so the skip stays silent.
+            probe.RaiseChanged();
+            Check.That(manager.PlacementForTest(id)!.Window).IsEqualTo(placed);
+            Check.WithCustomMessage("an unchanged keyboard re-place must not publish")
+                .That(raised).IsEqualTo(afterCreate);
+
+            // The keyboard moves down onto the card: the re-place moves it, so the zones must be
+            // re-published exactly once.
+            var moved = new Rect(KeyboardTop.Left, KeyboardTop.Top + 300, KeyboardTop.Width, KeyboardTop.Height);
+            probe.RectsProvider = () => new[] { ToPhysical(moved) };
+            probe.RaiseChanged();
+            Check.WithCustomMessage("the raise must move the card")
+                .That(manager.PlacementForTest(id)!.Window).IsNotEqualTo(placed);
+            Check.WithCustomMessage("a moved keyboard re-place must publish NoteTargetsChangedMessage exactly once")
+                .That(raised).IsEqualTo(afterCreate + 1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
     /// <summary>The ✓ Done (slot 0) and ↩ Discard (slot 3) dwell cells of an Edit placement must
     /// stay a key's reach clear of every rect the keyboard occupies — the cells are what the
     /// caretaker dwells on, not the card's chrome.</summary>

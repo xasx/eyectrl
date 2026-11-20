@@ -1441,6 +1441,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// clears either way (fixup m1: the note's own hide always runs after the ownership clear, so
     /// no distinction exists to make). The ⌨ Show-keyboard control registers in slot 1 exactly
     /// while the keyboard is hidden, so the raise re-registers the editing targets too.
+    /// <para>
+    /// K1 fixup-01 F2: when the raise actually MOVES the editing card, the activation chrome zones
+    /// are stale — they are re-published only on <c>NoteTargetsChangedMessage</c>, and the probe's
+    /// raise never sent one. Offers were then refused over the card's old spot and allowed over
+    /// the card's new one. A raise that leaves the placement unchanged stays silent, matching
+    /// <see cref="ApplyPlacementToWindow"/>'s identical-placement skip.
+    /// </para>
     /// </summary>
     private void OnKeyboardProbeChanged()
     {
@@ -1458,10 +1465,14 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             // editing card against the keyboard's CURRENT rects (state-driven avoid) BEFORE the
             // re-registration so the targets read the fresh placement. Place keeps the saved
             // side when it clears the rects and picks the first fitting of the cycle otherwise.
+            var before = _placements.TryGetValue(note.Id, out var previous) ? previous : null;
             ApplyPlacementToWindow(note);
+            bool moved = _placements.TryGetValue(note.Id, out var applied) && applied != before;
             Window(note.Id)?.SetKeyboardControlVisible(!visible); // mutant A's guard (review 01)
             RegisterSoleEditorTargets(note.Id);
             _dwellDetector.ResetAllState();
+            if (moved)
+                RaiseTargetsChanged();
         }
         else if (_movingNoteId is not null)
         {

@@ -273,9 +273,7 @@ public class NoteKeyboardRealProbeTests
 
         public NoteManager Manager { get; }
 
-        public Size CardSize => new(
-            NoteLayout.CardWidthDip(TextSizeDip),
-            NoteLayout.CardHeightDip(TextSizeDip, 0, WorkAreaDip.Height));
+        public Size CardSize => NoteLayout.EditCardSize(TextSizeDip, 0, WorkAreaDip.Height);
 
         public IReadOnlyList<PhysicalRect> ProbeRects => _probe.Rects();
 

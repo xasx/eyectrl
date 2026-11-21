@@ -697,9 +697,19 @@ public class NoteControlInputTests
             Check.That(counter.Cues - cuesBefore).IsEqualTo(1);
             manager.FinishEdit(id, commit: true); // back to Display for the second point
 
-            // The cell edge left of the disc: outside the disc the shown window routes to the
-            // CELL, and down+up there acts exactly once too.
-            var edge = TopHit(canvas, new Point(cx - 38, cy));
+            // K2a changed the card: the compact Edit card is 560 wide, the Display card 732, and
+            // the redraw replaced every element. Re-arrange the canvas at the new window size and
+            // re-read the Display ✎ disc before hitting beside it.
+            canvas.Measure(new Size(window.Width, window.Height));
+            canvas.Arrange(new Rect(new Point(0, 0), new Size(window.Width, window.Height)));
+            editDisc = ControlFor(manager, id, "edit");
+            cx = Canvas.GetLeft(editDisc) + editDisc.Width / 2;
+            cy = Canvas.GetTop(editDisc) + editDisc.Height / 2;
+
+            // The cell edge left of the disc: outside the disc but inside the cell (A2: the disc
+            // radius is 44 and the cell's half-width 56, so 50 DIP off the centre is the strip
+            // the old 38 DIP offset no longer reaches — it sat inside the bigger disc).
+            var edge = TopHit(canvas, new Point(cx - 50, cy));
             Check.WithCustomMessage("the shown-window hit at the cell edge outside the disc is the cell fill")
                 .That(edge).IsSameReferenceAs(CellFor(manager, id, 0));
             RaiseTouchDown(edge!);

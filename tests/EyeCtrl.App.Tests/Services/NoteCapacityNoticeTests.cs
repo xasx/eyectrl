@@ -264,7 +264,10 @@ public class NoteCapacityNoticeTests
             manager.NoticeWindowShowsForTest = false;
             // The pin sits just BELOW the card: the preferred Right window (and Left) intersects
             // the card's band, so the avoid list must push the notice to the free Below side.
-            manager.ShowCapacityNotice(new PhysicalPoint(1800, 1400));
+            // A2 made the Display card 468 DIP tall (bottom 734 at the anchor's y 500), so the
+            // pin moved down with it: at y 700 the notice's Below window no longer cleared the
+            // card's bottom plus the 24 DIP gap.
+            manager.ShowCapacityNotice(new PhysicalPoint(1800, 1520));
 
             Check.That(manager.TryGetNoticeVisibleBounds(out var notice)).IsTrue();
             var noticeDip = new Rect(

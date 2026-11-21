@@ -57,7 +57,7 @@ public class Review01ProbeTests
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddEditingNoteTargetsForTest(anchor);
             manager.Apply(new NoteAppend("hello"));
-            var slot0 = Centre(anchor, 0);
+            var slot0 = Centre(manager, anchor, 0);
             long t = 0;
             for (; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
             Check.That(manager.IsEditing).IsFalse();
@@ -100,8 +100,8 @@ public class Review01ProbeTests
             .That(hides).IsEqualTo(0);
     }
 
-    private static PhysicalPoint Centre(PhysicalPoint anchor, int slot) =>
-        NoteTestBench.CellCentreFromAnchor(anchor, slot);
+    private static PhysicalPoint Centre(NoteManager manager, PhysicalPoint anchor, int slot) =>
+        NoteTestBench.CellCentreAtAnchor(manager, anchor, slot);
 
     private static IEnumerable<TextBlock> Blocks(DependencyObject root)
     {

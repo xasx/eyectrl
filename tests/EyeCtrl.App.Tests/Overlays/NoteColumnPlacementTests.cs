@@ -77,10 +77,18 @@ public class NoteColumnPlacementTests
             window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
             window.SetState(state);
             window.SetTextSize(size);
-            var card = new Size(NoteLayout.CardWidthDip(size), NoteLayout.ControlsColumnHeightDip);
+            // K2a: an editing note places the compact Edit card — text above, the three controls
+            // in a row under it. The Display/Move card keeps the four-row column.
+            var card = state == NoteState.Edit
+                ? NoteLayout.EditCardSize(size, 0, 1200)
+                : new Size(NoteLayout.CardWidthDip(size), NoteLayout.ControlsColumnHeightDip);
             var placement = NoteLayout.Place(new PhysicalPoint(ax * 2, ay * 2), side, card,
                 new Rect(0, 0, 1920, 1200), Array.Empty<Rect>(), 2.0)!;
             Check.That(placement.Side).IsEqualTo(side);
+            // The manager grows the placement by the number tag's top strip before applying it;
+            // the drawn tree and the registered cells read THAT window. Without the growth this
+            // probe compared a grown text/cell against an ungrown placement.
+            placement = NoteLayout.WithTagClearance(placement, size);
             window.ApplyPlacement(placement);
             window.SetText(Sample);
             window.UpdateContent();
@@ -107,8 +115,10 @@ public class NoteColumnPlacementTests
             Check.That(visible).IsStrictlyGreaterThan(0);
             foreach (var slot in NoteLayout.SlotsFor(state))
             {
-                var (cx, cy) = NoteLayout.ButtonCenter(placement, slot);
-                var cell = new Rect(cx - 40, cy - 40, 80, 80);
+                var (cx, cy) = NoteLayout.ButtonCenter(placement, slot, state);
+                var cell = new Rect(
+                    cx - (LayoutConstants.NoteCellDip / 2), cy - (LayoutConstants.NoteCellDip / 2),
+                    LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
                 Check.WithCustomMessage($"{side}/{state}/{size}: cell {slot} {cell} overlaps the text {textBounds}")
                     .That(cell.IntersectsWith(textBounds)).IsFalse();
                 Check.WithCustomMessage($"{side}/{state}/{size}: cell {slot} {cell} must lie inside the card {cardLocal}")

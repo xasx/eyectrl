@@ -54,7 +54,7 @@ internal static class NoteLayout
 
 
     /// <summary>Window-relative Y of hit-cell row <paramref name="row"/>'s centre (P4 D3): the
-    /// rows are the four stacked 80 DIP cells between the column paddings.</summary>
+    /// rows are the four stacked cells (112 DIP since A2) between the column paddings.</summary>
     public static double RowCenterY(int row) =>
         LayoutConstants.NoteButtonPadding + (row * LayoutConstants.NoteCellDip) + (LayoutConstants.NoteCellDip / 2);
 
@@ -227,10 +227,12 @@ internal static class NoteLayout
     }
 
     /// <summary>
-    /// The per-state slot table (P4 D3). A slot IS a hit-cell row: slot 0 and 1 are adjacent,
-    /// slot 2 is the full empty gap cell (P2 D8's "one cell apart", P1 D7's "Discard one slot
-    /// from Done"), and slot 3 is the bottom row. Display/Edit occupy rows 0, 1 and 3; Move
-    /// occupies rows 0 and 1; a chip occupies row 0 only (the Undo cell).
+    /// The per-state slot table (P4 D3; the Edit row is K2a). A slot IS a control-table row: slot
+    /// 0 and 1 are adjacent, slot 2 is the full empty gap cell (P2 D8's "one cell apart", P1 D7's
+    /// "Discard one slot from Done"), and slot 3 is the bottom row. Display occupies rows 0, 1 and
+    /// 3; Edit's three controls occupy the SAME slots (0, 1, 3) but draw and register in one ROW
+    /// of three cells under the text (<see cref="ButtonCenter(NotePlacement, int, NoteState)"/>);
+    /// Move occupies rows 0 and 1; a chip occupies row 0 only (the Undo cell).
     /// </summary>
     public static IReadOnlyList<int> SlotsFor(NoteState state) => state switch
     {
@@ -268,6 +270,45 @@ internal static class NoteLayout
     /// ride and can never disagree with the drawn geometry over a grown window.</summary>
     public static (double X, double Y) ButtonCenter(NotePlacement placement, int slot) =>
         ButtonCenter(placement.Side, slot, placement.Card.Width, ExtraTopClearance(placement));
+
+    /// <summary>Window-relative centre of a control in <paramref name="state"/> (K2a): Display,
+    /// Move and the chips read the control COLUMN, exactly as before; Edit reads its own ROW of
+    /// three cells under the text (<see cref="EditCellCenter"/>), with the discard control
+    /// (slot 3 in the control table) in the row's third cell.</summary>
+    public static (double X, double Y) ButtonCenter(NotePlacement placement, int slot, NoteState state) =>
+        state == NoteState.Edit
+            ? EditCellCenter(placement, EditCellForSlot(slot))
+            : ButtonCenter(placement, slot);
+
+    /// <summary>The drawn hit-cell row a control's slot maps to in <paramref name="state"/>
+    /// (K2a): in Edit the three controls occupy the row's cells 0, 1 and 2 (the discard control
+    /// is slot 3 of the control table but the third row cell), and every other state maps a slot
+    /// to the same column row.</summary>
+    public static int CellRowFor(NoteState state, int slot) =>
+        state == NoteState.Edit ? EditCellForSlot(slot) : slot;
+
+    /// <summary>Which of the Edit row's three cells a control slot occupies: ✓ done (0) and ⌨
+    /// (1) keep their control-table order, ↩ discard (slot 3) is the third cell.</summary>
+    public static int EditCellForSlot(int slot) => slot switch
+    {
+        0 => 0,
+        1 => 1,
+        _ => 2,
+    };
+
+    /// <summary>Window-relative centre of Edit row cell <paramref name="cell"/> (0..2) — the
+    /// row of three 112 DIP cells centred under the text, at the card's bottom padding. One
+    /// function serves the drawn cells, the dwell targets and the chrome rects, so a card whose
+    /// side or tag clearance moved cannot draw and register different rows.</summary>
+    public static (double X, double Y) EditCellCenter(NotePlacement placement, int cell)
+    {
+        var card = RectLocal(placement);
+        double rowLeft = card.Left + ((card.Width - (3 * LayoutConstants.NoteCellDip)) / 2);
+        double half = LayoutConstants.NoteCellDip / 2;
+        return (
+            rowLeft + (cell * LayoutConstants.NoteCellDip) + half,
+            card.Bottom - LayoutConstants.NoteButtonPadding - half);
+    }
 
 
     // == the card size (P4 D2): the text size drives the width, the measured text height
@@ -310,6 +351,65 @@ internal static class NoteLayout
         double content = Math.Min(measuredTextHeightDip, cap);
         return Math.Max(ControlsColumnHeightDip, content + (2 * LayoutConstants.NoteButtonPadding));
     }
+
+    // == the compact Edit card (K2a, sitting 10): the text above, one row of three control
+    // cells below - the same three controls, no four-row column. ==
+
+    /// <summary>The Edit end marker's drawn height in DIP: the thin accent bar under the draft
+    /// (P1 D3). It rides the card height derivation, so the marker never draws into the control
+    /// row below it.</summary>
+    public static double EditEndMarkerHeightDip => LayoutConstants.NoteButtonRadius / 3;
+
+    /// <summary>The gap between the draft's last line and the end marker in DIP (the marker's
+    /// top margin in the drawn stack).</summary>
+    public const double EditEndMarkerGapDip = 2.0;
+
+    /// <summary>The Edit row's height in DIP: one 112 DIP cell between the card's paddings —
+    /// the compact card's floor (K2a replaces the four-row
+    /// <see cref="ControlsColumnHeightDip"/> column).</summary>
+    public static double EditRowHeightDip =>
+        (2 * LayoutConstants.NoteButtonPadding) + LayoutConstants.NoteCellDip;
+
+    /// <summary>The Edit card's width in DIP (K2a): the text column, or the three control cells
+    /// when those are wider (at the smaller text sizes), plus the card paddings. No control
+    /// column and no text-column gap: nothing sits beside the text in Edit any more.</summary>
+    public static double EditCardWidthDip(double textSize) =>
+        Math.Max(TextColumnWidthDip(textSize), 3 * LayoutConstants.NoteCellDip)
+        + (2 * LayoutConstants.NoteButtonPadding);
+
+    /// <summary>
+    /// The Edit card's height in DIP (K2a): the draft (at least one line), the end marker's
+    /// block, the one control row and the paddings. About 194 DIP at the 36 DIP default with one
+    /// line — the compact card that fits the band a yielded top keyboard leaves under the 140 DIP
+    /// toolbar (the K1 sweep's pinned known gap), where the old four-row column's 340 DIP plus
+    /// the tag did not.
+    /// <para>
+    /// Rounded UP to a whole DIP, the same rule the tag's height follows (T6 fixup-05): the end
+    /// marker's third-of-a-disc height is fractional, and a fractional card height put the whole
+    /// note on a fractional pixel phase on the owner's 2.0 display — every straight edge went
+    /// soft, and WPF snapped the window's Height to the nearest device pixel.
+    /// </para>
+    /// </summary>
+    public static double EditCardHeightDip(double textSize, double measuredTextHeightDip, double workAreaHeightDip)
+    {
+        double cap = TextCapHeightDip(workAreaHeightDip, textSize);
+        double content = Math.Max(TextLineHeightDip(textSize), Math.Min(measuredTextHeightDip, cap));
+        return Math.Ceiling((2 * LayoutConstants.NoteButtonPadding) + content + EditEndMarkerGapDip
+            + EditEndMarkerHeightDip + LayoutConstants.NoteCellDip);
+    }
+
+    /// <summary>The Edit card's size in DIP (K2a): <see cref="EditCardWidthDip"/> across and
+    /// <see cref="EditCardHeightDip"/> down. The manager's one call for an editing note's card, so
+    /// the window, the placements and the dwell registrations share it.</summary>
+    public static Size EditCardSize(double textSize, double measuredTextHeightDip, double workAreaHeightDip) =>
+        new(EditCardWidthDip(textSize), EditCardHeightDip(textSize, measuredTextHeightDip, workAreaHeightDip));
+
+    /// <summary>The Edit draft's available height in DIP inside a card of
+    /// <paramref name="cardHeightDip"/>: everything above the control row, after the paddings
+    /// and the end marker's block. The window clips the draft to this, so a long draft cannot
+    /// draw over the row (K2a).</summary>
+    public static double EditTextAreaHeightDip(double cardHeightDip, double textSizeDip) =>
+        Math.Max(1.0, cardHeightDip - EditRowHeightDip - EditEndMarkerGapDip - EditEndMarkerHeightDip);
 
     // == the chip (P4 D3's PendingUndo row): the shrunk-in-place window renders a single Undo
     // cell plus the chip text. ==

@@ -170,16 +170,17 @@ public class NoteKeyboardRealProbeTests
         return band >= drawnHeight + NoteLayout.Constants.AvoidGapDip;
     }
 
-    /// <summary>The sweep's three rules, on the real probe's rect: the card, every Edit hit cell
-    /// and the number tag keep the 24 DIP clearance.</summary>
+    /// <summary>The sweep's three rules, on the real probe's rect: the card, every registered
+    /// Edit control cell (K2a: the row's three cells under the text) and the number tag keep the
+    /// 24 DIP clearance.</summary>
     private static void AssertClearOfTheKeyboard(NotePlacement placement, Rect keyboard, string when)
     {
         Check.WithCustomMessage($"{when}: the card {placement.Card} must clear the keyboard {keyboard}")
             .That(GapFrom(placement.Card, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
 
-        for (var slot = 0; slot < 4; slot++)
+        foreach (var slot in NoteLayout.SlotsFor(NoteState.Edit))
         {
-            var (cx, cy) = NoteLayout.ButtonCenter(placement, slot);
+            var (cx, cy) = NoteLayout.ButtonCenter(placement, slot, NoteState.Edit);
             var cell = new Rect(
                 placement.Window.X + cx - (LayoutConstants.NoteCellDip / 2),
                 placement.Window.Y + cy - (LayoutConstants.NoteCellDip / 2),
@@ -272,9 +273,7 @@ public class NoteKeyboardRealProbeTests
 
         public NoteManager Manager { get; }
 
-        public Size CardSize => new(
-            NoteLayout.CardWidthDip(TextSizeDip),
-            NoteLayout.CardHeightDip(TextSizeDip, 0, WorkAreaDip.Height));
+        public Size CardSize => NoteLayout.EditCardSize(TextSizeDip, 0, WorkAreaDip.Height);
 
         public IReadOnlyList<PhysicalRect> ProbeRects => _probe.Rects();
 

@@ -71,6 +71,22 @@ public partial class App : Application
     // which is the right regime before the composition has run.
     private Func<bool> _isSupervisorPresent = () => false;
 
+    // WER's no-UI outcome, taken in the constructor before App.xaml's resources load; reported once
+    // Serilog is up (InitializeSettingsAndLogging).
+    private readonly CrashDialogOutcome _crashDialog;
+
+    /// <summary>
+    /// WER's crash dialog off before anything else. The generated <c>Main</c> runs <c>new App()</c>,
+    /// then <c>InitializeComponent()</c> (App.xaml, which merges EyeCtrl.Controls'
+    /// OverlayStyles.xaml), then <c>Run()</c> — so a missing/broken Controls dll or a XAML parse
+    /// error would otherwise throw to the OS fault path before <c>OnStartup</c> could set the flag.
+    /// Only the base constructor and the trivial field initializers above run earlier.
+    /// </summary>
+    public App()
+    {
+        _crashDialog = CrashDialogPolicy.Disable();
+    }
+
     /// <summary>
     /// When true, the app uses MouseGazeProvider and skips the splash delay.
     /// Activated by launching with --test-mode CLI argument.
@@ -104,11 +120,6 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-
-        // WER's crash dialog off FIRST — before the restart signal, the single-instance guard and
-        // anything else that can FailFast: a modal dialog is undismissable for a gaze-only owner.
-        // The line is logged once logging exists (InitializeSettingsAndLogging, below).
-        var crashDialog = CrashDialogPolicy.Disable();
 
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
         IsPausedLaunch = e.Args.Contains("--paused", StringComparer.OrdinalIgnoreCase);
@@ -152,7 +163,7 @@ public partial class App : Application
         SplashThreadHandle? splash = null;
         try
         {
-            var (settings, settingsFilePath) = InitializeSettingsAndLogging(e.Args, crashDialog);
+            var (settings, settingsFilePath) = InitializeSettingsAndLogging(e.Args, _crashDialog);
 
             // ── String table ──
             // After logging exists (the load path logs, never fails) and before the theme and the
@@ -1023,8 +1034,8 @@ public partial class App : Application
     /// </summary>
     /// <param name="args">The process arguments; <c>--ui-language</c> is read from them.</param>
     /// <param name="crashDialog">
-    /// The WER outcome from <see cref="OnStartup"/>, taken before the single-instance guard; it is
-    /// logged here because the static Serilog logger is a SilentLogger until the line below.
+    /// The WER outcome taken in the App constructor, before App.xaml loads; it is logged here
+    /// because the static Serilog logger is a SilentLogger until the line below.
     /// </param>
     private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging(
         string[] args, CrashDialogOutcome crashDialog)

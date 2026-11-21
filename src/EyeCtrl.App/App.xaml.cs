@@ -105,6 +105,11 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // WER's crash dialog off FIRST — before the restart signal, the single-instance guard and
+        // anything else that can FailFast: a modal dialog is undismissable for a gaze-only owner.
+        // The line is logged once logging exists (InitializeSettingsAndLogging, below).
+        var crashDialog = CrashDialogPolicy.Disable();
+
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
         IsPausedLaunch = e.Args.Contains("--paused", StringComparer.OrdinalIgnoreCase);
         var ringArmLaunch = RingArmArgument.Parse(e.Args);
@@ -147,7 +152,7 @@ public partial class App : Application
         SplashThreadHandle? splash = null;
         try
         {
-            var (settings, settingsFilePath) = InitializeSettingsAndLogging(e.Args);
+            var (settings, settingsFilePath) = InitializeSettingsAndLogging(e.Args, crashDialog);
 
             // ── String table ──
             // After logging exists (the load path logs, never fails) and before the theme and the
@@ -1017,7 +1022,12 @@ public partial class App : Application
     /// initializes Serilog, and registers the global (AppDomain + dispatcher) exception handlers.
     /// </summary>
     /// <param name="args">The process arguments; <c>--ui-language</c> is read from them.</param>
-    private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging(string[] args)
+    /// <param name="crashDialog">
+    /// The WER outcome from <see cref="OnStartup"/>, taken before the single-instance guard; it is
+    /// logged here because the static Serilog logger is a SilentLogger until the line below.
+    /// </param>
+    private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging(
+        string[] args, CrashDialogOutcome crashDialog)
     {
         // The one profile resolver — never a raw OS folder here. A dev build (Debug, or an exe
         // outside the installed location) gets %APPDATA%\EyeCtrl.Dev; only the installed build,
@@ -1029,6 +1039,11 @@ public partial class App : Application
 
         var logsDir = Path.Combine(_appDataDir, "logs");
         LoggingInitializer.Initialize(logsDir);
+
+        // The WER line, now that the logger is up (the flag was set in OnStartup, before the guard).
+        crashDialog.Report(
+            line => Log.Information("{CrashDialog}", line),
+            line => Log.Warning("{CrashDialog}", line));
 
         // The profile line comes before anything reads or writes the profile (the settings load
         // below is the first read): the mode decision is on record before any data access. It is

@@ -27,6 +27,10 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // WER's crash dialog off FIRST: the supervisor is a WinExe with no watcher of its own, and
+        // a crash dialog is undismissable for a gaze-only owner. Logged once logging is up.
+        var crashDialog = CrashDialogPolicy.Disable();
+
         // The one profile resolution for this process, before any mutex is taken or any file is
         // read: the guard below and Initialize() below must agree, and the flag captured here is
         // what Launch forwards to the App. A parent that resolved non-dev (installed or
@@ -46,7 +50,7 @@ internal static class Program
             return 0;
         }
 
-        var app = new SupervisorApp(forwardRealProfile);
+        var app = new SupervisorApp(forwardRealProfile, crashDialog);
         app.Initialize();
         return app.Run();
     }
@@ -156,11 +160,19 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     /// profile this process did.</summary>
     private readonly bool _forwardRealProfile;
 
+    /// <summary>The WER outcome from <c>Program.Main</c>, logged once logging is up.</summary>
+    private readonly CrashDialogOutcome _crashDialog;
+
     /// <param name="forwardRealProfile">Whether this supervisor resolved non-dev (see
     /// <c>Program.ShouldForwardRealProfile</c>); forwarded to every App launch.</param>
-    public SupervisorApp(bool forwardRealProfile = false)
+    /// <param name="crashDialog">
+    /// The WER outcome Program.Main took before the single-instance guard; reported in
+    /// <see cref="Initialize"/> because no logger exists before that.
+    /// </param>
+    public SupervisorApp(bool forwardRealProfile, CrashDialogOutcome crashDialog)
     {
         _forwardRealProfile = forwardRealProfile;
+        _crashDialog = crashDialog;
     }
 
     // Guards against reentrancy if a pipe event fires while a tick is draining on the dispatcher.
@@ -182,6 +194,12 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
 
         // 1. Logging — supervisor-.log (distinct from the app's eyectrl-.log).
         SupervisorLoggingInitializer.Initialize(logsDir);
+
+        // The WER line, now that the logger is up (the flag was set in Main, before the guard).
+        _crashDialog.Report(
+            line => Log.Information("{CrashDialog}", line),
+            line => Log.Warning("{CrashDialog}", line));
+
         // The profile line comes before anything reads or writes the profile (the settings load
         // below is the first read): the mode decision is on record before any data access.
         Log.Information(

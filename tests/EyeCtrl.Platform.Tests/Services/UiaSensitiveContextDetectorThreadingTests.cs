@@ -73,9 +73,16 @@ public class UiaSensitiveContextDetectorThreadingTests
 
                 Check.That(hook.EnteredRemove.Wait(TimeSpan.FromSeconds(5))).IsTrue();
                 // The detector abandons the (background) hook thread at StopBudget, so Stop must
-                // return by then; the slack is scheduling allowance, not a second budget.
-                Check.That(elapsed.Elapsed)
-                    .IsLessThan(UiaSensitiveContextDetector.StopBudget + TimeSpan.FromMilliseconds(500));
+                // return by then plus scheduling allowance for a loaded, coverage-instrumented CI
+                // host — 2.69 s was measured there on main (186b9f22) against this test's old 2.5 s
+                // limit. 2 s budget (pinned by the ratchet test above) + 1.5 s slack = 3.5 s,
+                // written ABSOLUTE rather than derived from StopBudget on purpose: raising the
+                // budget is a longer exit hang and must go red here (a 4 s budget runs ~4 s, past
+                // 3.5 s, while the 5 s Wait guard above still passes) instead of quietly
+                // stretching the allowance with it. A deliberate budget raise must consciously
+                // widen this number too. Still well under the 5 s guard, which remains the
+                // backstop for a Stop that never returns at all.
+                Check.That(elapsed.Elapsed).IsLessThan(TimeSpan.FromSeconds(3.5));
             }
             finally
             {

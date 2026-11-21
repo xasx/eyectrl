@@ -597,7 +597,9 @@ public class AppBootstrapper
             sp.GetRequiredService<IDwellDetectorRegistry>(),
             // T8 (P4 D1): the manager observes the SAME NoteSettings the settings UI writes,
             // so a text-size change re-places every live note.
-            noteSettings: sp.GetRequiredService<EyeCtrlSettings>().Note));
+            noteSettings: sp.GetRequiredService<EyeCtrlSettings>().Note,
+            // A4 (sitting 10): the per-control fired line (control, number, aim distance, dwell).
+            logger: sp.GetRequiredService<ILogger<NoteManager>>()));
         services.AddSingleton<INoteManager>(sp => sp.GetRequiredService<NoteManager>());
 
         // OverlayManager (manages all overlay window lifecycle)

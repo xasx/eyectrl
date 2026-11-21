@@ -93,15 +93,20 @@ public class NoteUndoTests
         timer.RaiseTick();
     }
 
-    /// <summary>A dwell button's centre in physical px, derived through the SAME placement the
-    /// manager registered from (bench work area + <see cref="NoteLayout.Place"/>, P3) — the test
-    /// can never disagree with the registration.</summary>
-    private static PhysicalPoint ButtonCentrePhysical(PhysicalPoint anchor, int slot) =>
-        NoteTestBench.CellCentreFromAnchor(anchor, slot);
+    /// <summary>A dwell button's centre in physical px, read from the note's OWN stored placement
+    /// and current state (K2a: an editing note's ✓/⌨/↩ sit in the row under the text, not the
+    /// display column), so the test can never disagree with the registration.</summary>
+    private static PhysicalPoint ButtonCentrePhysical(NoteManager manager, PhysicalPoint anchor, int slot)
+    {
+        var note = manager.ActiveNotes.FirstOrDefault(n => n.Anchor.X == anchor.X && n.Anchor.Y == anchor.Y)
+            ?? throw new InvalidOperationException($"no active note at {anchor}");
+        return NoteTestBench.CellCentre(manager, note.Id, slot);
+    }
 
     /// <summary>The chip's Undo disc: the chip re-renders in place, so its ↺ sits in the note's
-    /// slot 0 — the same NoteLayout math the manager registers the target with.</summary>
-    private static PhysicalPoint UndoCentre(PhysicalPoint anchor) => ButtonCentrePhysical(anchor, 0);
+    /// slot 0 - the same NoteLayout math the manager registers the target with.</summary>
+    private static PhysicalPoint UndoCentre(NoteManager manager, PhysicalPoint anchor) =>
+        ButtonCentrePhysical(manager, anchor, 0);
 
     /// <summary>Creates a note, types into it and commits it — a saved Display note with a real
     /// window (StartEdit and the drawn chip need one).</summary>
@@ -125,12 +130,12 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = SavedNote(manager, "saved text", anchor);
-            var close = ButtonCentrePhysical(anchor, 3);
+            var close = ButtonCentrePhysical(manager, anchor, 3);
 
             ArmThenHold(manager, close, startUs: 0);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
-            ArmThenHold(manager, UndoCentre(anchor), startUs: 2_000_000);
+            ArmThenHold(manager, UndoCentre(manager, anchor), startUs: 2_000_000);
             Check.WithCustomMessage("Undo of a Removed chip must restore the note to Display")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
             Check.WithCustomMessage("Undo must restore the SAVED text")
@@ -150,7 +155,7 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved text", anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
             // 8 s of REACHABLE time: 79 ticks keep it, the 80th expires it (P2 D5).
@@ -178,11 +183,11 @@ public class NoteUndoTests
             var id = manager.ActiveNotes[^1].Id;
             manager.Apply(new NoteAppend("draft text"));
 
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0); // ↩ Discard
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0); // ↩ Discard
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
             Check.That(manager.ActiveNotes[0].UndoKind).IsEqualTo(PendingUndoKind.DiscardedNew);
 
-            ArmThenHold(manager, UndoCentre(anchor), startUs: 2_000_000);
+            ArmThenHold(manager, UndoCentre(manager, anchor), startUs: 2_000_000);
             Check.WithCustomMessage("Undo of a discarded NEW draft must return to Edit")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Edit);
             Check.That(manager.IsEditing).IsTrue();
@@ -203,7 +208,7 @@ public class NoteUndoTests
             var anchor = new PhysicalPoint(1600, 1000);
             manager.CreateNoteAt(anchor);
             manager.Apply(new NoteAppend("draft text"));
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
             long tUs = 2_000_000;
@@ -227,11 +232,11 @@ public class NoteUndoTests
             manager.StartEdit(id);
             manager.Apply(new NoteAppend(" changed"));
 
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0); // ↩ Discard
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0); // ↩ Discard
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
             Check.That(manager.ActiveNotes[0].UndoKind).IsEqualTo(PendingUndoKind.DiscardedExisting);
 
-            ArmThenHold(manager, UndoCentre(anchor), startUs: 2_000_000);
+            ArmThenHold(manager, UndoCentre(manager, anchor), startUs: 2_000_000);
             Check.WithCustomMessage("Undo of a discarded EXISTING draft must return to Edit")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Edit);
             Check.That(manager.IsEditing).IsTrue();
@@ -256,7 +261,7 @@ public class NoteUndoTests
             var full = manager.PlacementForTest(id)!;
             manager.StartEdit(id);
             manager.Apply(new NoteAppend(" changed"));
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
             Check.WithCustomMessage("the chip is the shrunk card")
                 .That(manager.PlacementForTest(id)!.Card.Width).IsStrictlyLessThan(full.Card.Width);
@@ -293,7 +298,7 @@ public class NoteUndoTests
             var id = SavedNote(manager, "original", anchor);
             manager.StartEdit(id);
 
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
 
             Check.WithCustomMessage("an unchanged draft has nothing to undo — straight back")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
@@ -318,7 +323,7 @@ public class NoteUndoTests
             for (int i = 0; i < 8; i++) manager.Apply(new NoteBackspace());
             Check.That(manager.ActiveNotes[0].Draft).IsEqualTo("");
 
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
 
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
             Check.That(manager.ActiveNotes[0].Text).IsEqualTo("original");
@@ -336,7 +341,7 @@ public class NoteUndoTests
             var anchor = new PhysicalPoint(1600, 1000);
             manager.CreateNoteAt(anchor);
 
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
 
             Check.That(manager.ActiveNotes).IsEmpty();
         }
@@ -356,7 +361,7 @@ public class NoteUndoTests
             manager.StartEdit(id);
             for (int i = 0; i < 8; i++) manager.Apply(new NoteBackspace());
 
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 0), startUs: 0); // ✓ Done
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 0), startUs: 0); // ✓ Done
 
             Check.That(manager.ActiveNotes).HasSize(1);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
@@ -376,7 +381,7 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved", anchor);
-            var close = ButtonCentrePhysical(anchor, 3);
+            var close = ButtonCentrePhysical(manager, anchor, 3);
 
             // Hold ✕ until the chip enters, then keep the eyes EXACTLY there for several seconds.
             ArmThenHold(manager, close, startUs: 0);
@@ -389,10 +394,10 @@ public class NoteUndoTests
 
             // Move up to the Undo disc: the dwell completes exactly once, and the restored card's
             // targets are born latched — the held Undo disc must not re-fire.
-            ArmThenHold(manager, UndoCentre(anchor), startUs: 7_000_000);
+            ArmThenHold(manager, UndoCentre(manager, anchor), startUs: 7_000_000);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
             for (long t = 9_000_000; t <= 11_000_000; t += 100_000)
-                Sample(manager, UndoCentre(anchor), t);
+                Sample(manager, UndoCentre(manager, anchor), t);
             Check.WithCustomMessage("the re-registered ✎/✕ column under the held gaze must stay put")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
         }
@@ -411,7 +416,7 @@ public class NoteUndoTests
             var anchorA = new PhysicalPoint(1600, 1000);
             var anchorB = new PhysicalPoint(3000, 1000);
             var a = SavedNote(manager, "A", anchorA);
-            ArmThenHold(manager, ButtonCentrePhysical(anchorA, 3), startUs: 0); // A → chip
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchorA, 3), startUs: 0); // A → chip
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
             manager.CreateNoteAt(anchorB); // B pins: the single-editor rule clears card targets,
@@ -419,7 +424,7 @@ public class NoteUndoTests
             Check.That(manager.IsEditing).IsTrue();
 
             // The chip's Undo is still live: dwell it under the editing note B.
-            ArmThenHold(manager, UndoCentre(anchorA), startUs: 2_000_000);
+            ArmThenHold(manager, UndoCentre(manager, anchorA), startUs: 2_000_000);
 
             Check.WithCustomMessage("a pending chip must stay dwellable while another note edits")
                 .That(manager.ActiveNotes.First(n => n.Id == a).State).IsEqualTo(NoteState.Display);
@@ -454,7 +459,7 @@ public class NoteUndoTests
             manager.StartEdit(a); // summons the hidden keyboard; A owns it
             Check.That(manager.EditingOwnsKeyboardForTest).IsTrue();
             manager.Apply(new NoteAppend(" changed"));
-            ArmThenHold(manager, ButtonCentrePhysical(anchorA, 3), startUs: 0); // ↩ → chip
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchorA, 3), startUs: 0); // ↩ → chip
             Check.That(manager.ActiveNotes.First(n => n.Id == a).State).IsEqualTo(NoteState.PendingUndo);
 
             // B: pinned while A is chipped. The keyboard is hidden (A's discard released nothing
@@ -479,7 +484,7 @@ public class NoteUndoTests
             messenger.Register<object, KeyboardHideRequestedMessage>(this, (_, _) => hideRequests++);
             messenger.Register<object, KeyboardShowRequestedMessage>(this, (_, _) => showRequests++);
 
-            ArmThenHold(manager, UndoCentre(anchorA), startUs: 2_000_000); // Undo on A
+            ArmThenHold(manager, UndoCentre(manager, anchorA), startUs: 2_000_000); // Undo on A
 
             Check.WithCustomMessage("commit-first: B's draft must be saved before A takes the keyboard")
                 .That(manager.ActiveNotes.First(n => n.Id == b).Text).IsEqualTo("B draft");
@@ -499,7 +504,7 @@ public class NoteUndoTests
             Check.That(editingFalse).IsEqualTo(0);
 
             // The proof of ownership: A's later Done HIDES the keyboard it inherited.
-            var doneSlot = ButtonCentrePhysical(anchorA, 0);
+            var doneSlot = ButtonCentrePhysical(manager, anchorA, 0);
             var away = new PhysicalPoint(doneSlot.X + 10_000, doneSlot.Y);
             for (long t = 4_000_000; t <= 4_200_000; t += 100_000) Sample(manager, away, t);
             ArmThenHold(manager, doneSlot, startUs: 4_300_000);
@@ -523,7 +528,7 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved", anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
             Check.That(timer.IsRunning).IsTrue();
 
             long tUs = 2_000_000;
@@ -548,7 +553,7 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved", anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
 
             long tUs = 2_000_000;
             for (int i = 0; i < 90; i++)
@@ -583,7 +588,7 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved", anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
 
             long tUs = 2_000_000;
             Sample(manager, new PhysicalPoint(-50_000, -50_000), tUs += 100_000); // the last sample before the pause
@@ -624,7 +629,7 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved", anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
 
             long tUs = 2_000_000;
             Sample(manager, new PhysicalPoint(-50_000, -50_000), tUs += 100_000); // the last sample before the suspender
@@ -663,7 +668,7 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved", anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
 
             long tUs = 2_000_000;
             Sample(manager, new PhysicalPoint(-50_000, -50_000), tUs += 100_000); // the last sample before the suspender
@@ -702,7 +707,7 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved", anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
 
             long tUs = 2_000_000;
             Sample(manager, new PhysicalPoint(-50_000, -50_000), tUs += 100_000); // the last sample before the suspender
@@ -741,8 +746,8 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved", anchor);
-            var undo = UndoCentre(anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            var undo = UndoCentre(manager, anchor);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
 
             manager.SetOccluderSources(slotOccupantBounds: () =>
                 new PhysicalRect(undo.X - 300, undo.Y - 300, 600, 600));
@@ -774,8 +779,8 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved", anchor);
-            var undo = UndoCentre(anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            var undo = UndoCentre(manager, anchor);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
 
             manager.SetOccluderSources(blockedBannerBounds: () =>
                 new PhysicalRect(undo.X - 300, undo.Y - 300, 600, 600));
@@ -819,14 +824,14 @@ public class NoteUndoTests
 
             // Chip A while the hit tester answers B's window: A's chip is covered by B.
             tester.Answer = handleA; // the ✕ dwell needs A's own window
-            ArmThenHold(manager, ButtonCentrePhysical(anchorA, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchorA, 3), startUs: 0);
             Check.That(manager.ActiveNotes.First(n => n.Id == a).State).IsEqualTo(NoteState.PendingUndo);
 
             long tUs = 2_000_000;
             tester.Answer = new WindowInteropHelper(
                 manager.WindowForTest(manager.ActiveNotes.First(n => n.Id != a).Id)!).EnsureHandle();
             for (int i = 0; i < 90; i++)
-                Tick(manager, clock, timer, ref tUs, sampleAt: UndoCentre(anchorA));
+                Tick(manager, clock, timer, ref tUs, sampleAt: UndoCentre(manager, anchorA));
             Check.WithCustomMessage("a chip under a foreign topmost window must not count down")
                 .That(manager.ActiveNotes.First(n => n.Id == a).State).IsEqualTo(NoteState.PendingUndo);
 
@@ -851,11 +856,11 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = manager.AddNoteTargetsForTest(anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
             Check.That(manager.LiveTargetRects()).HasSize(1); // only the chip's ↺ remains live
 
-            var undo = ButtonCentrePhysical(anchor, 0);
+            var undo = ButtonCentrePhysical(manager, anchor, 0);
             double half = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NoteCellDip / 2);
             Check.That(manager.LiveTargetRects()[0]).IsEqualTo(
                 new PhysicalRect(undo.X - half, undo.Y - half, half * 2, half * 2));
@@ -877,7 +882,7 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0);
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
             Check.That(timer.IsRunning).IsTrue();
 
             manager.Dispose();
@@ -887,7 +892,9 @@ public class NoteUndoTests
             Check.ThatCode(() =>
             {
                 timer.RaiseTick(); // a late tick must neither throw nor resurrect anything
-                Sample(manager, ButtonCentrePhysical(anchor, 0), 99_000_000);
+                // The note is gone: derive a fixed Display cell from the anchor instead of
+                // asking the disposed manager for a live note.
+                Sample(manager, NoteTestBench.CellCentreFromAnchor(anchor, 0), 99_000_000);
             }).DoesNotThrow();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -910,7 +917,7 @@ public class NoteUndoTests
             var chipped = SavedNote(manager, "chipped", new PhysicalPoint(4600, 400));
             manager.StartEdit(chipped);
             manager.Apply(new NoteAppend(" changed"));
-            ArmThenHold(manager, ButtonCentrePhysical(new PhysicalPoint(4600, 400), 3), startUs: 0); // ↩ → chip
+            ArmThenHold(manager, ButtonCentrePhysical(manager, new PhysicalPoint(4600, 400), 3), startUs: 0); // ↩ → chip
 
             Check.That(manager.ActiveNotes).HasSize(8);
             Check.That(manager.ActiveNotes.First(n => n.Id == chipped).State).IsEqualTo(NoteState.PendingUndo);
@@ -940,7 +947,7 @@ public class NoteUndoTests
             for (int i = 0; i < 7; i++)
                 SavedNote(manager, $"note {i}", new PhysicalPoint(400 + (i % 4) * 600, i < 4 ? 400 : 1000));
             var chipped = SavedNote(manager, "chipped", new PhysicalPoint(4600, 400));
-            ArmThenHold(manager, ButtonCentrePhysical(new PhysicalPoint(4600, 400), 3), startUs: 0); // ✕ → chip
+            ArmThenHold(manager, ButtonCentrePhysical(manager, new PhysicalPoint(4600, 400), 3), startUs: 0); // ✕ → chip
 
             Check.That(manager.ActiveNotes).HasSize(8);
             Check.WithCustomMessage("a Removed chip yields its slot — not at capacity")
@@ -974,10 +981,10 @@ public class NoteUndoTests
             var kept = SavedNote(manager, "kept", new PhysicalPoint(4000, 400));
             manager.StartEdit(kept);
             manager.Apply(new NoteAppend(" changed"));
-            ArmThenHold(manager, ButtonCentrePhysical(new PhysicalPoint(4000, 400), 3), startUs: 0); // ↩ → DiscardedExisting chip (older)
+            ArmThenHold(manager, ButtonCentrePhysical(manager, new PhysicalPoint(4000, 400), 3), startUs: 0); // ↩ → DiscardedExisting chip (older)
 
             var yielded = SavedNote(manager, "yielded", new PhysicalPoint(4600, 1000)); // own row: the clamp must not collide it with kept
-            ArmThenHold(manager, ButtonCentrePhysical(new PhysicalPoint(4600, 1000), 3), startUs: 2_000_000); // ✕ → Removed chip (younger)
+            ArmThenHold(manager, ButtonCentrePhysical(manager, new PhysicalPoint(4600, 1000), 3), startUs: 2_000_000); // ✕ → Removed chip (younger)
 
             Check.That(manager.ActiveNotes).HasSize(8);
             Check.That(manager.IsAtCapacity).IsFalse(); // 6 Display + the non-yieldable chip = 7 live
@@ -1044,7 +1051,7 @@ public class NoteUndoTests
             var id = SavedNote(manager, "original", anchor);
             manager.StartEdit(id);
             for (int i = 0; i < 8; i++) manager.Apply(new NoteBackspace());
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 0), startUs: 0); // Done on the emptied note → chip
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 0), startUs: 0); // Done on the emptied note → chip
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
             manager.StartEdit(id);
@@ -1072,7 +1079,7 @@ public class NoteUndoTests
             var anchorB = new PhysicalPoint(3000, 1000);
             var a = SavedNote(manager, "A", anchorA);
             var b = SavedNote(manager, "B", anchorB);
-            ArmThenHold(manager, ButtonCentrePhysical(anchorA, 3), startUs: 0); // ✕ → A chipped
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchorA, 3), startUs: 0); // ✕ → A chipped
             Check.That(manager.ActiveNotes.First(n => n.Id == a).State).IsEqualTo(NoteState.PendingUndo);
             var rectsBefore = manager.LiveTargetRects().Count; // A's ↺ + B's three cards
 
@@ -1091,32 +1098,34 @@ public class NoteUndoTests
     // ── m1 (T3 review-01): the chip-entry latch has teeth on the real path ──
 
     [StaFact]
-    public void Done_OnAnEmptiedNote_ChipsTheUndoUnderTheHeldGaze_ItDoesNotFireUntilALeave()
+    public void ACloseWhileTheGazeRestsOnSlotZero_ChipsTheUndoUnderTheHeldGaze_ItDoesNotFireUntilALeave()
     {
-        // The one path where ↺ is born under a held gaze: Done (slot 0) on an EMPTIED existing
-        // note leaves a Removed chip whose ↺ sits in slot 0, right where the eyes are. Without
-        // the chip-entry latch (mutant U6) ↺ fires 600 ms later and silently restores the note
-        // the owner just deleted.
+        // The reachable "↺ born under a held gaze" path after K2a: the Edit card's ✓ Done is in
+        // the row under the text, but the CHIP's ↺ keeps the Display column's slot 0 — the ✎
+        // cell. A caretaker ✕ touch while the gaze rests on ✎ creates the chip with its ↺ right
+        // under the eyes. Without the chip-entry latch (mutant U6) ↺ fires 600 ms later and
+        // silently restores the note the caretaker just removed.
         var (manager, _, _) = MakeManager(out _);
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = SavedNote(manager, "original", anchor);
-            manager.StartEdit(id);
-            for (int i = 0; i < 8; i++) manager.Apply(new NoteBackspace());
-            var slot0 = ButtonCentrePhysical(anchor, 0);
+            var slot0 = ButtonCentrePhysical(manager, anchor, 0); // ✎ in Display; the chip's ↺ keeps it
             var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y);
 
-            ArmThenHold(manager, slot0, startUs: 0); // Done fires → chip; ↺ born under the gaze
+            // The gaze rests on ✎ while the caretaker removes the note by touch (a touch needs
+            // no pause: NoteInputPolicy accepts it on a drawn, registered control).
+            for (long t = 0; t <= 200_000; t += 100_000) Sample(manager, slot0, t);
+            manager.RunControlInput(id, "close", NoteInputKind.Touch, fromStylus: false);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
-            for (long t = 2_000_000; t <= 3_500_000; t += 100_000) Sample(manager, slot0, t);
+            for (long t = 300_000; t <= 1_800_000; t += 100_000) Sample(manager, slot0, t);
             Check.WithCustomMessage("the ↺ born under the held gaze must stay latched")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
-            for (long t = 3_600_000; t <= 3_800_000; t += 100_000) Sample(manager, away, t); // 200 ms leave
-            for (long t = 3_900_000; t <= 4_800_000; t += 100_000) Sample(manager, slot0, t);
+            for (long t = 1_900_000; t <= 2_100_000; t += 100_000) Sample(manager, away, t); // 200 ms leave
+            for (long t = 2_200_000; t <= 3_100_000; t += 100_000) Sample(manager, slot0, t);
             Check.WithCustomMessage("after a ≥150 ms leave and a return, ↺ fires (positive control)")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
             Check.That(manager.ActiveNotes[0].Text).IsEqualTo("original");
@@ -1146,19 +1155,19 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             manager.AddNoteTargetsForTest(anchor);
-            ArmThenHold(manager, ButtonCentrePhysical(anchor, 3), startUs: 0); // ✕ at 600 ms → chip
+            ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0); // ✕ at 600 ms → chip
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
             registry.Registrations[0].Apply(_ => 1200); // the lengthening map hits the cards only
 
-            var slot0 = ButtonCentrePhysical(anchor, 0);
+            var slot0 = ButtonCentrePhysical(manager, anchor, 0);
             ArmThenHold(manager, slot0, startUs: 2_000_000);
             Check.WithCustomMessage("the chip's ↺ dwell is fixed at 600 ms — a lengthening card map must not move it")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
 
             // The map is live on the cards: the restored ✕ (slot 2) does not fire at 900 ms —
             // 600 ms unadapted would — but does past the lengthened 1200 ms.
-            var close = ButtonCentrePhysical(anchor, 3);
+            var close = ButtonCentrePhysical(manager, anchor, 3);
             ArmThenHold(manager, close, startUs: 4_900_000); // hold 900 ms < 1200: must NOT fire
             Check.WithCustomMessage("the lengthening map must actually hold the card target (900 ms < 1200)")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);

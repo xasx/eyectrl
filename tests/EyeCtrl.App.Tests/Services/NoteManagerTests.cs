@@ -622,12 +622,15 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void DoneLeavesTheDisplayControlUnderTheGaze_DisarmedUntilTheGazeLeavesItsCircle()
+    public void DoneMovesTheControlsFromRowToColumn_TheOldDoneCellIsInert_AndTheDisplayControlWorksAfterALeave()
     {
-        // Fixup B2, positive control for R2: the latch must RELEASE. P2 D8 moved ✕ to slot 2, so
-        // the Display control that appears in ✓ Done's circle after the exit is ✎ — a lingering
-        // held gaze must not re-enter Edit, and once the gaze has left and come back, the dwell
-        // completes and the ✎ works.
+        // Fixup B2's positive control for R2, adapted to K2a: the Edit card's ✓ Done is in the
+        // ROW under the text, the Display card's ✎ is back in the right-hand COLUMN, so after
+        // Done the old Done cell is empty space — a lingering held gaze there must do nothing.
+        // The ✎ is a new target at a different spot; a leave and a return arm it and the dwell
+        // re-enters Edit. (The latch's "born under the held gaze" teeth live in
+        // NoteGateTests.AnEmptyNewNotesDone_StillLatchesTheNeighbourControl, where the geometry
+        // can still put one note's control under another's.)
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
@@ -639,17 +642,25 @@ public class NoteManagerTests
             var anchor = new PhysicalPoint(1600, 1000);
             // A REAL window: the liveness half dwells ✎, and StartEdit drives the note's window.
             var id = TypeIntoNewDraftNote(manager, "hello", anchor);
-            var slot0 = NoteTestBench.CellCentre(manager, id, 0);
-            var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y); // outside every circle
+            var doneSlot = NoteTestBench.CellCentre(manager, id, 0); // ✓ in the Edit row
 
-            for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
+            for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(doneSlot, t);
             Check.That(manager.IsEditing).IsFalse();
-            Check.WithCustomMessage("the re-registered ✎ under the held gaze must stay disarmed")
+            Check.WithCustomMessage("Done must have committed the draft")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
 
-            for (long t = 800_000; t <= 1_000_000; t += 33_000) manager.OnGazeMoved(away, t);
-            for (long t = 1_100_000; t <= 2_000_000; t += 33_000) manager.OnGazeMoved(slot0, t);
-            Check.WithCustomMessage("after the gaze left and returned, ✎ must work again")
+            // The old Done spot is empty on the Display card: a full second of gaze there fires
+            // nothing (K2a moved ✎ into the column).
+            for (long t = 800_000; t <= 1_800_000; t += 33_000) manager.OnGazeMoved(doneSlot, t);
+            Check.WithCustomMessage("the old Done row cell must be inert on the Display card")
+                .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+
+            // Liveness: leave past the release, then dwell the Display ✎ column cell.
+            var editSlot = NoteTestBench.CellCentre(manager, id, 0); // ✎ in the Display column
+            var away = new PhysicalPoint(editSlot.X + 10_000, editSlot.Y);
+            for (long t = 1_900_000; t <= 2_100_000; t += 33_000) manager.OnGazeMoved(away, t);
+            for (long t = 2_200_000; t <= 3_100_000; t += 33_000) manager.OnGazeMoved(editSlot, t);
+            Check.WithCustomMessage("after the gaze left and returned, ✎ must work")
                 .That(manager.IsEditing).IsTrue();
             Check.That(manager.ActiveNotes[0].Id).IsEqualTo(id);
         }
@@ -674,12 +685,13 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "hello", anchor); // a real window: ↕ must be able to move
-            var slot0 = NoteTestBench.CellCentre(manager, id, 0);
-            var slot1 = NoteTestBench.CellCentre(manager, id, 1);
+            var slot0 = NoteTestBench.CellCentre(manager, id, 0); // ✓ in the Edit row
 
             for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
             Check.That(manager.IsEditing).IsFalse(); // Done fired; ✎ latched → latch non-empty
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
+            // K2a: the Display card's column is back, so ↕ (slot 1) exists only now.
+            var slot1 = NoteTestBench.CellCentre(manager, id, 1);
 
             // The keyboard rect covers the ↕: the gaze rests there, gated.
             probe.RectsProvider = () => new[] { new PhysicalRect(slot1.X - 300, slot1.Y - 300, 600, 600) };
@@ -911,9 +923,11 @@ public class NoteManagerTests
 
             var done = NoteTestBench.CellCentre(manager, id, 0);
             var keyboard = NoteTestBench.CellCentre(manager, id, 1);
-            // P4 D3: Discard sits in the bottom row (slot 3), past the full gap cell.
+            // P4 D3 + K2a: in Edit the three controls are one ROW under the text, so their
+            // cells share a Y and are ordered left → right: ✓, ⌨, ↩ (the discard control is
+            // slot 3 of the control table but the row's third cell).
             var discard = NoteTestBench.CellCentre(manager, id, 3);
-            var rects = manager.LiveTargetRects().OrderBy(r => r.Y).ToList();
+            var rects = manager.LiveTargetRects().OrderBy(r => r.X).ToList();
 
             Check.That(rects).HasSize(3);
             Check.That(rects[0]).IsEqualTo(CellRect(done));
@@ -1274,26 +1288,27 @@ public class NoteManagerTests
             Check.That(manager.IsEditing).IsFalse();
             counting = true;
             var editSlot = NoteTestBench.CellCentre(manager, id, 0); // ✎ in Display (P2 D8: ✎ · ↕ · ✕)
-            var keyboardSlot = NoteTestBench.CellCentre(manager, id, 1); // ⌨ in Edit
             var away = new PhysicalPoint(editSlot.X + 10_000, editSlot.Y);
 
             // Arm ✎ (200 ms outside), then dwell it: the note enters Edit, whose ✓ Done sits in
-            // the slot the gaze is holding. The entry itself summons the keyboard exactly once.
+            // the ROW under the text (K2a), not in the column cell the gaze is holding. The entry
+            // itself summons the keyboard exactly once.
             for (long t = 0; t <= 200_000; t += 100_000) manager.OnGazeMoved(away, t);
             for (long t = 300_000; t <= 1_100_000; t += 100_000) manager.OnGazeMoved(editSlot, t);
             Check.That(manager.IsEditing).IsTrue();
             Check.That(showRequests).IsEqualTo(1);
 
-            // The held gaze must not re-summon: every Edit target re-registered under it (✓ Done
-            // in the held circle) is latched by the Edit-entry registration.
+            // The held gaze must not re-summon: the Display column point is empty on the Edit
+            // card, and the Edit targets were registered under a gaze that is not on any of them.
             for (long t = 1_200_000; t <= 2_400_000; t += 100_000) manager.OnGazeMoved(editSlot, t);
             Check.WithCustomMessage(
                     "the Edit-entry latch must hold the held slot — a duplicate show " +
                     "request is exactly the regression T3's Undo re-entry would ride")
                 .That(showRequests).IsEqualTo(1);
 
-            // Liveness: leave past the 150 ms release, then dwell ⌨ one slot down — the arm is
-            // gone, and ⌨ re-summons.
+            // Liveness: leave past the 150 ms release, then dwell ⌨ — the arm is gone, and ⌨
+            // re-summons. Its cell exists only now: the Edit card's row is laid out by the flip.
+            var keyboardSlot = NoteTestBench.CellCentre(manager, id, 1);
             for (long t = 2_500_000; t <= 2_700_000; t += 100_000) manager.OnGazeMoved(away, t);
             for (long t = 2_800_000; t <= 3_600_000; t += 100_000) manager.OnGazeMoved(keyboardSlot, t);
             Check.That(showRequests).IsEqualTo(2);

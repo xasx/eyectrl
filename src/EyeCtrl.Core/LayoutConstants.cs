@@ -77,17 +77,31 @@ public static class LayoutConstants
 
     /// <summary>
     /// Radius of a note control disc (close, edit, move) in logical pixels (P4 D3).
-    /// 28px radius = 56px diameter, centred inside its 80x80 DIP hit cell.
+    /// 44px radius = 88px diameter, centred inside its 112x112 DIP hit cell.
+    /// <para>
+    /// 44 since A2 (2026-11-21, sitting 10's aim study): the owner found the discs "hard to hit",
+    /// and the keyboard team's measurement of 25 note dwells put the gaze a median 23–28 DIP off
+    /// the cell centre (+14.7 DIP in x) — only 15 of 25 landed on the old 56 DIP disc, and 52
+    /// near-miss fixations fell outside every old 80 DIP cell. The disc grows with the cell so the
+    /// visible target stays about four fifths of the hit area.
+    /// </para>
     /// </summary>
-    public const double NoteButtonRadius = 28.0;
+    public const double NoteButtonRadius = 44.0;
 
     /// <summary>
-    /// Edge of the square note hit cell in logical pixels (P4 D3): every control disc is
-    /// centred inside an 80x80 DIP cell, which is the dwell target rect bounds - forgiving
+    /// Edge of the square note hit cell in logical pixels (P4 D3, A2): every control disc is
+    /// centred inside a 112x112 DIP cell, which is the dwell target rect bounds - forgiving
     /// hit areas around a smaller visible disc. A full empty cell between Move and Remove
     /// carries the one-slot-apart rule (P2 D8) as geometry.
+    /// <para>
+    /// 112 since 2026-11-21 (A2, the aim study's final number): the 56 DIP half-width covers the
+    /// median 23–28 DIP dwell distance plus the worst-case horizontal offset (+33–44 DIP on the
+    /// left of the screen), where the old 40 DIP half-width did not. The cells still touch — the
+    /// study's neighbourhood is deliberate (there is no dead strip to fall into) — and the aim
+    /// offset is NOT corrected in EyeCtrl: the owner's remedy for the bias is a recalibration.
+    /// </para>
     /// </summary>
-    public const double NoteCellDip = 80.0;
+    public const double NoteCellDip = 112.0;
 
     /// <summary>Padding from the note window edges to the control column in logical pixels.</summary>
     public const double NoteButtonPadding = 10.0;
@@ -124,9 +138,12 @@ public static class LayoutConstants
     /// accepted settle inside it is ignored.</summary>
     public const double NotePlaceHereDetourDip = 60.0;
 
-    /// <summary>The Place-here dwell target's hit half-size in logical pixels: the same disc the
-    /// note buttons use, over the disc's centre.</summary>
-    public const double NotePlaceHereHitRadiusDip = NoteButtonRadius;
+    /// <summary>The Place-here dwell target's hit half-size in logical pixels: HALF THE CELL the
+    /// other note controls use (<see cref="NoteCellDip"/> / 2 = 56 since A2), over the disc's
+    /// centre. A2 grew it from the old disc radius 28: the disc now fills the same share of its
+    /// cell as every other note control, and the study's own median dwell distance (23–28 DIP)
+    /// sits inside 56 with room for the measured offset.</summary>
+    public const double NotePlaceHereHitRadiusDip = NoteCellDip / 2;
 
     /// <summary>How far from the ACCEPTED spot — the centroid that placed the disc — a new
     /// accepted settle must lie before the Place-here disc relocates to it, in DIP (sitting 10

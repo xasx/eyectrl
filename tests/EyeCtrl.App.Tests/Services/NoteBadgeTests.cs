@@ -562,10 +562,14 @@ public class NoteBadgeTests
             Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: an unthreatened tag stays at the corner inset")
                 .That(tagRect.Left).IsCloseTo(home, 1e-6);
 
-        // Never over the column, never off the card, never off the top edge.
-        double limit = cardLocal.Right - LayoutConstants.NoteColumnWidthDip - NoteLayout.TagWidthDip(textSize);
+        // Never over the column, never off the card, never off the top edge. The column strip
+        // starts at card.Right - NoteColumnWidthDip; the tag's RIGHT edge must stop at or short
+        // of it (the old formula compared the right edge with the tag's LEFT-edge limit, which
+        // only looked right while the column was narrower — A2's 132 DIP column moved the strip
+        // left past the old bound).
+        double columnLeft = cardLocal.Right - LayoutConstants.NoteColumnWidthDip;
         Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: the tag must stop short of the column strip")
-            .That(tagRect.Right).IsStrictlyLessThan(limit);
+            .That(tagRect.Right).IsLessOrEqualThan(columnLeft);
         Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: the tag must stay within the card's x-range")
             .That(tagRect.Left >= cardLocal.Left && tagRect.Right <= cardLocal.Right).IsTrue();
         Check.WithCustomMessage($"tip {tipCardRelX} at {textSize}: the tag must straddle the top edge")

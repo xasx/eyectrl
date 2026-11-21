@@ -11,6 +11,12 @@
       "Reason": "The Undo chip's dwell-target suffix (P2 D5): {noteId}:undo, split by the same convention as :done/:close; never shown."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"note-control fired: control={Control} note={Number} distDip={DistanceDip} dwellMs={DwellMs}\"",
+      "Category": "log",
+      "Reason": "A4's per-fired-control line (sitting 10): control id, note number, the gaze's distance from the control's centre in whole DIP and the target's dwell in ms. Written to the log only, parsed by the sitting readout; never shown, and never any note text."
+    },
+    {
       "Path": "src/EyeCtrl.App/Diagnostics/SubPixel/ProbeRingVisual.cs",
       "Literal": "\"X2\"",
       "Category": "data",

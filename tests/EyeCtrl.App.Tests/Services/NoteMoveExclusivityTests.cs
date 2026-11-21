@@ -85,16 +85,20 @@ public class NoteMoveExclusivityTests
         var probe = new NoteManagerTests.FakeKeyboardProbe
         {
             IsVisible = true,
-            RectsProvider = () => new[] { new PhysicalRect(800, 1000, 1000, 240) }, // DIP (400, 500, 500, 120)
+            // DIP (400, 620, 500, 120): a band low enough that the A2 Display card (468 DIP tall)
+            // still finds an Above window clear of it inside the 80 DIP inset.
+            RectsProvider = () => new[] { new PhysicalRect(800, 1240, 1000, 240) },
         };
         manager.SetKeyboardProbe(probe);
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
-            // The moving note sits at DIP (800, 500): its next side (Left) window and the Below
+            // The moving note sits at DIP (800, 590): its next side (Left) window and the Below
             // window intersect the keyboard's avoid rect, so the cycle lands on Above and the
-            // offer registers.
-            var id = manager.AddMovingNoteTargetsForTest(new PhysicalPoint(1600, 1000));
+            // offer registers. (At the A2 card size the 80 DIP inset leaves Above no room for an
+            // anchor at 500: the card plus the tail is 498 DIP, so the band above the keyboard
+            // has to reach 622 DIP — hence the lower band and anchor.)
+            var id = manager.AddMovingNoteTargetsForTest(new PhysicalPoint(1600, 1180));
             var judged = manager.JudgedOtherSideForTest;
             Check.WithCustomMessage("the offer must have judged an alternative under the avoid set")
                 .That(judged).IsNotNull();

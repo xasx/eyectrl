@@ -47,10 +47,10 @@ public class NoteKeyboardAvoidanceTests
 
     private const double Scale = 2.0;
 
-    /// <summary>The note card at the default text size: 550 wide, the control column's 340 tall.</summary>
-    private static readonly Size Card = new(
-        NoteLayout.CardWidthDip(NoteSettings.DefaultTextSizeDip),
-        NoteLayout.CardHeightDip(NoteSettings.DefaultTextSizeDip, 0, WorkArea.Height));
+    /// <summary>The note's EDIT card at the default text size (K2a): the compact card — text
+    /// above, one row of three controls below — not the 468 DIP Display column.</summary>
+    private static readonly Size Card = NoteLayout.EditCardSize(
+        NoteSettings.DefaultTextSizeDip, 0, WorkArea.Height);
 
     private static readonly Rect Inset = new(
         NoteLayout.Constants.EdgeMarginDip,
@@ -155,21 +155,33 @@ public class NoteKeyboardAvoidanceTests
     public void ATallEditCard_SlidesToTheLeastOverlap_InsteadOfLandingInsideTheKeyboard(
         double x, double y, double textSize)
     {
-        // The owner's geometry, a 480 DIP card: taller than the clear room under the top keyboard,
-        // so nothing fits. The drawn window must keep a non-negative clearance - it slides just
-        // over the keyboard's edge (the reviewer measured 18 DIP at (300, 700)) - instead of the
-        // old preferred-side clamp, which sat 70-130 DIP inside it.
+        // The owner's geometry, a SYNTHETIC 480 DIP card. K2a's real Edit card is about 194 DIP at
+        // 36, so this probe now exercises the fallback only for a card taller than the clear room
+        // — which A2's 80 DIP edge margin shrank to 1152 - 80 - 575 = 497 DIP (480 + the 24 gap
+        // no longer fits). The rule that matters is unchanged: the drawn window overlaps the
+        // keyboard LESS than the old preferred-side clamp did (the reviewer measured the clamp
+        // 70-130 DIP inside; the least-overlap slide was 18 DIP at (300, 700) before A2's margin
+        // and lands within the tag's protrusion of the edge now), and it stays inside the inset.
         var keyboard = new Rect(251, 0, 1418, 575);
         var card = new Size(NoteLayout.CardWidthDip(textSize), 480);
         var placement = NoteLayout.Place(
             Phys(x, y), NoteSide.Right, card, WorkArea, new[] { keyboard }, Scale,
             exclude: null, allowDisplaced: true, topGrowthDip: NoteLayout.TagProtrusionDip(textSize))!;
         var drawn = NoteLayout.WithTagClearance(placement, textSize);
+        var old = NoteLayout.Place(
+            Phys(x, y), NoteSide.Right, card, WorkArea, new[] { keyboard }, Scale,
+            exclude: null, allowDisplaced: false)!;
+        var oldDrawn = NoteLayout.WithTagClearance(old, textSize);
 
         double clearance = SignedClearance(drawn.Window, keyboard);
         Check.WithCustomMessage(
-                $"a tall card at ({x}, {y}) and {textSize} DIP must not overlap the keyboard (clearance {clearance})")
-            .That(clearance).IsGreaterOrEqualThan(0);
+                $"a tall card at ({x}, {y}) and {textSize} DIP must overlap the keyboard less than the "
+                + $"old clamp (least overlap {clearance}, clamp {SignedClearance(oldDrawn.Window, keyboard)})")
+            .That(clearance).IsStrictlyGreaterThan(SignedClearance(oldDrawn.Window, keyboard));
+        Check.WithCustomMessage($"the least-overlap window {drawn.Window} must stay inside the inset")
+            .That(drawn.Window.Left >= Inset.Left && drawn.Window.Top >= Inset.Top
+                && drawn.Window.Right <= Inset.Right && drawn.Window.Bottom <= Inset.Bottom)
+            .IsTrue();
     }
 
     [StaFact]
@@ -418,12 +430,13 @@ public class NoteKeyboardAvoidanceTests
 
     /// <summary>The ✓ Done (slot 0) and ↩ Discard (slot 3) dwell cells of an Edit placement must
     /// stay a key's reach clear of every rect the keyboard occupies — the cells are what the
-    /// caretaker dwells on, not the card's chrome.</summary>
+    /// caretaker dwells on, not the card's chrome. K2a: those controls sit in the Edit row, so
+    /// the cells are read through the state-aware centre.</summary>
     private static void AssertCellsClear(NotePlacement placement, params Rect[] keyboardRects)
     {
         foreach (var slot in new[] { 0, 3 })
         {
-            var (cx, cy) = NoteLayout.ButtonCenter(placement, slot);
+            var (cx, cy) = NoteLayout.ButtonCenter(placement, slot, NoteState.Edit);
             var cell = new Rect(
                 placement.Window.X + cx - (LayoutConstants.NoteCellDip / 2),
                 placement.Window.Y + cy - (LayoutConstants.NoteCellDip / 2),
@@ -528,9 +541,8 @@ public class NoteKeyboardAvoidanceTests
         var keyboard = bottom
             ? new Rect(251, 1152 - 575, 1418, 575)
             : new Rect(251, 0, 1418, 575);
-        var card = new Size(
-            NoteLayout.CardWidthDip(textSize),
-            NoteLayout.CardHeightDip(textSize, 0, WorkArea.Height));
+        // K2a: an EDITING note places the compact card (text above, one row of controls below).
+        var card = NoteLayout.EditCardSize(textSize, 0, WorkArea.Height);
 
         var placement = NoteLayout.Place(
             Phys(x, y), side, card, WorkArea, new[] { keyboard }, Scale,
@@ -544,17 +556,18 @@ public class NoteKeyboardAvoidanceTests
         AssertDrawnPlacementKeepsClearance(drawn, keyboard, textSize, sweep);
     }
 
-    /// <summary>The sweep's three rules (T6 fixup-07 F2): the card, every hit cell and the number
-    /// tag keep the 24 DIP clearance from the keyboard on the window that is DRAWN.</summary>
+    /// <summary>The sweep's three rules (T6 fixup-07 F2; K2a's Edit row): the card, every
+    /// registered control cell and the number tag keep the 24 DIP clearance from the keyboard on
+    /// the window that is DRAWN.</summary>
     private static void AssertDrawnPlacementKeepsClearance(
         NotePlacement drawn, Rect keyboard, double textSize, string label)
     {
         Check.WithCustomMessage($"the card of {label} must keep the clearance from the keyboard")
             .That(GapFrom(drawn.Card, keyboard)).IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
 
-        for (int slot = 0; slot < 4; slot++)
+        foreach (var slot in NoteLayout.SlotsFor(NoteState.Edit))
         {
-            var (cx, cy) = NoteLayout.ButtonCenter(drawn, slot);
+            var (cx, cy) = NoteLayout.ButtonCenter(drawn, slot, NoteState.Edit);
             var cell = new Rect(
                 drawn.Window.X + cx - (LayoutConstants.NoteCellDip / 2),
                 drawn.Window.Y + cy - (LayoutConstants.NoteCellDip / 2),
@@ -605,9 +618,12 @@ public class NoteKeyboardAvoidanceTests
     [MemberData(nameof(OwnerRealGeometrySweep))]
     public void InEdit_OnTheOwnerRealKeyboard_TheCardItsCellsAndItsTag_KeepTheClearance(string sweep)
     {
-        // K1 part 2: the same three rules on the keyboard the owner actually has. The docked
-        // keyboards leave a 425.5 DIP band (1088 - 662.5) under/over them, which fits the 362
-        // DIP drawn Edit card and its 24 DIP gap, so the rules must hold there.
+        // K1 part 2, K2a follow-up: the same three rules on the keyboard the owner actually has.
+        // The docked keyboards leave a 425.5 DIP band (1088 - 662.5) under/over them, and the
+        // yielded top keyboard leaves 285.5 DIP — which the COMPACT Edit card (about 194 DIP at
+        // the 36 DIP default, plus the tag's protrusion) now fits with its 24 DIP gap. The pinned
+        // known-gap branch this method used to carry for the yielded variant is gone: K2a's card
+        // cleared it, and the assertion below is the normal clearance rule.
         var parts = sweep.Split('|');
         var variant = parts[0];
         double x = double.Parse(parts[1], CultureInfo.InvariantCulture);
@@ -621,9 +637,8 @@ public class NoteKeyboardAvoidanceTests
             "bottom" => OwnerKeyboardBottom,
             _ => OwnerKeyboardYieldedTop,
         };
-        var card = new Size(
-            NoteLayout.CardWidthDip(textSize),
-            NoteLayout.CardHeightDip(textSize, 0, WorkArea.Height));
+        // K2a: an EDITING note places the compact card (text above, one row of controls below).
+        var card = NoteLayout.EditCardSize(textSize, 0, WorkArea.Height);
 
         var placement = NoteLayout.Place(
             Phys(x, y), side, card, WorkArea, new[] { keyboard }, Scale,
@@ -632,38 +647,38 @@ public class NoteKeyboardAvoidanceTests
         Check.That(placement).IsNotNull();
         var drawn = NoteLayout.WithTagClearance(placement!, textSize);
 
-        // The free band on the side the keyboard leaves for the card: under a top keyboard,
-        // above a bottom one. The yielded top keyboard leaves 285.5 DIP.
-        double freeBand = variant == "bottom"
-            ? keyboard.Top - Inset.Top
-            : Inset.Bottom - keyboard.Bottom;
-        if (freeBand < drawn.Window.Height + NoteLayout.Constants.AvoidGapDip)
-        {
-            // KNOWN GAP (pinned, not loosened): with the toolbar up, the yielded top keyboard
-            // leaves 285.5 DIP and the Edit card (340 control column + the tag's protrusion)
-            // needs 386 — no clear spot exists anywhere. The least-overlap fallback slides the
-            // card against the keyboard's bottom edge, overlapping it by exactly
-            // drawnHeight - freeBand (76.5 DIP at 36). Ticket K2a
-            // (note-controls-compact-and-bigger) compacts the Edit card and removes this gap;
-            // when it lands, this branch must become a clear-spot assertion.
-            Check.WithCustomMessage(
-                    $"{sweep}: the yielded keyboard must genuinely leave no clear spot "
-                    + $"(band {freeBand:F1}, drawn card {drawn.Window.Height:F1} + gap "
-                    + $"{NoteLayout.Constants.AvoidGapDip:F1})")
-                .That(freeBand).IsStrictlyLessThan(drawn.Window.Height + NoteLayout.Constants.AvoidGapDip);
-            Check.WithCustomMessage(
-                    $"{sweep}: the owner's yielded top keyboard (sitting 10) must leave 285.5 DIP "
-                    + "under the 140 DIP toolbar")
-                .That(freeBand).IsCloseTo(285.5, 1e-6);
-            Check.WithCustomMessage(
-                    $"{sweep}: the least-overlap fallback {drawn.Window} must overlap the yielded "
-                    + $"keyboard {keyboard} by exactly the band's shortfall")
-                .That(SignedClearance(drawn.Window, keyboard))
-                .IsCloseTo(freeBand - drawn.Window.Height, 1e-6);
-            return;
-        }
-
         AssertDrawnPlacementKeepsClearance(drawn, keyboard, textSize, sweep);
+    }
+
+    /// <summary>K2a's own pin: the compact Edit card plus the number tag fits the band the
+    /// owner's yielded top keyboard leaves under the 140 DIP toolbar, with the 24 DIP gap — the
+    /// exact geometry that used to have NO clear spot (the old 340 DIP column + tag needed
+    /// 386). Each text size's FLOOR card (no measured text) is checked, which is the card the
+    /// sweep places.
+    /// <para>
+    /// A2 moved the band itself: the edge margin is derived from the cell's half-width
+    /// (<c>NoteCellDip / 2 + 24</c>), so 112 DIP cells widen it 64 → 80 DIP and the free band
+    /// under the yielded keyboard becomes 1152 − 2 × 80 − 802.5 = 269.5 DIP, not the findings'
+    /// 285.5 (which used the 64 DIP margin). The compact card still fits at every size.
+    /// </para></summary>
+    [Theory]
+    [InlineData(18.0)]
+    [InlineData(28.0)]
+    [InlineData(36.0)]
+    [InlineData(48.0)]
+    public void TheCompactEditCard_FitsUnderTheYieldedTopKeyboard(double textSize)
+    {
+        double freeBand = Inset.Bottom - OwnerKeyboardYieldedTop.Bottom;
+        Check.WithCustomMessage(
+                "A2's 80 DIP edge margin (cell half + 24) leaves 269.5 DIP under the yielded keyboard")
+            .That(freeBand).IsCloseTo(269.5, 1e-6);
+
+        var card = NoteLayout.EditCardSize(textSize, 0, WorkArea.Height);
+        double drawnHeight = card.Height + NoteLayout.TagProtrusionDip(textSize);
+        Check.WithCustomMessage(
+                $"the compact Edit card at {textSize} DIP ({drawnHeight:F1} DIP drawn, tag included) must fit "
+                + $"the {freeBand:F1} DIP band with the {NoteLayout.Constants.AvoidGapDip:F1} DIP gap")
+            .That(drawnHeight + NoteLayout.Constants.AvoidGapDip).IsLessOrEqualThan(freeBand);
     }
 
     // ── R1 (T6 fixup-08): the side's own clamped window competes ──
@@ -674,7 +689,9 @@ public class NoteKeyboardAvoidanceTests
         // Review-07 R1: with the displaced pass offered to every failing side, a side that failed
         // only the SCREEN EDGE lost to a displaced candidate - an Edit note near the bottom edge
         // was pulled 186 DIP up, just under the keyboard. Each side's own clamped window now
-        // competes, so the card stays by its anchor (about 93 DIP, as fixup-06 had it).
+        // competes, so the card stays by its anchor. The exact distance follows the geometry: 93
+        // DIP at the pre-A2 card and 64 DIP margin, 98 at A2's compact Edit card and 80 margin —
+        // still far from the 186 the pull-up caused.
         double size = 28;
         var placement = NoteLayout.Place(
             Phys(820, 1140), NoteSide.Right, CardAt(size), WorkArea, new[] { KeyboardTop, EdgeBarTop }, Scale,
@@ -683,7 +700,7 @@ public class NoteKeyboardAvoidanceTests
 
         double distance = DistanceFromPointToRect(new Point(820, 1140), drawn.Card);
         Check.WithCustomMessage($"the card must stay by its anchor (fixup-07 pulled it 186 DIP): {distance}")
-            .That(distance).IsLessOrEqualThan(93);
+            .That(distance).IsLessOrEqualThan(100);
     }
 
     // ── R2 (T6 fixup-08): the manager's tag growth at the Edit call site ──
@@ -764,15 +781,18 @@ public class NoteKeyboardAvoidanceTests
             {
                 foreach (var size in sizes)
                 {
-                    var cardSize = new Size(
+                    // K2a: the Edit branch places the compact Edit card; the Display one keeps
+                    // the four-row column card it always had.
+                    var displayCard = new Size(
                         NoteLayout.CardWidthDip(size),
                         NoteLayout.CardHeightDip(size, 0, WorkArea.Height));
+                    var editCard = NoteLayout.EditCardSize(size, 0, WorkArea.Height);
                     foreach (var preferred in sides)
                     for (int variant = 0; variant < avoidSets.Length + 1; variant++)
                     {
                         bool edit = variant > 0;
                         var avoid = variant == 0 ? Array.Empty<Rect>() : avoidSets[variant - 1];
-                        var raw = NoteLayout.Place(Phys(x, y), preferred, cardSize, WorkArea, avoid, Scale,
+                        var raw = NoteLayout.Place(Phys(x, y), preferred, edit ? editCard : displayCard, WorkArea, avoid, Scale,
                             exclude: null, allowDisplaced: edit,
                             topGrowthDip: edit ? NoteLayout.TagProtrusionDip(size) : 0.0)!;
                         var drawn = NoteLayout.WithTagClearance(raw, size);
@@ -916,10 +936,10 @@ public class NoteKeyboardAvoidanceTests
         return new Rect(placement.Window.X + tag.X, placement.Window.Y + tag.Y, tag.Width, tag.Height);
     }
 
-    /// <summary>The note card at a text size, at the control column's floor (no text measured).</summary>
-    private static Size CardAt(double textSize) => new(
-        NoteLayout.CardWidthDip(textSize),
-        NoteLayout.CardHeightDip(textSize, 0, WorkArea.Height));
+    /// <summary>The EDIT card at a text size, at its row floor (no text measured): the compact
+    /// card an editing note places (K2a).</summary>
+    private static Size CardAt(double textSize) =>
+        NoteLayout.EditCardSize(textSize, 0, WorkArea.Height);
 
     /// <summary>The signed clearance between a window and a rect: positive when it clears on an
     /// axis, negative when it overlaps by that much (the production helper's test mirror).</summary>

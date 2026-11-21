@@ -40,7 +40,11 @@ public class NoteWindowGeometryTests
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
-            manager.CreateNoteAt(new PhysicalPoint(1600, 1000));
+            // DIP (900, 500): a "far right" anchor that still leaves the Left side a fitting
+            // window after the shrink below. A2's Display card is 702 DIP wide and the edge
+            // margin 80, so an anchor at 800 would no longer fit Left (its window would start at
+            // 62) and the shrink would clamp the preferred side instead of flipping.
+            manager.CreateNoteAt(new PhysicalPoint(1800, 1000));
             var id = manager.ActiveNotes[^1].Id;
             manager.Apply(new NoteAppend("hello"));
             manager.FinishEdit(id, commit: true);

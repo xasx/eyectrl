@@ -44,11 +44,17 @@ public class NotePlaceTriggerTests
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
-            var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(1600, 1000)); // DIP (800, 500)
+            var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(1800, 1000)); // DIP (900, 500)
             manager.Apply(new NoteAppend("hello"));      // a draft to save: Done takes the straight-back exit
             var editing = manager.PlacementForTest(id)!;
             Check.That(editing.Side).IsEqualTo(NoteSide.Right);
-            Check.That(editing.Window).IsEqualTo(new Rect(806, 330, 700, 340) with { Y = 330 - NoteLayout.TagProtrusionDip(NoteSettings.DefaultTextSizeDip), Height = 340 + NoteLayout.TagProtrusionDip(NoteSettings.DefaultTextSizeDip) }); // tail zone + card, DIP (P4 card at the 36 DIP default: 540 text + 100 column + 30 gap = 670), grown up by the number tag's protrusion
+            // K2a's compact Edit card, hand-derived at the 36 DIP default: 540 text column (the
+            // three 112 DIP cells are narrower, so the text sets the width) + 2 x 10 padding =
+            // 560 wide; 10 + 45 (one line) + 2 (marker gap) + 14.67 (marker) + 112 (row) + 10 =
+            // 194 tall, rounded up. The Right window adds the 30 DIP tail zone and starts at
+            // 900 + 6; the number tag grows it upward by its 22 DIP protrusion.
+            Check.That(editing.Card.Size).IsEqualTo(new Size(560, 194));
+            Check.That(editing.Window).IsEqualTo(new Rect(906, 500 - 97 - 22, 590, 216));
 
             // T1: the keyboard appears over the card's right-side window (the bench work area DIP
             // rect doubled to physical when the probe delivers it).
@@ -72,7 +78,16 @@ public class NotePlaceTriggerTests
             manager.FinishEdit(id, commit: true);
             var restored = manager.PlacementForTest(id)!;
             Check.That(restored.Side).IsEqualTo(NoteSide.Right);
-            Check.That(restored.Window).IsEqualTo(editing.Window);
+            // Display is a DIFFERENT card since K2a (the four-row column: 702 x 468 at 36, not the
+            // compact Edit card), so the restored window is the no-avoid Display derivation —
+            // not the Edit window it replaced.
+            var display = NoteLayout.WithTagClearance(
+                NoteLayout.Place(new PhysicalPoint(1800, 1000), restored.Side, restored.Card.Size,
+                    NoteTestBench.WorkArea, Array.Empty<Rect>(), 2.0)!,
+                NoteSettings.DefaultTextSizeDip);
+            Check.That(restored.Window).IsEqualTo(display.Window);
+            Check.WithCustomMessage("the restored Display card must not be the compact Edit card")
+                .That(restored.Card.Height).IsEqualTo(NoteLayout.ControlsColumnHeightDip);
         }
         finally
         {
@@ -200,13 +215,13 @@ public class NotePlaceTriggerTests
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
-            var far = manager.AddNoteTargetsForTest(new PhysicalPoint(1600, 1000));    // DIP (800, 500)
+            var far = manager.AddNoteTargetsForTest(new PhysicalPoint(1800, 1000));    // DIP (900, 500): far enough right that Left fits after the shrink
             var near = manager.AddNoteTargetsForTest(new PhysicalPoint(200, 400));     // DIP (100, 200)
             var farBefore = manager.PlacementForTest(far)!;
             var nearBefore = manager.PlacementForTest(near)!;
 
             // T6: the work area shrinks (the message the geometry watcher broadcast) — EVERY note
-            // re-derives. `far`'s right side no longer fits (right edge 1116 > inset 946), `far`
+            // re-derives. `far`'s right side no longer fits (right edge 1608 > inset 920), `far`
             // moves to Left; `near`'s right side still fits and it stays put.
             area = new Rect(0, 0, 1000, 1200);
             messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(1000, 1200, 2, 2)));
@@ -239,7 +254,7 @@ public class NotePlaceTriggerTests
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
-            var far = manager.AddNoteTargetsForTest(new PhysicalPoint(1600, 1000));    // DIP (800, 500)
+            var far = manager.AddNoteTargetsForTest(new PhysicalPoint(1800, 1000));    // DIP (900, 500): far enough right that Left fits after the shrink
             manager.AddNoteTargetsForTest(new PhysicalPoint(200, 400));                // DIP (100, 200)
 
             area = new Rect(0, 0, 1000, 1200);

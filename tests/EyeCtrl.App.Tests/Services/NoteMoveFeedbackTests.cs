@@ -162,12 +162,14 @@ public class NoteMoveFeedbackTests
     [StaTheory]
     [InlineData(18)]
     [InlineData(28)]
+    [InlineData(36)]
     [InlineData(48)]
     public void TheMoveHint_StaysInsideTheCard_AtEveryTextSize(double textSize)
     {
-        // F3 addendum: the German instruction is 41 characters. It must wrap to at most two
-        // lines at 28 DIP in the 420 DIP text column, and the plate must stay inside the card —
-        // inside its border — at the smallest and largest sizes too.
+        // F3 addendum, T1: the German instruction is 41 characters. It must wrap to at most two
+        // lines at EVERY text size — the default 36 DIP included (the old assertion only ran at
+        // `textSize == TextSize`, and the InlineData set never contained 36, so it never ran at
+        // all) — and the plate must stay inside the card, inside its border.
         var messenger = new WeakReferenceMessenger();
         var settings = new NoteSettings { TextSizeDip = (int)textSize };
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
@@ -204,11 +206,8 @@ public class NoteMoveFeedbackTests
                     .That(local.IntersectsWith(cell)).IsFalse();
             }
 
-            if (textSize == TextSize)
-            {
-                Check.WithCustomMessage("the German hint must wrap to at most two lines at 28 DIP")
-                    .That(lines).IsLessOrEqualThan(2);
-            }
+            Check.WithCustomMessage($"the German hint must wrap to at most two lines at {textSize} DIP")
+                .That(lines).IsLessOrEqualThan(2);
         }
         finally
         {

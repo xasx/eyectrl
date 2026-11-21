@@ -35,13 +35,21 @@ public sealed class UserDictionaryService
     private readonly EyeCtrlSettings _settings;
     private readonly string _appDataDir;
     private readonly string _baseDir;
+    private readonly Action<Exception, string> _logWarning;
     private PredictionStackFactory? _factory;
 
-    public UserDictionaryService(EyeCtrlSettings settings, string appDataDir, string? baseDir = null)
+    public UserDictionaryService(
+        EyeCtrlSettings settings,
+        string appDataDir,
+        string? baseDir = null,
+        Action<Exception, string>? logWarning = null)
     {
         _settings = settings;
         _appDataDir = appDataDir;
         _baseDir = baseDir ?? AppDomain.CurrentDomain.BaseDirectory;
+        // The atomic-write fallback's one warning: static Serilog in production (the service has no
+        // injected logger); a recorder in tests.
+        _logWarning = logWarning ?? ((ex, message) => Log.Warning(ex, "{Message}", message));
     }
 
     /// <summary>
@@ -177,7 +185,7 @@ public sealed class UserDictionaryService
         try
         {
             FileDictionaryProvider.WriteJsonAtomically(
-                userPath, JsonSerializer.Serialize(userWords, s_writeOptions));
+                userPath, JsonSerializer.Serialize(userWords, s_writeOptions), _logWarning);
             return DictionaryWriteResult.Removed;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

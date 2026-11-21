@@ -228,6 +228,27 @@ public class UserDictionaryServiceTests : IDisposable
     }
 
     [Fact]
+    public void ForgetWord_WhenTheAtomicReplaceFallsBack_LogsOneWarning()
+    {
+        // F7 of fixup-01 (review-01): the removal route must report the plain-overwrite fallback
+        // too. Holding the target WITHOUT delete sharing refuses File.Replace while the fallback's
+        // plain write still succeeds, so this exercises the exact path the WRN exists for.
+        WriteUserFile(new() { ["hello"] = 120, ["zeppelin"] = 5 });
+        var warnings = new List<string>();
+        var service = new UserDictionaryService(
+            _settings, _appDataDir, _baseDir, (_, message) => warnings.Add(message));
+
+        using (var holder = new FileStream(UserFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            Check.That(service.ForgetWord("zeppelin"))
+                .IsEqualTo(UserDictionaryService.DictionaryWriteResult.Removed);
+        }
+
+        Check.That(warnings).HasSize(1);
+        Check.That(warnings[0]).Contains("wrote the file directly");
+    }
+
+    [Fact]
     public void FactoryForgetWords_ArmsTombstonesThatTheSwapDrains()
     {
         // The in-flight-rebuild guard: a word forgotten while a background build was loading the

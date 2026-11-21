@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Services;
 
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using EyeCtrl.Core.Services;
 
@@ -298,7 +299,7 @@ public class SingleInstanceGuardTests
     }
 
     /// <summary>
-    /// E1: ownership lives on one dedicated BACKGROUND keeper thread — never on the caller's
+    /// E1-proof: ownership lives on one dedicated BACKGROUND keeper thread — never on the caller's
     /// thread — which is what lets the watchdog release it.
     /// </summary>
     [Fact]
@@ -314,5 +315,71 @@ public class SingleInstanceGuardTests
         Check.That(keeper.IsBackground).IsTrue();
         Check.That(keeper.IsAlive).IsTrue();
         Check.That(keeper.ManagedThreadId).IsNotEqualTo(Environment.CurrentManagedThreadId);
+    }
+
+    /// <summary>
+    /// F2 of fixup-01 (review-01): the abandoned-mutex path counts as OWNED. Every crash, kill and
+    /// FailFast that skips the keeper goes through it; <see cref="ExitStuckReport.Terminate"/>'s
+    /// fallback doc relies on it. The dead owner's handle stays open so the kernel object (and its
+    /// abandoned ownership) survives, exactly as a force-killed process leaves it.
+    /// </summary>
+    [Fact]
+    public void AbandonedMutex_IsTreatedAsAcquired()
+    {
+        string name = UniqueName();
+        Mutex? held = null;
+        var owner = new Thread(() =>
+        {
+            held = new Mutex(initiallyOwned: true, name, out _); // never released; handle kept open
+        }) { IsBackground = true, Name = "abandoning owner" };
+        owner.Start();
+        Check.That(owner.Join(TimeSpan.FromSeconds(5))).IsTrue(); // the owner ended → abandoned
+
+        using var guard = new SingleInstanceGuard(name);
+        try
+        {
+            Check.That(guard.TryAcquire(TimeSpan.FromSeconds(2))).IsTrue();
+        }
+        finally
+        {
+            GC.KeepAlive(held);
+            held?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// F6 of fixup-01 (review-01): an unexpected failure creating the mutex still must not start a
+    /// second instance, but it must leave a trace instead of taking the silent "already running"
+    /// path. A name with an invalid separator makes the constructor throw an IOException.
+    /// </summary>
+    [Fact]
+    public void TryAcquire_AnUnexpectedMutexFailure_IsReported_AndCountsAsNotAcquired()
+    {
+        Exception? reported = null;
+        using var guard = new SingleInstanceGuard(
+            @"bad\name", ex => reported = ex);
+
+        Check.That(guard.TryAcquire()).IsFalse();
+        Check.That(reported).IsNotNull();
+        Check.WithCustomMessage("the unexpected creation failure was not reported as an IOException")
+            .That(reported is IOException).IsTrue();
+    }
+
+    /// <summary>
+    /// F6: the documented "already running / no access" exit stays silent — no callback. A second
+    /// guard against a live owner's name reports nothing, so a legitimate duplicate launch does
+    /// not pretend to have hit an unexpected failure.
+    /// </summary>
+    [Fact]
+    public void TryAcquire_AContendedLiveName_ReportsNoUnexpectedFailure()
+    {
+        string name = UniqueName();
+        using var first = new SingleInstanceGuard(name);
+        Check.That(first.TryAcquire()).IsTrue();
+
+        Exception? reported = null;
+        using var second = new SingleInstanceGuard(name, ex => reported = ex);
+        Check.That(second.TryAcquire()).IsFalse();
+        Check.That(reported).IsNull();
     }
 }

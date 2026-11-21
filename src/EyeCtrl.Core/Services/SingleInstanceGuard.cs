@@ -38,6 +38,7 @@ public sealed class SingleInstanceGuard : IDisposable
     internal const string KeeperThreadName = "EyeCtrl instance-mutex keeper";
 
     private readonly string _mutexName;
+    private readonly Action<Exception>? _logUnexpectedAcquireFailure;
     private readonly ManualResetEventSlim _acquireSettled = new(false);
     private readonly ManualResetEventSlim _releaseRequested = new(false);
 
@@ -47,10 +48,24 @@ public sealed class SingleInstanceGuard : IDisposable
     private int _started;
 
     /// <summary>Creates a guard for the default production mutex (<see cref="DefaultMutexName"/>).</summary>
-    public SingleInstanceGuard() : this(DefaultMutexName) { }
+    /// <param name="logUnexpectedAcquireFailure">
+    /// Receives an exception that is NOT the documented "already running / no access" outcome, so a
+    /// failed acquisition that would otherwise exit silently always leaves a trace.
+    /// </param>
+    public SingleInstanceGuard(Action<Exception>? logUnexpectedAcquireFailure = null)
+        : this(DefaultMutexName, logUnexpectedAcquireFailure) { }
 
     /// <summary>Creates a guard for a named mutex (injectable for per-test isolation).</summary>
-    public SingleInstanceGuard(string mutexName) { _mutexName = mutexName; }
+    /// <param name="mutexName">The named mutex.</param>
+    /// <param name="logUnexpectedAcquireFailure">
+    /// Receives an exception that is NOT the documented "already running / no access" outcome, so a
+    /// failed acquisition that would otherwise exit silently always leaves a trace.
+    /// </param>
+    public SingleInstanceGuard(string mutexName, Action<Exception>? logUnexpectedAcquireFailure = null)
+    {
+        _mutexName = mutexName;
+        _logUnexpectedAcquireFailure = logUnexpectedAcquireFailure;
+    }
 
     /// <summary>The keeper thread (test seam: pins that ownership lives off the caller's thread).</summary>
     internal Thread? KeeperThread => _keeper;
@@ -141,9 +156,18 @@ public sealed class SingleInstanceGuard : IDisposable
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is UnauthorizedAccessException or WaitHandleCannotBeOpenedException)
         {
+            // The documented "already running / no access" outcomes (the same rule AppInstanceProbe
+            // uses): exit silently, exactly as before.
             owned = false;
+        }
+        catch (Exception ex)
+        {
+            // Anything else (an unexpected creation failure) still must not start a second instance,
+            // but it leaves a trace instead of taking the silent "already running" path.
+            owned = false;
+            try { _logUnexpectedAcquireFailure?.Invoke(ex); } catch { }
         }
 
         _owned = owned;

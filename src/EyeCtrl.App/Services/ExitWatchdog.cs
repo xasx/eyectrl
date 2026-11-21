@@ -135,7 +135,7 @@ internal sealed class ExitWatchdog
 /// the day's file — that is the post-step-list stage (dispatcher teardown, <c>Main</c> return).
 /// </para>
 /// <para>
-/// The mutex keeper is then signalled (see <see cref="ExitStuckReport.Terminate(string, string, Action?)"/>),
+/// The mutex keeper is then signalled (see <see cref="ExitStuckReport.Terminate(string, string, Func{bool})"/>),
 /// so a queued restart replacement is freed even while this process is in the FailFast. The process is
 /// ended with <see cref="Environment.FailFast(string)"/> so Windows records an event and WER can
 /// capture a dump. If the keeper could not be reached, or the process dies before it releases, the
@@ -159,7 +159,8 @@ internal static class ExitStuckReport
     internal static void AppendStuckLine(string logsDirectory, string step, DateTime now)
     {
         ArgumentNullException.ThrowIfNull(step);
-        AppendLine(logsDirectory, "FTL", $"EyeCtrl exit stuck in step '{step}'", now);
+        AppendLine(logsDirectory, "FTL", typeof(ExitWatchdog).FullName,
+            $"EyeCtrl exit stuck in step '{step}'", now);
     }
 
     /// <summary>
@@ -169,21 +170,42 @@ internal static class ExitStuckReport
     /// <param name="logsDirectory">The directory <c>LoggingInitializer</c> writes to.</param>
     /// <param name="now">The local time (Serilog's daily roll uses local time); injectable for tests.</param>
     internal static void AppendReleasedLine(string logsDirectory, DateTime now)
-        => AppendLine(logsDirectory, "INF", ReleasedMessage, now);
+        => AppendLine(logsDirectory, "INF", typeof(ExitWatchdog).FullName, ReleasedMessage, now);
 
-    /// <summary>The one line the watchdog writes after it has signalled the mutex keeper.</summary>
+    /// <summary>The one line the watchdog writes when the keeper really released the mutex.</summary>
     internal const string ReleasedMessage = "Exit watchdog: released single-instance mutex";
 
-    private static void AppendLine(string logsDirectory, string level, string message, DateTime now)
+    /// <summary>
+    /// Appends one WRN line for an unexpected acquisition failure that would otherwise exit
+    /// silently. The duplicate-instance exit runs before <c>LoggingInitializer</c>, so the day
+    /// file — the same one the exit lines use — is the only route that leaves a trace.
+    /// </summary>
+    /// <param name="logsDirectory">The directory <c>LoggingInitializer</c> writes to.</param>
+    /// <param name="exception">The unexpected failure from creating/opening the mutex.</param>
+    internal static void AppendStartupFailure(string logsDirectory, Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        AppendLine(logsDirectory, "WRN", typeof(App).FullName,
+            "Single-instance mutex acquisition failed unexpectedly: "
+            + $"{exception.GetType().Name}: {exception.Message}",
+            DateTime.Now);
+    }
+
+    private static void AppendLine(
+        string logsDirectory, string level, string source, string message, DateTime now)
     {
         ArgumentException.ThrowIfNullOrEmpty(logsDirectory);
+
+        // One physical line per event: an exception message can carry newlines, and the log reader
+        // (and tools/kb_log_metrics.py-style parsers) must never see two lines for one event.
+        message = message.Replace('\r', ' ').Replace('\n', ' ');
 
         // The date is formatted through the invariant culture *explicitly* (never the ambient one):
         // the line is machine-read by the exit-hang investigation, and the file must be the exact
         // one Serilog's daily roll writes (eyectrl-yyyyMMdd.log).
         string stamp = now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
         string day = now.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
-        string line = $"{stamp} [{level}] [{typeof(ExitWatchdog).FullName}] {message}";
+        string line = $"{stamp} [{level}] [{source}] {message}";
         string path = Path.Combine(logsDirectory, $"eyectrl-{day}.log");
         Directory.CreateDirectory(logsDirectory);
         // Same file as Serilog's daily roll; no BOM, because the sink writes UTF-8 without one.
@@ -243,15 +265,17 @@ internal static class ExitStuckReport
     /// <param name="logsDirectory">The directory <c>LoggingInitializer</c> writes to.</param>
     /// <param name="step">The name of the step that never returned.</param>
     /// <param name="releaseMutex">
-    /// Signals the keeper and returns when it has released (or the bounded wait expired).
-    /// <see langword="null"/> when no guard was created (a duplicate launch that lost the mutex).
+    /// Signals the keeper and returns <see langword="true"/> when it released the mutex;
+    /// <see langword="false"/> on the bounded timeout. <see langword="null"/> when no guard was
+    /// created (a duplicate launch that lost the mutex).
     /// </param>
-    internal static void Terminate(string logsDirectory, string step, Action? releaseMutex = null)
+    internal static void Terminate(string logsDirectory, string step, Func<bool>? releaseMutex = null)
         => Terminate(logsDirectory, step, releaseMutex, message => Environment.FailFast(message));
 
     /// <summary>
-    /// The testable core of <see cref="Terminate(string, string, Action?)"/>: file/process effects
-    /// are seams, so a HEADLESS test can pin the order — stuck line, keeper release, FailFast.
+    /// The testable core of <see cref="Terminate(string, string, Func{bool})"/>: file/process
+    /// effects are seams, so a HEADLESS test can pin the order — stuck line, keeper release,
+    /// FailFast — and that the released line is written only when the release really returned true.
     /// </summary>
     /// <param name="logsDirectory">The directory <c>LoggingInitializer</c> writes to.</param>
     /// <param name="step">The name of the step that never returned.</param>
@@ -260,7 +284,7 @@ internal static class ExitStuckReport
     internal static void Terminate(
         string logsDirectory,
         string step,
-        Action? releaseMutex,
+        Func<bool>? releaseMutex,
         Action<string> failFast)
     {
         ArgumentNullException.ThrowIfNull(failFast);
@@ -279,18 +303,20 @@ internal static class ExitStuckReport
         // keeper owns the mutex, so this call releases it even though this is not the owner thread.
         if (releaseMutex is not null)
         {
+            Exception? failure = null;
+            bool released = false;
             try
             {
-                releaseMutex();
+                released = releaseMutex();
             }
-            catch
+            catch (Exception ex)
             {
-                // The report of the failure is worth less than the process ending.
+                failure = ex;
             }
 
             try
             {
-                ReportReleased(logsDirectory);
+                ReportMutexRelease(logsDirectory, released, failure);
             }
             catch
             {
@@ -302,15 +328,27 @@ internal static class ExitStuckReport
     }
 
     /// <summary>
-    /// Logs the one release line by both routes, exactly like <see cref="Report"/>: the open sink
-    /// first (bounded, because the hung step may hold Serilog's write lock), then the direct append
-    /// for after <c>CloseAndFlush</c>.
+    /// Writes exactly one line for the release attempt: the released line only when the release
+    /// returned true, otherwise one WRN naming the reason. Both routes exactly like
+    /// <see cref="Report"/>: the open sink first (bounded, because the hung step may hold Serilog's
+    /// write lock), then the direct append for after <c>CloseAndFlush</c>.
     /// </summary>
-    private static void ReportReleased(string logsDirectory)
+    private static void ReportMutexRelease(string logsDirectory, bool released, Exception? failure)
     {
+        bool warning = !released;
+        string message = released
+            ? ReleasedMessage
+            : "Exit watchdog: single-instance mutex release failed ("
+              + (failure is null ? "timed out" : $"{failure.GetType().Name}: {failure.Message}")
+              + ")";
+
         try
         {
-            var logThread = new Thread(() => Log.Information(ReleasedMessage))
+            var logThread = new Thread(() =>
+            {
+                if (warning) Log.Warning("{Message}", message);
+                else Log.Information("{Message}", message);
+            })
             {
                 IsBackground = true,
                 Name = "EyeCtrl exit release report",
@@ -325,7 +363,10 @@ internal static class ExitStuckReport
 
         try
         {
-            AppendReleasedLine(logsDirectory, DateTime.Now);
+            if (released)
+                AppendReleasedLine(logsDirectory, DateTime.Now);
+            else
+                AppendLine(logsDirectory, "WRN", typeof(ExitWatchdog).FullName, message, DateTime.Now);
         }
         catch
         {

@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.Collections.Concurrent;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Services;
 using Microsoft.Extensions.Time.Testing;
 
 /// <summary>
@@ -95,8 +96,14 @@ public class ExitWatchdogTests
     public void BudgetRatchet_StuckExitStillFitsInsideTheRestartChildsMutexWait()
     {
         TimeSpan dumpAllowance = TimeSpan.FromSeconds(10);
+        // ReleaseWait is on the child's path too (the keeper's bounded release), so a raise of it
+        // must trip the ratchet as well (fixup-01 F5). The dump allowance stays as the belt-and-
+        // braces guard: with E1 the child no longer waits on WER/dump at all.
         TimeSpan worstCase =
-            ExitWatchdog.DefaultBudget + ExitStuckReport.LogFatalBudget + dumpAllowance;
+            ExitWatchdog.DefaultBudget
+            + ExitStuckReport.LogFatalBudget
+            + SingleInstanceGuard.ReleaseWait
+            + dumpAllowance;
 
         Check.That(worstCase).IsLessThan(RestartHandoff.MutexWait);
     }

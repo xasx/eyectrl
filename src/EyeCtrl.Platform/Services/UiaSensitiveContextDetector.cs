@@ -32,7 +32,7 @@ using Microsoft.Extensions.Logging;
 public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
 {
     /// <summary>How long <see cref="Stop"/> waits for the removal before abandoning its thread.</summary>
-    internal static readonly TimeSpan StopBudget = TimeSpan.FromSeconds(1);
+    internal static readonly TimeSpan StopBudget = TimeSpan.FromSeconds(2);
 
     private static readonly int OwnProcessId = Environment.ProcessId;
 

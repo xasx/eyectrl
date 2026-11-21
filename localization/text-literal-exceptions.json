@@ -1769,6 +1769,12 @@
       "Reason": "F10: duck event line with the communication-session count (an int); log-only, never shown."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/ExitWatchdog.cs",
+      "Literal": "\"Exit watchdog: released single-instance mutex\"",
+      "Category": "log",
+      "Reason": "The exit watchdog's release line: written to the log (through Serilog, or the day file after CloseAndFlush) once the mutex keeper has released it; never shown."
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/ExitSequencePlan.cs",
       "Literal": "\"release single-instance mutex\"",
       "Category": "id",

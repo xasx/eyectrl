@@ -125,16 +125,21 @@ public partial class App : Application
         //
         // A restart replacement is the one case that must WAIT rather than fail fast: the
         // instance it replaces holds the mutex until the very end of its own OnExit.
-        _singleInstance = new SingleInstanceGuard();
+        //
+        // The mutex is owned by the guard's keeper thread, not this one: CloseHandle does not
+        // release ownership, so a hung UI thread could never let a restart child in.
+        _singleInstance = new SingleInstanceGuard(LogUnexpectedMutexFailure);
         if (!_singleInstance.TryAcquire(isRestartHandoff ? RestartHandoff.MutexWait : TimeSpan.Zero))
         {
             // Another instance is already running (likely the supervisor's legitimate one),
             // or — for a handoff — the outgoing instance never let go. Either way, exit:
             // one working instance beats two fighting over the gaze device.
             //
-            // Deliberately unlogged: InitializeSettingsAndLogging() has not run yet, so
-            // Serilog's static Log is still a SilentLogger and a Log.Information here would
-            // compile and then discard the line. See the note below for what that costs.
+            // The documented "already running / no access" outcome is deliberately unlogged:
+            // InitializeSettingsAndLogging() has not run yet, so Serilog's static Log is still a
+            // SilentLogger. An UNEXPECTED acquisition failure is not silent: the guard hands it to
+            // LogUnexpectedMutexFailure, which writes one WRN line straight to the day's log file
+            // (the same route the stuck-exit report uses), so there is always a trace.
             Shutdown();
             return;
         }
@@ -860,7 +865,15 @@ public partial class App : Application
                 ServiceProvider = _serviceProvider,
                 SingleInstance = _singleInstance,
             },
-            terminate: step => ExitStuckReport.Terminate(LogsDirectory, step));
+            terminate: step => ExitStuckReport.Terminate(
+                LogsDirectory,
+                step,
+                // The keeper owns the mutex, so this releases it even while this (UI) thread is
+                // the one stuck; bounded by ReleaseWait inside the guard, and the FailFast still
+                // runs whatever the outcome.
+                _singleInstance is { } singleInstance
+                    ? () => singleInstance.Release(SingleInstanceGuard.ReleaseWait)
+                    : null));
 
         try
         {
@@ -886,6 +899,24 @@ public partial class App : Application
                 ? AppBootstrapper.DefaultAppDataDir
                 : _appDataDir;
             return Path.Combine(appDataDir, "logs");
+        }
+    }
+
+    /// <summary>
+    /// The guard's unexpected-acquisition-failure sink: one WRN line straight into the day's log
+    /// file. It cannot use Serilog — this runs before <see cref="InitializeSettingsAndLogging"/>,
+    /// so the static logger is a SilentLogger — and the duplicate-instance exit must leave a trace.
+    /// Never throws: a broken disk must not change the exit.
+    /// </summary>
+    private void LogUnexpectedMutexFailure(Exception exception)
+    {
+        try
+        {
+            ExitStuckReport.AppendStartupFailure(LogsDirectory, exception);
+        }
+        catch
+        {
+            // Best effort: the silent duplicate-instance exit is still the safe outcome.
         }
     }
 

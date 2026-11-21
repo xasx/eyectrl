@@ -19,6 +19,15 @@ using Microsoft.Extensions.Logging.Abstractions;
 public class UiaSensitiveContextDetectorThreadingTests
 {
     [Fact]
+    public void StopBudgetRatchet_TheRemovalBudgetStaysAtTwoSeconds()
+    {
+        // The 20.11 sitting measured 621 ms of hook removal; 1 s left too little headroom on a
+        // slow box, and the VALUE must be pinned so a revert to 1 s cannot slide through while
+        // the hung-remove test merely tracks whatever the constant says (fixup-01 F5 / r6).
+        Check.That(UiaSensitiveContextDetector.StopBudget >= TimeSpan.FromSeconds(2)).IsTrue();
+    }
+
+    [Fact]
     public void Start_AddsTheHookOnADedicatedMtaBackgroundThread_AndStopRemovesItOnThatSameThread()
     {
         OnStaThreadWithDispatcher(() =>
@@ -63,7 +72,10 @@ public class UiaSensitiveContextDetectorThreadingTests
                 elapsed.Stop();
 
                 Check.That(hook.EnteredRemove.Wait(TimeSpan.FromSeconds(5))).IsTrue();
-                Check.That(elapsed.Elapsed).IsLessThan(TimeSpan.FromSeconds(1.5));
+                // The detector abandons the (background) hook thread at StopBudget, so Stop must
+                // return by then; the slack is scheduling allowance, not a second budget.
+                Check.That(elapsed.Elapsed)
+                    .IsLessThan(UiaSensitiveContextDetector.StopBudget + TimeSpan.FromMilliseconds(500));
             }
             finally
             {

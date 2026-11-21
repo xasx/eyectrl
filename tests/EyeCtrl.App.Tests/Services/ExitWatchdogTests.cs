@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.Collections.Concurrent;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Services;
 using Microsoft.Extensions.Time.Testing;
 
 /// <summary>
@@ -83,5 +84,27 @@ public class ExitWatchdogTests
         time.Advance(ExitWatchdog.DefaultBudget + TimeSpan.FromSeconds(1));
         Check.That(terminated.Wait(TimeSpan.FromSeconds(5))).IsTrue();
         Check.That(calls).HasSize(1);
+    }
+
+    /// <summary>
+    /// E3 budget ratchet: a stuck exit must still fit inside a restart replacement's mutex wait,
+    /// even with a mid-size WER dump (the 21.11 holistic review's 3–7 s estimate, rounded up).
+    /// With E1 the child no longer waits on the dump at all — the keeper releases BEFORE FailFast —
+    /// but the sum stays pinned so a later budget raise cannot quietly recreate the 30 s collision.
+    /// </summary>
+    [Fact]
+    public void BudgetRatchet_StuckExitStillFitsInsideTheRestartChildsMutexWait()
+    {
+        TimeSpan dumpAllowance = TimeSpan.FromSeconds(10);
+        // ReleaseWait is on the child's path too (the keeper's bounded release), so a raise of it
+        // must trip the ratchet as well (fixup-01 F5). The dump allowance stays as the belt-and-
+        // braces guard: with E1 the child no longer waits on WER/dump at all.
+        TimeSpan worstCase =
+            ExitWatchdog.DefaultBudget
+            + ExitStuckReport.LogFatalBudget
+            + SingleInstanceGuard.ReleaseWait
+            + dumpAllowance;
+
+        Check.That(worstCase).IsLessThan(RestartHandoff.MutexWait);
     }
 }

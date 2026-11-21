@@ -312,7 +312,7 @@ public class FileDictionaryProvider : IDictionaryProvider
         }
 
         var json = JsonSerializer.Serialize(delta, s_writeOptions);
-        WriteJsonAtomically(_userDictionaryPath, json);
+        WriteJsonAtomically(_userDictionaryPath, json, _logger);
     }
 
     /// <summary>
@@ -445,7 +445,7 @@ public class FileDictionaryProvider : IDictionaryProvider
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        WriteJsonAtomically(path, JsonSerializer.Serialize(data, s_writeOptions));
+        WriteJsonAtomically(path, JsonSerializer.Serialize(data, s_writeOptions), _logger);
     }
 
     /// <summary>
@@ -459,11 +459,31 @@ public class FileDictionaryProvider : IDictionaryProvider
     /// exit watchdog ends a stuck exit with <c>FailFast</c> by design, so a kill can land inside a
     /// save: with the swap it leaves either the old file or the new one, never a truncated one.
     /// </para>
+    /// <para>
+    /// Public because the settings page's dictionary removal
+    /// (<c>UserDictionaryService.RewriteUserFileWithout</c>) writes the same user file and must use
+    /// the same swap. The direct-overwrite fallback is kept for a transient replace failure, and
+    /// reports one warning when it is used: it is the only write that can still be cut short.
+    /// </para>
     /// </summary>
     /// <param name="path">The destination file.</param>
     /// <param name="json">The complete serialized content.</param>
-    private static void WriteJsonAtomically(string path, string json)
+    /// <param name="logger">Receives the warning when the direct-overwrite fallback runs.</param>
+    public static void WriteJsonAtomically(string path, string json, ILogger? logger = null)
+        => WriteJsonAtomically(
+            path, json, (ex, message) => logger?.LogWarning(ex, "{Message}", message));
+
+    /// <summary>
+    /// The same atomic swap, with a plain callback instead of an <see cref="ILogger{T}"/>: the
+    /// settings page's dictionary removal logs through static Serilog and has no injected logger.
+    /// </summary>
+    /// <param name="path">The destination file.</param>
+    /// <param name="json">The complete serialized content.</param>
+    /// <param name="onFallback">Receives the exception and the one warning line when the fallback runs.</param>
+    public static void WriteJsonAtomically(string path, string json, Action<Exception, string> onFallback)
     {
+        ArgumentNullException.ThrowIfNull(onFallback);
+
         var temp = path + ".tmp";
         File.WriteAllText(temp, json);
         try
@@ -473,11 +493,13 @@ public class FileDictionaryProvider : IDictionaryProvider
             else
                 File.Move(temp, path);
         }
-        catch (IOException) when (File.Exists(temp))
+        catch (IOException ex) when (File.Exists(temp))
         {
             // Replace can fail transiently (antivirus locks, a reader holding the target on
             // platforms without share-delete). Fall back to the direct overwrite rather than
-            // losing the save; the reader's LoadJson already handles IO errors.
+            // losing the save; the reader's LoadJson already handles IO errors. The warning is
+            // the only signal that the atomic guarantee was given up for this write.
+            onFallback(ex, $"Atomic replace of {path} failed; wrote the file directly instead");
             File.Delete(temp);
             File.WriteAllText(path, json);
         }

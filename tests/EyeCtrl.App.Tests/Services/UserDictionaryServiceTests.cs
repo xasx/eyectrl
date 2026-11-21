@@ -162,6 +162,23 @@ public class UserDictionaryServiceTests : IDisposable
     }
 
     [Fact]
+    public void ForgetWord_WhenTheAtomicStagingFileCannotBeWritten_LeavesTheFileIntact_AndReportsWriteFailed()
+    {
+        // L2: the removal path now writes through the same temp-and-swap as
+        // FileDictionaryProvider.Save. A directory squatting on the staging path makes the temp
+        // write fail BEFORE the destination is touched. The old plain File.WriteAllText ignores
+        // that staging path and overwrites the user file here — this test goes RED for that mutant.
+        WriteUserFile(new() { ["hello"] = 120, ["zeppelin"] = 5 });
+        string before = File.ReadAllText(UserFile);
+        Directory.CreateDirectory(UserFile + ".tmp");
+
+        var result = Create().ForgetWord("zeppelin");
+
+        Check.That(result).IsEqualTo(UserDictionaryService.DictionaryWriteResult.WriteFailed);
+        Check.That(File.ReadAllText(UserFile)).IsEqualTo(before);
+    }
+
+    [Fact]
     public void ForgetWord_MissingUserFile_StillForgetsTheLiveStack()
     {
         // Review finding 5: the file half is a no-op (no file), so an early return would strand
@@ -208,6 +225,27 @@ public class UserDictionaryServiceTests : IDisposable
         Check.That(service.GetLearnedWords()).IsEmpty();
         var onDisk = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(UserFile))!;
         Check.That(onDisk.Keys).ContainsExactly("hello");
+    }
+
+    [Fact]
+    public void ForgetWord_WhenTheAtomicReplaceFallsBack_LogsOneWarning()
+    {
+        // F7 of fixup-01 (review-01): the removal route must report the plain-overwrite fallback
+        // too. Holding the target WITHOUT delete sharing refuses File.Replace while the fallback's
+        // plain write still succeeds, so this exercises the exact path the WRN exists for.
+        WriteUserFile(new() { ["hello"] = 120, ["zeppelin"] = 5 });
+        var warnings = new List<string>();
+        var service = new UserDictionaryService(
+            _settings, _appDataDir, _baseDir, (_, message) => warnings.Add(message));
+
+        using (var holder = new FileStream(UserFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            Check.That(service.ForgetWord("zeppelin"))
+                .IsEqualTo(UserDictionaryService.DictionaryWriteResult.Removed);
+        }
+
+        Check.That(warnings).HasSize(1);
+        Check.That(warnings[0]).Contains("wrote the file directly");
     }
 
     [Fact]

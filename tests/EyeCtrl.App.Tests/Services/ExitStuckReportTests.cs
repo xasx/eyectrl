@@ -53,6 +53,23 @@ public class ExitStuckReportTests
     }
 
     [Fact]
+    public void AppendStartupFailure_WritesOneWarningLine_ForAnUnexpectedAcquireFailure()
+    {
+        // F6 of fixup-01: the duplicate-instance exit runs before LoggingInitializer, so this day
+        // file is the only place the cause of an unexpected acquisition failure can leave a trace.
+        string directory = TempTestDirectory.Create("startup-failure-trace");
+
+        ExitStuckReport.AppendStartupFailure(
+            directory, new IOException("first line\nsecond line"));
+
+        string[] lines = File.ReadAllLines(DayFilePath(directory));
+        Check.That(lines).HasSize(1); // one physical line even when the message carries a newline
+        Check.That(lines[0]).Contains("[WRN]");
+        Check.That(lines[0]).Contains("Single-instance mutex acquisition failed unexpectedly");
+        Check.That(lines[0]).Contains("IOException");
+    }
+
+    [Fact]
     public void FiredWatchdog_WithTheAppsRealSinkOpen_LeavesOneFtlLineNamingTheStep()
     {
         string directory = TempTestDirectory.Create("exit-stuck-report-sink");
@@ -142,6 +159,104 @@ public class ExitStuckReportTests
             Log.Logger = previous;
         }
     }
+
+    /// <summary>
+    /// E2: the required order is stuck line → keeper release → FailFast. The release action is
+    /// what a queued restart replacement waits on, so it must already have run — and it must run
+    /// even though this is not the owner thread — before the process end can delay in WER.
+    /// </summary>
+    [Fact]
+    public void Terminate_StuckLineThenKeeperReleaseThenFailFast()
+    {
+        string directory = TempTestDirectory.Create("exit-stuck-release-order");
+        var events = new List<string>();
+
+        ExitStuckReport.Terminate(
+            directory,
+            BlockingStep,
+            releaseMutex: () =>
+            {
+                events.Add(StuckLineExists(directory)
+                    ? "release-after-stuck-line"
+                    : "release-before-stuck-line");
+                return true; // the keeper released
+            },
+            failFast: message =>
+            {
+                events.Add("failfast");
+                Check.That(message).Contains(BlockingStep);
+            });
+
+        // The first element also pins that the release ran: "release skipped" leaves only failfast.
+        Check.That(events).ContainsExactly("release-after-stuck-line", "failfast");
+        Check.That(ReadDayFile(directory).Contains(ExitStuckReport.ReleasedMessage, StringComparison.Ordinal)).IsTrue();
+    }
+
+    /// <summary>
+    /// E2 mutant guard: a throwing release must not skip <see cref="Environment.FailFast(string)"/>.
+    /// The keeper is best-effort — the stuck process still has to end. F4: the log must not claim a
+    /// release that never happened; it carries one WRN naming the failure instead.
+    /// </summary>
+    [Fact]
+    public void Terminate_WhenTheReleaseThrows_StillFailsFast_AndLogsAWarning()
+    {
+        string directory = TempTestDirectory.Create("exit-stuck-release-throws");
+        var events = new List<string>();
+
+        ExitStuckReport.Terminate(
+            directory,
+            BlockingStep,
+            releaseMutex: () => throw new InvalidOperationException("keeper unavailable"),
+            failFast: _ => events.Add("failfast"));
+
+        Check.That(events).ContainsExactly("failfast");
+
+        string lines = ReadDayFile(directory);
+        Check.WithCustomMessage("the log claims the mutex was released even though the release threw")
+            .That(lines.Contains(ExitStuckReport.ReleasedMessage, StringComparison.Ordinal)).IsFalse();
+        Check.That(lines.Contains("single-instance mutex release failed", StringComparison.Ordinal)).IsTrue();
+        Check.That(lines.Contains("InvalidOperationException", StringComparison.Ordinal)).IsTrue();
+    }
+
+    /// <summary>
+    /// F4 of fixup-01: the released line is evidence a reader will trust, so a bounded release that
+    /// TIMED OUT must write the WRN (with "timed out"), never the "released" line.
+    /// </summary>
+    [Fact]
+    public void Terminate_WhenTheReleaseTimedOut_LogsAWarningInsteadOfTheReleasedLine()
+    {
+        string directory = TempTestDirectory.Create("exit-stuck-release-timeout");
+        var events = new List<string>();
+
+        ExitStuckReport.Terminate(
+            directory,
+            BlockingStep,
+            releaseMutex: () => false, // the keeper did not finish within ReleaseWait
+            failFast: _ => events.Add("failfast"));
+
+        Check.That(events).ContainsExactly("failfast");
+
+        string lines = ReadDayFile(directory);
+        Check.That(lines.Contains(ExitStuckReport.ReleasedMessage, StringComparison.Ordinal)).IsFalse();
+        Check.That(lines.Contains("single-instance mutex release failed (timed out)", StringComparison.Ordinal)).IsTrue();
+    }
+
+    private static string DayFilePath(string directory)
+        => Path.Combine(directory, $"eyectrl-{DateTime.Now:yyyyMMdd}.log");
+
+    private static string ReadDayFile(string directory)
+    {
+        string path = DayFilePath(directory);
+        if (!File.Exists(path)) return "";
+        using var stream = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
+    private static bool StuckLineExists(string directory)
+        => ReadDayFile(directory).Contains(
+            "EyeCtrl exit stuck in step '" + BlockingStep + "'", StringComparison.Ordinal);
 
     /// <summary>
     /// Reads a log file the sink still holds open: Serilog opens the day file for write with

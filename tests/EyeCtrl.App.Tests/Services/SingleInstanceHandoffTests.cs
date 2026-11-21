@@ -17,29 +17,39 @@ public class SingleInstanceHandoffTests
     private static string UniqueName() => @"Local\EyeCtrl.App.Handoff." + Guid.NewGuid();
 
     [Fact]
-    public void WaitingAcquire_SucceedsOnceTheHolderReleases()
+    public void WaitingAcquire_IsReallyQueued_BeforeTheHolderReleases()
     {
         var name = UniqueName();
         var first = new SingleInstanceGuard(name);
         Check.That(first.TryAcquire()).IsTrue();
 
         var acquired = false;
-        var started = new ManualResetEventSlim(false);
         var thread = new Thread(() =>
         {
             using var second = new SingleInstanceGuard(name);
-            started.Set();
             acquired = second.TryAcquire(TimeSpan.FromSeconds(10));
-        });
+        }) { IsBackground = true };
         thread.Start();
 
-        Check.That(started.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken)).IsTrue(); // it is queued
-        Check.That(acquired).IsFalse();                            // and still waiting
+        try
+        {
+            // Still running after 500 ms: the keeper is blocked in its bounded WaitOne. A fail-fast
+            // acquire (the restart child stops queueing, the r2 mutant) has already returned false
+            // and ended the thread by now. Joining is the wait that proves the thread really got
+            // into TryAcquire; the old "started" event fired before it, so a late thread could
+            // arrive after the release and pass even with a fail-fast acquire (review-01 F1).
+            Check.That(thread.Join(TimeSpan.FromMilliseconds(500))).IsFalse();
 
-        first.Dispose();                                           // the parent's OnExit
+            first.Dispose(); // the parent's OnExit
 
-        Check.That(thread.Join(TimeSpan.FromSeconds(10))).IsTrue();
-        Check.That(acquired).IsTrue();
+            Check.That(thread.Join(TimeSpan.FromSeconds(5))).IsTrue();
+            Check.That(acquired).IsTrue();
+        }
+        finally
+        {
+            first.Dispose();
+            thread.Join(TimeSpan.FromSeconds(5));
+        }
     }
 
     [Fact]

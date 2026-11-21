@@ -36,7 +36,10 @@ internal static class Program
         // C4: only one supervisor per session. A stray double-launch (or the Scheduled Task firing
         // while one is already running) exits fast here. AbandonedMutexException (a prior holder
         // was force-killed) is treated as acquired — same pattern as EyeCtrl.App's SingleInstanceGuard.
-        using var guard = new SingleInstanceGuard(SupervisorMutexName);
+        using var guard = new SingleInstanceGuard(
+            SupervisorMutexName,
+            ex => System.Console.Error.WriteLine(
+                $"Single-instance mutex acquisition failed unexpectedly: {ex}"));
         if (!guard.TryAcquire())
         {
             System.Console.Error.WriteLine("Another EyeCtrl supervisor is already running. Exiting.");

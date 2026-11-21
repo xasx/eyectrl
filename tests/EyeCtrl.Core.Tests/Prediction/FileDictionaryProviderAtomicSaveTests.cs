@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Tests.Prediction;
 
 using EyeCtrl.Core.Prediction;
+using Microsoft.Extensions.Logging;
 using System.IO;
 
 /// <summary>
@@ -55,5 +56,42 @@ public class FileDictionaryProviderAtomicSaveTests : IDisposable
             .That(failure).IsNotNull();
         Check.WithCustomMessage("a failed save must leave the previous dictionary whole")
             .That(File.ReadAllText(userPath)).IsEqualTo(oldJson);
+    }
+
+    [Fact]
+    public void Save_WhenTheAtomicReplaceIsRefused_WritesDirectly_AndLogsOneWarning()
+    {
+        // The fallback is the one write that can still be cut short, so it must be visible in the
+        // log. Holding the destination WITHOUT delete sharing refuses File.Replace (IOException),
+        // while the plain overwrite only needs write sharing (which the holder grants).
+        string userPath = Path.Combine(_dir, "user_dictionary_en.json");
+        File.WriteAllText(userPath, "{\"old\":3}");
+        var logger = new CapturingLogger();
+        var provider = new FileDictionaryProvider(Path.Combine(_dir, "base.json"), _dir, "en", logger);
+
+        using (var holder = new FileStream(userPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            provider.Save(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["neu"] = 2 });
+        }
+
+        Check.That(File.ReadAllText(userPath)).Contains("neu");
+        Check.That(logger.Warnings).HasSize(1);
+        Check.That(logger.Warnings[0]).Contains("wrote the file directly");
+    }
+
+    private sealed class CapturingLogger : ILogger<FileDictionaryProvider>
+    {
+        public List<string> Warnings { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+                lock (Warnings) Warnings.Add(formatter(state, exception));
+        }
     }
 }

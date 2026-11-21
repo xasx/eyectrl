@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services.Coordinators;
@@ -47,11 +48,32 @@ public class KeyboardVisibilityE1Tests
         public string? ReadFocusedTextTail(int maxChars) => null;
     }
 
-    private static (KeyboardViewModel Vm, Capture Log) NewVm()
+    private sealed class FakeSensitive : ISensitiveContextDetector
+    {
+        public bool IsSensitiveActive { get; set; }
+        public void Start() { }
+        public void Stop() { }
+        public void Dispose() { }
+    }
+
+    private sealed class FakePoll : IFocusedPasswordPoll
+    {
+        public bool? Value;
+        public int Reads;
+
+        public bool? ReadIsPassword()
+        {
+            Interlocked.Increment(ref Reads);
+            return Value;
+        }
+    }
+
+    private static (KeyboardViewModel Vm, Capture Log) NewVm(
+        IFocusedPasswordPoll? poll = null, ISensitiveContextDetector? sensitive = null)
     {
         var log = new Capture();
         var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger(),
-            logger: log, contextProbe: new FakeProbe());
+            logger: log, contextProbe: new FakeProbe(), sensitiveContext: sensitive, sensitivePoll: poll);
         return (vm, log);
     }
 
@@ -98,6 +120,25 @@ public class KeyboardVisibilityE1Tests
     }
 
     [Fact]
+    public async Task AShowAndAHide_EachStartOneReadOnlySensitiveCheck()
+    {
+        // D4: the check runs at both moments, off the caller's thread, with the event verdict beside the
+        // direct poll. The verdict here is the fake detector's; the poll is the opposite, and only the line
+        // carries it.
+        var poll = new FakePoll { Value = false };
+        var (vm, log) = NewVm(poll, new FakeSensitive { IsSensitiveActive = true });
+
+        KeyboardCoordinator.RecordVisibilityE1(vm, visible: true, wasVisible: false, "top", "toolbar-toggle");
+        await WaitFor(() => log.Lines().Any(l => l.StartsWith("Sensitive check at show", StringComparison.Ordinal)));
+        KeyboardCoordinator.RecordVisibilityE1(vm, visible: false, wasVisible: true, "top", "edge-close");
+        await WaitFor(() => log.Lines().Any(l => l.StartsWith("Sensitive check at hide", StringComparison.Ordinal)));
+
+        Check.That(log.Lines()).Contains("Sensitive check at show: event=true poll=false proc=WINWORD.exe");
+        Check.That(log.Lines()).Contains("Sensitive check at hide: event=true poll=false proc=WINWORD.exe");
+        Check.That(poll.Reads).IsEqualTo(2);
+    }
+
+    [Fact]
     public void WithoutAKeyboardViewModel_NothingHappens()
     {
         KeyboardCoordinator.RecordVisibilityE1(null, visible: true, wasVisible: false, "top", "ring");
@@ -140,5 +181,12 @@ public class KeyboardVisibilityE1Tests
                 "varedgeBefore=Context.Settings.Keyboard.ScreenEdge.ToLowerInvariant();"
                 + "var(flipped,snapshot)=ApplyKeyboardEdge(Context.Settings,Context.SettingsService,_modelRegistry);"
                 + "Context.KeyboardVM?.E1.RecordEdge(\"flip\",flipped.ToLowerInvariant(),edgeBefore);")).IsTrue();
+    }
+
+    private static async Task WaitFor(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition() && DateTime.UtcNow < deadline)
+            await Task.Delay(10, TestContext.Current.CancellationToken);
     }
 }

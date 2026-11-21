@@ -460,6 +460,11 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// the real window). Logs REAL transitions only — a repeated show or hide request is not an
     /// event. A show logs the foreground PROCESS name (never a title); a hide first starts the
     /// mirror check (which snapshots on this thread and never waits) and then logs its cause.
+    /// <para>
+    /// Both moments also start D4's read-only sensitive check (<c>Sensitive check at show|hide: …</c>,
+    /// evidence beside the detector's verdict, never an input to it). It returns at once, so it can
+    /// delay neither the show nor the hide.
+    /// </para>
     /// </summary>
     internal static void RecordVisibilityE1(KeyboardViewModel? keyboard, bool visible, bool wasVisible,
         string edge, string source)
@@ -469,9 +474,11 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         {
             var (boxW, boxH) = keyboard.LetterBoxPx();
             keyboard.E1.RecordShown(keyboard.ForegroundProcessName(), edge, source, boxW, boxH);
+            _ = keyboard.BeginSensitiveCheck("show");
             return;
         }
         keyboard.BeginMirrorCheck("hide");
+        _ = keyboard.BeginSensitiveCheck("hide");
         keyboard.E1.RecordHidden(source);
     }
 

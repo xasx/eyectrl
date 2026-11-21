@@ -168,6 +168,8 @@ internal static class ExitSequencePlan
         // everything this instance still owns — the settings file, the Tobii device, the
         // external-dwell pipe — must already be released. Releasing it at the TOP of OnExit
         // was harmless only while a second instance exited immediately instead of waiting.
+        // The step signals the guard's keeper thread, which owns the mutex and calls ReleaseMutex
+        // on it; that is what frees a waiter even when this (UI) thread is hung.
         sequence.Add(ReleaseMutexStep, () => deps.SingleInstance?.Dispose());
 
         return sequence;

@@ -63,7 +63,10 @@ public class UiaSensitiveContextDetectorThreadingTests
                 elapsed.Stop();
 
                 Check.That(hook.EnteredRemove.Wait(TimeSpan.FromSeconds(5))).IsTrue();
-                Check.That(elapsed.Elapsed).IsLessThan(TimeSpan.FromSeconds(1.5));
+                // The detector abandons the (background) hook thread at StopBudget, so Stop must
+                // return by then; the slack is scheduling allowance, not a second budget.
+                Check.That(elapsed.Elapsed)
+                    .IsLessThan(UiaSensitiveContextDetector.StopBudget + TimeSpan.FromMilliseconds(500));
             }
             finally
             {

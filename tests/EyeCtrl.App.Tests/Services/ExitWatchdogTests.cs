@@ -84,4 +84,20 @@ public class ExitWatchdogTests
         Check.That(terminated.Wait(TimeSpan.FromSeconds(5))).IsTrue();
         Check.That(calls).HasSize(1);
     }
+
+    /// <summary>
+    /// E3 budget ratchet: a stuck exit must still fit inside a restart replacement's mutex wait,
+    /// even with a mid-size WER dump (the 21.11 holistic review's 3–7 s estimate, rounded up).
+    /// With E1 the child no longer waits on the dump at all — the keeper releases BEFORE FailFast —
+    /// but the sum stays pinned so a later budget raise cannot quietly recreate the 30 s collision.
+    /// </summary>
+    [Fact]
+    public void BudgetRatchet_StuckExitStillFitsInsideTheRestartChildsMutexWait()
+    {
+        TimeSpan dumpAllowance = TimeSpan.FromSeconds(10);
+        TimeSpan worstCase =
+            ExitWatchdog.DefaultBudget + ExitStuckReport.LogFatalBudget + dumpAllowance;
+
+        Check.That(worstCase).IsLessThan(RestartHandoff.MutexWait);
+    }
 }

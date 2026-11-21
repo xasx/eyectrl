@@ -160,8 +160,8 @@ public sealed class UserDictionaryService
     /// <summary>Rewrites the user file minus the given keys. NothingToRemove when nothing
     /// changed (missing/empty file, or none of the words were present); WriteFailed when the
     /// write itself threw — the read succeeded, so the file exists and is populated, but the
-    /// durable change did not land. A plain write, matching what FileDictionaryProvider.Save
-    /// itself does for the words file.
+    /// durable change did not land. Written through the same atomic temp-and-swap as
+    /// <see cref="FileDictionaryProvider.Save"/>, so a kill mid-write leaves the old file whole.
     /// </summary>
     private DictionaryWriteResult RewriteUserFileWithout(IReadOnlyList<string> words)
     {
@@ -176,7 +176,8 @@ public sealed class UserDictionaryService
 
         try
         {
-            File.WriteAllText(userPath, JsonSerializer.Serialize(userWords, s_writeOptions));
+            FileDictionaryProvider.WriteJsonAtomically(
+                userPath, JsonSerializer.Serialize(userWords, s_writeOptions));
             return DictionaryWriteResult.Removed;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

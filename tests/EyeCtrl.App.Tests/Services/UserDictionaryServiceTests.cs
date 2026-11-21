@@ -162,6 +162,23 @@ public class UserDictionaryServiceTests : IDisposable
     }
 
     [Fact]
+    public void ForgetWord_WhenTheAtomicStagingFileCannotBeWritten_LeavesTheFileIntact_AndReportsWriteFailed()
+    {
+        // L2: the removal path now writes through the same temp-and-swap as
+        // FileDictionaryProvider.Save. A directory squatting on the staging path makes the temp
+        // write fail BEFORE the destination is touched. The old plain File.WriteAllText ignores
+        // that staging path and overwrites the user file here — this test goes RED for that mutant.
+        WriteUserFile(new() { ["hello"] = 120, ["zeppelin"] = 5 });
+        string before = File.ReadAllText(UserFile);
+        Directory.CreateDirectory(UserFile + ".tmp");
+
+        var result = Create().ForgetWord("zeppelin");
+
+        Check.That(result).IsEqualTo(UserDictionaryService.DictionaryWriteResult.WriteFailed);
+        Check.That(File.ReadAllText(UserFile)).IsEqualTo(before);
+    }
+
+    [Fact]
     public void ForgetWord_MissingUserFile_StillForgetsTheLiveStack()
     {
         // Review finding 5: the file half is a no-op (no file), so an early return would strand

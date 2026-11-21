@@ -28,6 +28,15 @@ using Serilog;
 /// released by the last step, so a detach hang can no longer refuse a relaunch.
 /// <see cref="Completed"/> exists only for the headless tests, which cannot let the process die.
 /// </para>
+/// <para>
+/// <b>The mutex is freed before the process is.</b> The single-instance mutex is owned by a keeper
+/// thread (<see cref="EyeCtrl.Core.Services.SingleInstanceGuard"/>), and the terminate path signals
+/// it — with the guard's bounded wait — BEFORE <see cref="Environment.FailFast(string)"/>. A restart
+/// replacement queued on the mutex therefore starts even if the FailFast is delayed by a WER dialog
+/// or a dump write, or never completes because a gaze-only owner cannot dismiss the dialog.
+/// Closing a handle would not have helped: only <c>ReleaseMutex</c> on the owning thread releases a
+/// named mutex.
+/// </para>
 /// </summary>
 internal sealed class ExitWatchdog
 {
@@ -126,9 +135,12 @@ internal sealed class ExitWatchdog
 /// the day's file — that is the post-step-list stage (dispatcher teardown, <c>Main</c> return).
 /// </para>
 /// <para>
-/// The process is then ended with <see cref="Environment.FailFast(string)"/> so Windows records an
-/// event and WER can capture a dump. A killed holder abandons the single-instance mutex, which
-/// <c>SingleInstanceGuard.TryAcquire</c> treats as acquired, so the next relaunch is not refused.
+/// The mutex keeper is then signalled (see <see cref="ExitStuckReport.Terminate(string, string, Action?)"/>),
+/// so a queued restart replacement is freed even while this process is in the FailFast. The process is
+/// ended with <see cref="Environment.FailFast(string)"/> so Windows records an event and WER can
+/// capture a dump. If the keeper could not be reached, or the process dies before it releases, the
+/// mutex is abandoned and <c>SingleInstanceGuard.TryAcquire</c> treats that as acquired, so the next
+/// relaunch is not refused either way.
 /// </para>
 /// </summary>
 internal static class ExitStuckReport
@@ -146,20 +158,37 @@ internal static class ExitStuckReport
     /// <param name="now">The local time (Serilog's daily roll uses local time); injectable for tests.</param>
     internal static void AppendStuckLine(string logsDirectory, string step, DateTime now)
     {
-        ArgumentException.ThrowIfNullOrEmpty(logsDirectory);
         ArgumentNullException.ThrowIfNull(step);
+        AppendLine(logsDirectory, "FTL", $"EyeCtrl exit stuck in step '{step}'", now);
+    }
+
+    /// <summary>
+    /// Appends the watchdog's one release line to the day's log file — the fallback route for
+    /// after <c>Log.CloseAndFlush</c>, when the static logger is silent.
+    /// </summary>
+    /// <param name="logsDirectory">The directory <c>LoggingInitializer</c> writes to.</param>
+    /// <param name="now">The local time (Serilog's daily roll uses local time); injectable for tests.</param>
+    internal static void AppendReleasedLine(string logsDirectory, DateTime now)
+        => AppendLine(logsDirectory, "INF", ReleasedMessage, now);
+
+    /// <summary>The one line the watchdog writes after it has signalled the mutex keeper.</summary>
+    internal const string ReleasedMessage = "Exit watchdog: released single-instance mutex";
+
+    private static void AppendLine(string logsDirectory, string level, string message, DateTime now)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(logsDirectory);
 
         // The date is formatted through the invariant culture *explicitly* (never the ambient one):
         // the line is machine-read by the exit-hang investigation, and the file must be the exact
         // one Serilog's daily roll writes (eyectrl-yyyyMMdd.log).
         string stamp = now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
         string day = now.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
-        string line = $"{stamp} [FTL] [{typeof(ExitWatchdog).FullName}] EyeCtrl exit stuck in step '{step}'";
+        string line = $"{stamp} [{level}] [{typeof(ExitWatchdog).FullName}] {message}";
         string path = Path.Combine(logsDirectory, $"eyectrl-{day}.log");
         Directory.CreateDirectory(logsDirectory);
         // Same file as Serilog's daily roll; no BOM, because the sink writes UTF-8 without one.
         // This is the fallback for after CloseAndFlush, so it cannot know a size-roll suffix
-        // (_001) the closed sink may have used; while the sink is open its own FTL line is used.
+        // (_001) the closed sink may have used; while the sink is open its own line is used.
         File.AppendAllText(path, line + Environment.NewLine, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
     }
 
@@ -206,11 +235,36 @@ internal static class ExitStuckReport
         }
     }
 
-    /// <summary>Reports the line (best effort) and then terminates the process.</summary>
+    /// <summary>
+    /// Reports the line (best effort), signals the mutex keeper so a queued restart replacement is
+    /// freed even while the UI thread is hung, then terminates the process. Every stage is
+    /// best-effort: <c>FailFast</c> always runs.
+    /// </summary>
     /// <param name="logsDirectory">The directory <c>LoggingInitializer</c> writes to.</param>
     /// <param name="step">The name of the step that never returned.</param>
-    internal static void Terminate(string logsDirectory, string step)
+    /// <param name="releaseMutex">
+    /// Signals the keeper and returns when it has released (or the bounded wait expired).
+    /// <see langword="null"/> when no guard was created (a duplicate launch that lost the mutex).
+    /// </param>
+    internal static void Terminate(string logsDirectory, string step, Action? releaseMutex = null)
+        => Terminate(logsDirectory, step, releaseMutex, message => Environment.FailFast(message));
+
+    /// <summary>
+    /// The testable core of <see cref="Terminate(string, string, Action?)"/>: file/process effects
+    /// are seams, so a HEADLESS test can pin the order — stuck line, keeper release, FailFast.
+    /// </summary>
+    /// <param name="logsDirectory">The directory <c>LoggingInitializer</c> writes to.</param>
+    /// <param name="step">The name of the step that never returned.</param>
+    /// <param name="releaseMutex">Signals the keeper; <see langword="null"/> when there is no guard.</param>
+    /// <param name="failFast">The process-ending action (production: <see cref="Environment.FailFast(string)"/>).</param>
+    internal static void Terminate(
+        string logsDirectory,
+        string step,
+        Action? releaseMutex,
+        Action<string> failFast)
     {
+        ArgumentNullException.ThrowIfNull(failFast);
+
         try
         {
             Report(logsDirectory, step);
@@ -220,6 +274,62 @@ internal static class ExitStuckReport
             // Nothing may skip the FailFast: the process must end even if every reporting route fails.
         }
 
-        Environment.FailFast($"EyeCtrl exit stuck in step '{step}'");
+        // BEFORE the FailFast, and independently of the UI thread: a restart replacement is queued
+        // on the mutex, and a WER report/dump or a stuck UI thread must not keep it waiting. The
+        // keeper owns the mutex, so this call releases it even though this is not the owner thread.
+        if (releaseMutex is not null)
+        {
+            try
+            {
+                releaseMutex();
+            }
+            catch
+            {
+                // The report of the failure is worth less than the process ending.
+            }
+
+            try
+            {
+                ReportReleased(logsDirectory);
+            }
+            catch
+            {
+                // A log line must never delay the FailFast.
+            }
+        }
+
+        failFast($"EyeCtrl exit stuck in step '{step}'");
+    }
+
+    /// <summary>
+    /// Logs the one release line by both routes, exactly like <see cref="Report"/>: the open sink
+    /// first (bounded, because the hung step may hold Serilog's write lock), then the direct append
+    /// for after <c>CloseAndFlush</c>.
+    /// </summary>
+    private static void ReportReleased(string logsDirectory)
+    {
+        try
+        {
+            var logThread = new Thread(() => Log.Information(ReleasedMessage))
+            {
+                IsBackground = true,
+                Name = "EyeCtrl exit release report",
+            };
+            logThread.Start();
+            _ = logThread.Join(LogFatalBudget);
+        }
+        catch
+        {
+            // Fall through to the direct append; neither route may block the FailFast.
+        }
+
+        try
+        {
+            AppendReleasedLine(logsDirectory, DateTime.Now);
+        }
+        catch
+        {
+            // Locked by the still-open sink, or a full/read-only disk: the FailFast still must run.
+        }
     }
 }

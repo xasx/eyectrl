@@ -860,7 +860,15 @@ public partial class App : Application
                 ServiceProvider = _serviceProvider,
                 SingleInstance = _singleInstance,
             },
-            terminate: step => ExitStuckReport.Terminate(LogsDirectory, step));
+            terminate: step => ExitStuckReport.Terminate(
+                LogsDirectory,
+                step,
+                // The keeper owns the mutex, so this releases it even while this (UI) thread is
+                // the one stuck; bounded by ReleaseWait inside the guard, and the FailFast still
+                // runs whatever the outcome.
+                _singleInstance is { } singleInstance
+                    ? () => singleInstance.Release(SingleInstanceGuard.ReleaseWait)
+                    : null));
 
         try
         {

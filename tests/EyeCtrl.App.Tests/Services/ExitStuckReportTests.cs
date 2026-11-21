@@ -144,6 +144,67 @@ public class ExitStuckReportTests
     }
 
     /// <summary>
+    /// E2: the required order is stuck line → keeper release → FailFast. The release action is
+    /// what a queued restart replacement waits on, so it must already have run — and it must run
+    /// even though this is not the owner thread — before the process end can delay in WER.
+    /// </summary>
+    [Fact]
+    public void Terminate_StuckLineThenKeeperReleaseThenFailFast()
+    {
+        string directory = TempTestDirectory.Create("exit-stuck-release-order");
+        var events = new List<string>();
+
+        ExitStuckReport.Terminate(
+            directory,
+            BlockingStep,
+            releaseMutex: () => events.Add(
+                StuckLineExists(directory) ? "release-after-stuck-line" : "release-before-stuck-line"),
+            failFast: message =>
+            {
+                events.Add("failfast");
+                Check.That(message).Contains(BlockingStep);
+            });
+
+        // The first element also pins that the release ran: "release skipped" leaves only failfast.
+        Check.That(events).ContainsExactly("release-after-stuck-line", "failfast");
+        Check.That(File.ReadAllText(DayFilePath(directory))
+            .Contains(ExitStuckReport.ReleasedMessage, StringComparison.Ordinal)).IsTrue();
+    }
+
+    /// <summary>
+    /// E2 mutant guard: a throwing release must not skip <see cref="Environment.FailFast(string)"/>.
+    /// The keeper is best-effort — the stuck process still has to end.
+    /// </summary>
+    [Fact]
+    public void Terminate_WhenTheReleaseThrows_StillFailsFast()
+    {
+        string directory = TempTestDirectory.Create("exit-stuck-release-throws");
+        var events = new List<string>();
+
+        ExitStuckReport.Terminate(
+            directory,
+            BlockingStep,
+            releaseMutex: () => throw new InvalidOperationException("keeper unavailable"),
+            failFast: _ => events.Add("failfast"));
+
+        Check.That(events).ContainsExactly("failfast");
+    }
+
+    private static string DayFilePath(string directory)
+        => Path.Combine(directory, $"eyectrl-{DateTime.Now:yyyyMMdd}.log");
+
+    private static bool StuckLineExists(string directory)
+    {
+        string path = DayFilePath(directory);
+        if (!File.Exists(path)) return false;
+        using var stream = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd().Contains(
+            "EyeCtrl exit stuck in step '" + BlockingStep + "'", StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Reads a log file the sink still holds open: Serilog opens the day file for write with
     /// <see cref="FileShare.Read"/>, so a plain reader is refused — a reader must also share write.
     /// </summary>

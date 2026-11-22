@@ -941,6 +941,12 @@
       "Reason": "A resource-dictionary key."
     },
     {
+      "Path": "src/EyeCtrl.Core/Diagnostics/CrashDialogPolicy.cs",
+      "Literal": "\"Crash dialog: off (WER no-UI)\"",
+      "Category": "log",
+      "Reason": "The WER no-UI startup line: written to the process log through Serilog or Setup's ISetupLog; never shown."
+    },
+    {
       "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
       "Literal": "\"Close Window\"",
       "Category": "preset-legacy-label",

@@ -1171,6 +1171,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.Core/Diagnostics/CrashDialogPolicy.cs",
+      "Literal": "\"Crash dialog: off (WER no-UI)\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
       "Literal": "\"Close Window\"",
       "Count": 1

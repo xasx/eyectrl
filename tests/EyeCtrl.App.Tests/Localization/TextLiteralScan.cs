@@ -497,6 +497,10 @@ internal static class TextLiteralScan
     /// </summary>
     public static readonly string[] SinkFiles =
     [
+        // crash-dialog-off-per-process: the WER no-UI line is a log-only const and lives in Core
+        // (outside the UI projects), so the file joins the surface for the same reason as the
+        // preset labels above: without it, the exception list would name nothing.
+        "src/EyeCtrl.Core/Diagnostics/CrashDialogPolicy.cs",
         "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
     ];
 

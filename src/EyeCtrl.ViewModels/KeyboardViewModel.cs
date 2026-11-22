@@ -155,6 +155,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private readonly EffectiveSettingsProvider? _effectiveSettings;
     private readonly IKeyboardContextProbe? _contextProbe;
     private readonly ISensitiveContextDetector? _sensitiveContext;
+    private readonly KeyboardSensitiveCheck _sensitiveCheck;
     private readonly Action _onEffectiveSettingsChanged;
 
     [ObservableProperty] private bool _isVisible;
@@ -281,7 +282,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     public KeyboardViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, EffectiveSettingsProvider? effectiveSettings = null,
         ILogger<KeyboardViewModel>? logger = null, IKeyboardContextProbe? contextProbe = null,
-        ISensitiveContextDetector? sensitiveContext = null)
+        ISensitiveContextDetector? sensitiveContext = null, IFocusedPasswordPoll? sensitivePoll = null)
         : base(messenger)
     {
         _settings = settings;
@@ -291,6 +292,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _sensitiveContext = sensitiveContext;
         E1 = new KeyboardE1Recorder(logger) { IsSensitive = SensitiveNow };
         _mirrorChecker = new KeyboardMirrorChecker(E1, contextProbe, sensitiveContext);
+        // D4 diagnostics: one read-only IsPassword poll beside the event-driven verdict at show/hide. It has
+        // no path back into the verdict — evidence only.
+        _sensitiveCheck = new KeyboardSensitiveCheck(logger, sensitivePoll);
         if (_effectiveSettings is not null)
         {
             _onEffectiveSettingsChanged = ApplyEffectiveKeyDwell;
@@ -388,6 +392,22 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         if (!E1.Enabled) return;
         _ = _mirrorChecker.Begin(at, _recentText + CurrentInput);
+    }
+
+    /// <summary>
+    /// D4: one read-only <c>IsPassword</c> poll at the keyboard's show/hide moment, logged beside the
+    /// event-driven verdict and the detector's LIVE focus-event counters
+    /// (<c>Sensitive check at show|hide: event=… poll=… proc=… events=… password=… failures=… own=…</c>).
+    /// The counters make "no events" and "every read throws" readable while EyeCtrl is still running.
+    /// Returns at once; the poll runs off the UI thread under a 300 ms box. <b>It never changes the verdict</b>
+    /// — evidence only.
+    /// </summary>
+    public Task BeginSensitiveCheck(string at)
+    {
+        FocusEventCounts counts = _sensitiveContext is IFocusEventDiagnostics diagnostics
+            ? diagnostics.GetFocusEventCounts()
+            : FocusEventCounts.Unknown;
+        return _sensitiveCheck.Begin(at, SensitiveNow(), ForegroundProcessName(), counts);
     }
 
     public void Configure(int keyDwellMs, int cooldownMs)

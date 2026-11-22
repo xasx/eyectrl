@@ -71,6 +71,22 @@ public partial class App : Application
     // which is the right regime before the composition has run.
     private Func<bool> _isSupervisorPresent = () => false;
 
+    // WER's no-UI outcome, taken in the constructor before App.xaml's resources load; reported once
+    // Serilog is up (InitializeSettingsAndLogging).
+    private readonly CrashDialogOutcome _crashDialog;
+
+    /// <summary>
+    /// WER's crash dialog off before anything else. The generated <c>Main</c> runs <c>new App()</c>,
+    /// then <c>InitializeComponent()</c> (App.xaml, which merges EyeCtrl.Controls'
+    /// OverlayStyles.xaml), then <c>Run()</c> — so a missing/broken Controls dll or a XAML parse
+    /// error would otherwise throw to the OS fault path before <c>OnStartup</c> could set the flag.
+    /// Only the base constructor and the trivial field initializers above run earlier.
+    /// </summary>
+    public App()
+    {
+        _crashDialog = CrashDialogPolicy.Disable();
+    }
+
     /// <summary>
     /// When true, the app uses MouseGazeProvider and skips the splash delay.
     /// Activated by launching with --test-mode CLI argument.
@@ -147,7 +163,7 @@ public partial class App : Application
         SplashThreadHandle? splash = null;
         try
         {
-            var (settings, settingsFilePath) = InitializeSettingsAndLogging(e.Args);
+            var (settings, settingsFilePath) = InitializeSettingsAndLogging(e.Args, _crashDialog);
 
             // ── String table ──
             // After logging exists (the load path logs, never fails) and before the theme and the
@@ -1017,7 +1033,12 @@ public partial class App : Application
     /// initializes Serilog, and registers the global (AppDomain + dispatcher) exception handlers.
     /// </summary>
     /// <param name="args">The process arguments; <c>--ui-language</c> is read from them.</param>
-    private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging(string[] args)
+    /// <param name="crashDialog">
+    /// The WER outcome taken in the App constructor, before App.xaml loads; it is logged here
+    /// because the static Serilog logger is a SilentLogger until the line below.
+    /// </param>
+    private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging(
+        string[] args, CrashDialogOutcome crashDialog)
     {
         // The one profile resolver — never a raw OS folder here. A dev build (Debug, or an exe
         // outside the installed location) gets %APPDATA%\EyeCtrl.Dev; only the installed build,
@@ -1029,6 +1050,11 @@ public partial class App : Application
 
         var logsDir = Path.Combine(_appDataDir, "logs");
         LoggingInitializer.Initialize(logsDir);
+
+        // The WER line, now that the logger is up (the flag was set in OnStartup, before the guard).
+        crashDialog.Report(
+            line => Log.Information("{CrashDialog}", line),
+            line => Log.Warning("{CrashDialog}", line));
 
         // The profile line comes before anything reads or writes the profile (the settings load
         // below is the first read): the mode decision is on record before any data access. It is

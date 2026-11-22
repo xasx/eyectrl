@@ -150,7 +150,7 @@ public class UiLanguageArgumentWiringTests
             SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "App.xaml.cs"));
 
         var acquire = source.IndexOf("_singleInstance.TryAcquire", StringComparison.Ordinal);
-        var initialize = source.IndexOf("InitializeSettingsAndLogging(e.Args)", StringComparison.Ordinal);
+        var initialize = source.IndexOf("InitializeSettingsAndLogging(e.Args,", StringComparison.Ordinal);
         Check.WithCustomMessage(
                 "App.OnStartup no longer calls InitializeSettingsAndLogging(e.Args) after TryAcquire, "
                 + "so a duplicate instance could apply --ui-language before losing the mutex — it "

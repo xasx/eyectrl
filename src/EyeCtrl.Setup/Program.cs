@@ -1,5 +1,6 @@
 namespace EyeCtrl.Setup;
 
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Setup.Abstractions;
 using EyeCtrl.Setup.Windows;
 
@@ -10,6 +11,10 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // WER's crash dialog off FIRST — before the working-directory move, parsing, or any file
+        // access: a crash dialog is undismissable for a gaze-only owner. Logged once the logger exists.
+        var crashDialog = CrashDialogPolicy.Disable();
+
         // S6f H1: a live process's cwd holds that folder against Directory.Move, and a
         // ShellExecute child inherits its caller's cwd. Enter on the neutral folder before
         // anything else, so a console or shortcut that starts Setup from inside EyeCtrl\ cannot
@@ -36,6 +41,9 @@ public static class Program
         var log = new CompositeSetupLog(
             FileSetupLog.TryCreate(SetupLogContext.For(command, Environment.ProcessId)),
             new ConsoleSetupLog());
+
+        // The WER line, now that the log exists (the flag was set in Main's first statement).
+        crashDialog.Report(log.Info, log.Warn);
 
         // The profile line, before anything reads or writes the profile: the log file above is the
         // first profile write, and its folder already IS the resolved profile's. On record before

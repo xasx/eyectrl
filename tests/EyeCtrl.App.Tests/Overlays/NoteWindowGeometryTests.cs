@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Overlays;
 
 using EyeCtrl.App.Tests.TestSupport;
 
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using CommunityToolkit.Mvvm.Messaging;
@@ -72,32 +73,29 @@ public class NoteWindowGeometryTests
         var placement = manager.PlacementForTest(id)!;
         var window = manager.WindowForTest(id)!;
 
-        // The window reports the placement's rect: Width/Height/Left/Top EXACTLY (fixup-05: the
-        // tag's height is a whole DIP again, so the 2× DPI transform has nothing to round and
-        // the half-DIP tolerance fixup-04 needed is gone — it hid exactly this drift).
-        Check.WithCustomMessage("the window's width must come from the placement's window rect")
-            .That(window.Width).IsEqualTo(placement.Window.Width);
-        Check.WithCustomMessage("the window's height must come from the placement's window rect")
-            .That(window.Height).IsEqualTo(placement.Window.Height);
-        Check.WithCustomMessage("the window's Left must come from ApplyPlacementToWindow")
-            .That(window.Left).IsEqualTo(placement.Window.Left);
-        Check.WithCustomMessage("the window's Top must come from ApplyPlacementToWindow")
-            .That(window.Top).IsEqualTo(placement.Window.Top);
+        // The window reports the placement's rect up to the HOST's own device-pixel snap: fixup-02
+        // F4's WithRevealTargetClearance snaps the placement to the SIMULATED scale (2.0 here),
+        // while WPF stores the real window's Left/Top on the host monitor's grid. Exact when the
+        // host is at the simulated 2.0 (production, where DpiHelper IS the real DPI, and this dev
+        // machine); within one host device pixel otherwise - the CI runner is at 1.0, so the
+        // half-DIP top (358.5 at 2.0) legitimately arrives as 359 (CI run 45058318223).
+        HostDpiBounds.AssertWindowMatches(window, placement.Window,
+            $"the real window (side {placement.Side}, card {placement.Card}, "
+            + $"text '{manager.ActiveNotes.FirstOrDefault(n => n.Id == id)?.Text}')");
 
-        // The drawn button column (the display set's ✎ ↕ ✕ are slots 0-2, drawn once per side)
-        // must sit on NoteLayout.ButtonCenter for the CURRENT side — per-slot, on the even
-        // card-contrary column.
+        // The drawn Display row's buttons (✎ ↕ ✕ are slots 0, 1 and 3 of the four-cell row, D4)
+        // must sit on NoteLayout.ButtonCenter for the CURRENT state — per-slot, in the row.
         var buttons = window.ButtonsForTest();
-        Span<(string Suffix, int Index)> displaySet = [ ("edit", 0), ("move", 1), ("close", 3) ]; // P4 D3: close in the bottom row
+        Span<(string Suffix, int Index)> displaySet = [ ("edit", 0), ("move", 1), ("close", 3) ]; // P4 D3: close in the fourth cell
         foreach (var (suffix, index) in displaySet)
         {
             Check.WithCustomMessage($"the {suffix} button must exist on the real canvas")
                 .That(buttons.ContainsKey($"{id}:{suffix}")).IsTrue();
             var ellipse = buttons[$"{id}:{suffix}"];
-            var (centerX, centerY) = NoteLayout.ButtonCenter(placement, index);
-            Check.WithCustomMessage($"the {suffix} button must sit on the side's column x")
+            var (centerX, centerY) = NoteLayout.ButtonCenter(placement, index, NoteState.Display);
+            Check.WithCustomMessage($"the {suffix} button must sit on the row's x")
                 .That(Canvas.GetLeft(ellipse)).IsCloseTo(centerX - ellipse.Width / 2, 1e-6);
-            Check.WithCustomMessage($"the {suffix} button must sit on the column's y {index}")
+            Check.WithCustomMessage($"the {suffix} button must sit on the row's y")
                 .That(Canvas.GetTop(ellipse)).IsCloseTo(centerY - ellipse.Height / 2, 1e-6);
         }
     }

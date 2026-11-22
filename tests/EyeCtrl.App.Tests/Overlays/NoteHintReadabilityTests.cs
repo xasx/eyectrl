@@ -558,6 +558,15 @@ public class NoteHintReadabilityTests
 
     private static void Hold(NoteManager manager, PhysicalPoint centre, long startUs)
     {
+        // D: a Display note's row cell is live only after a look reveals the row.
+        var resting = manager.ActiveNotes.FirstOrDefault(n => n.State == NoteState.Display
+            && !manager.IsRevealedForTest(n.Id)
+            && (NoteTestBench.CellCentre(manager, n.Id, 0) == centre
+                || NoteTestBench.CellCentre(manager, n.Id, 1) == centre
+                || NoteTestBench.CellCentre(manager, n.Id, 3) == centre));
+        if (resting is not null)
+            startUs = NoteTestBench.Reveal(manager, resting.Id, startUs);
+
         for (long t = startUs; t <= startUs + 200_000; t += 100_000)
             manager.Receive(new GazeCursorMovedMessage(new GazeFrame(new PhysicalPoint(centre.X + 10_000, centre.Y), t, IsInGap: false)));
         for (long t = startUs + 300_000; t <= startUs + 1_200_000; t += 100_000)
@@ -578,9 +587,17 @@ public class NoteHintReadabilityTests
 
     /// <summary>Holds the gaze on a point long enough to dwell or to settle: looks away past
     /// every control for 200 ms, then holds past the 600 ms dwell - the cadence the note
-    /// manager's own dwells expect.</summary>
+    /// manager's own dwells expect. D: a resting Display note's row cell reveals first.</summary>
     private static long HoldGaze(NoteManager manager, PhysicalPoint point, long present, int ms = 1200)
     {
+        var resting = manager.ActiveNotes.FirstOrDefault(n => n.State == NoteState.Display
+            && !manager.IsRevealedForTest(n.Id)
+            && (NoteTestBench.CellCentre(manager, n.Id, 0) == point
+                || NoteTestBench.CellCentre(manager, n.Id, 1) == point
+                || NoteTestBench.CellCentre(manager, n.Id, 3) == point));
+        if (resting is not null)
+            present = NoteTestBench.Reveal(manager, resting.Id, present);
+
         var away = new PhysicalPoint(point.X + 10_000, point.Y);
         for (var t = present; t <= present + 220_000; t += 33_000)
             manager.OnGazeMoved(away, t);

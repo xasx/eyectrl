@@ -391,14 +391,17 @@ public class NoteGateTests
 
             var bottomClose = ButtonCentrePhysical(manager, anchorBottom, 3);
 
-            // The gaze is over the BOTTOM note's ✕, but the TOP window is hit-testably on top.
+            // D: reveal the bottom note's row while ITS window owns the gaze, then put the TOP
+            // window over the gaze — the bottom's ✕ must be filtered by the own-window conjunct.
+            tester.Answer = bottomHandle;
+            NoteTestBench.Reveal(manager, bottomId, 0);
             tester.Answer = topHandle;
 
-            ArmThenHold(manager, bottomClose, startUs: 0);
+            ArmThenHold(manager, bottomClose, startUs: 1_500_000);
             Check.WithCustomMessage("the bottom note's ✕ must never fire under a foreign window")
                 .That(manager.ActiveNotes.First(n => n.Id == bottomId).State).IsEqualTo(NoteState.Display);
-            Check.WithCustomMessage("the top note — whose window is over the gaze — takes the dwell")
-                .That(manager.ActiveNotes.First(n => n.Id == topId).State).IsEqualTo(NoteState.PendingUndo);
+            Check.WithCustomMessage("no note may fire on that ✕ while a foreign window owns the gaze")
+                .That(manager.ActiveNotes.Any(n => n.State == NoteState.PendingUndo)).IsFalse();
 
             // Now the bottom window is genuinely on top: the same spot fires its ✕ — into the chip.
             tester.Answer = bottomHandle;
@@ -511,7 +514,7 @@ public class NoteGateTests
     // ── P2 D7: the chrome rects ──
 
     [Fact]
-    public void ChromeRects_ReturnTheCardBodyAndTheThreeCells()
+    public void ChromeRects_ReturnTheDrawnCardBodyAndTheDrawnCells()
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
@@ -521,31 +524,28 @@ public class NoteGateTests
             Check.That(manager.ChromeRects()).IsEmpty();
 
             var anchor = new PhysicalPoint(1600, 1000);
-            manager.AddNoteTargetsForTest(anchor);
+            var id = manager.AddNoteTargetsForTest(anchor); // the seam's note is REVEALED
 
             var rects = manager.ChromeRects();
-            Check.WithCustomMessage("one card body + three control cells per note")
+            Check.WithCustomMessage("one drawn card body + its three row cells per revealed note")
                 .That(rects).HasSize(4);
 
-            // The expected rects must come from the SAME placement the manager registered from
-            // (NoteTestBench replicates the manager's registration derivation — anchor, default
-            // right side, bench work area).
-            var placement = NoteTestBench.PlacementAnchor(anchor);
+            // The expected card is the manager's own drawn rect (D7: the chrome carries the
+            // CURRENTLY DRAWN rect), and the cells are the registered row cells.
+            var drawn = manager.DrawnCardForTest(id);
             var expectedCard = new PhysicalRect(
-                DpiHelper.LogicalToPhysicalX(placement.Card.Left),
-                DpiHelper.LogicalToPhysicalY(placement.Card.Top),
-                DpiHelper.LogicalToPhysicalX(placement.Card.Width),
-                DpiHelper.LogicalToPhysicalY(placement.Card.Height));
-            Check.That(rects[0]).IsEqualTo(expectedCard);
+                DpiHelper.LogicalToPhysicalX(drawn.Left),
+                DpiHelper.LogicalToPhysicalY(drawn.Top),
+                DpiHelper.LogicalToPhysicalX(drawn.Width),
+                DpiHelper.LogicalToPhysicalY(drawn.Height));
+            Check.That(rects).Contains(expectedCard);
 
             double half = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteCellDip / 2);
-            int i = 1;
-            foreach (var slot in NoteLayout.SlotsFor(NoteState.Display))
+            foreach (var slot in NoteLayout.DrawnSlotsFor(NoteState.Display, manager.IsRevealedForTest(id)))
             {
-                var centre = NoteTestBench.CellCentre(placement, slot, NoteState.Display);
+                var centre = NoteTestBench.CellCentre(manager, id, slot);
                 var expectedCell = new PhysicalRect(centre.X - half, centre.Y - half, half * 2, half * 2);
-                Check.That(rects[i]).IsEqualTo(expectedCell);
-                i++;
+                Check.That(rects).Contains(expectedCell);
             }
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -648,18 +648,11 @@ public class NoteGateTests
     [StaFact]
     public void AnEmptyNewNotesDone_StillLatchesTheNeighbourControl_UnderTheHeldGaze()
     {
-        // H6 (T1 fixup F2's scope): pin a new note so its Edit-row ✓ Done lands exactly on a
-        // neighbour's Display ✎, dwell its Done — the empty new note disappears, and the
-        // neighbour's ✎, under the same held gaze, must come back LATCHED, not live.
-        //
-        // K2a moved the Edit controls into a row under the text, so the two no longer share a
-        // column slot by construction: the new note's anchor is SOLVED from the geometry so its
-        // row cell 0 sits on the neighbour's ✎ cell. Neighbour at DIP (700, 500), Display card
-        // 702 x 468: its ✎ is (1372, 332). A new note's Edit card is 560 x 194 with its row cell 0
-        // at (anchor.x + 204, anchor.y + 31), so the new anchor is (1168, 301) DIP = physical
-        // (2336, 602) — far enough left that the Right window's tail zone stays inside the 80 DIP
-        // inset. The assertion below pins the coincidence, so a future card change cannot silently
-        // turn this test into a no-op.
+        // H6 (T1 fixup F2's scope), on D's presentation: the new note's Edit-row ✓ Done is
+        // placed exactly on the NEIGHBOUR's at-rest card (the spot the gaze is waiting on).
+        // Dwell Done — the empty new note disappears — and the neighbour's reveal target, born
+        // under the SAME held gaze, must come back LATCHED, not live: it must not reveal until
+        // the gaze has left it once.
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
 
@@ -667,42 +660,52 @@ public class NoteGateTests
         try
         {
             var anchor = new PhysicalPoint(1400, 1000); // DIP (700, 500)
-            // A REAL window: the liveness half dwells the neighbour's ✎, and StartEdit drives
-            // the note's window.
             var neighbourId = TypeIntoNewSavedNote(manager, "neighbour", anchor);
-            var neighbourEdit = NoteTestBench.CellCentre(manager, neighbourId, 0);
+            var rest = manager.DrawnCardForTest(neighbourId);
+            var p = new PhysicalPoint(
+                DpiHelper.LogicalToPhysicalX(rest.Left + (rest.Width / 2)),
+                DpiHelper.LogicalToPhysicalY(rest.Top + (rest.Height / 2)));
 
-            // The gaze settles on the spot before the pin, so the new note's Done is born latched.
-            for (long t = 0; t <= 200_000; t += 100_000) manager.OnGazeMoved(neighbourEdit, t);
+            // The gaze settles on the neighbour's card before the pin, so the new note's Done is
+            // born latched.
+            for (long t = 0; t <= 200_000; t += 100_000) manager.OnGazeMoved(p, t);
 
-            var newAnchor = new PhysicalPoint(2336, 602); // DIP (1168, 301)
+            // Where the new note's Done lands relative to its anchor (the Edit card is a fixed
+            // size, so one probe gives the offset).
+            manager.CreateNoteAt(new PhysicalPoint(1000, 1000));
+            var probeId = manager.ActiveNotes[^1].Id;
+            var probeDone = NoteTestBench.CellCentre(manager, probeId, 0);
+            manager.RemoveNote(probeId);
+            var newAnchor = new PhysicalPoint(p.X - (probeDone.X - 1000), p.Y - (probeDone.Y - 1000));
+
             manager.CreateNoteAt(newAnchor);
             var newId = manager.ActiveNotes.First(n => n.Id != neighbourId).Id;
             Check.That(manager.IsEditing).IsTrue();
-            Check.WithCustomMessage("the new note's Edit-row Done must sit exactly on the neighbour's ✎")
-                .That(NoteTestBench.CellCentre(manager, newId, 0)).IsEqualTo(neighbourEdit);
+            Check.WithCustomMessage("the new note's Edit-row Done must sit exactly on the neighbour's card")
+                .That(NoteTestBench.CellCentre(manager, newId, 0)).IsEqualTo(p);
 
             // Leave past the 150 ms release, return, and save-by-Done: an EMPTY new note
             // disappears (nothing was ever saved).
-            var away = new PhysicalPoint(neighbourEdit.X + 10_000, neighbourEdit.Y);
+            var away = new PhysicalPoint(p.X + 10_000, p.Y);
             for (long t = 300_000; t <= 600_000; t += 100_000) manager.OnGazeMoved(away, t);
-            for (long t = 700_000; t <= 1_500_000; t += 100_000) manager.OnGazeMoved(neighbourEdit, t);
+            for (long t = 700_000; t <= 1_500_000; t += 100_000) manager.OnGazeMoved(p, t);
             Check.WithCustomMessage("the empty new note's Done must have fired and removed it")
                 .That(manager.ActiveNotes.Select(n => n.Id).Contains(neighbourId)).IsTrue();
             Check.That(manager.ActiveNotes).HasSize(1);
             Check.That(manager.IsEditing).IsFalse();
 
-            // The neighbour's ✎ is back, under the still-held gaze: a full second must not fire.
-            for (long t = 1_600_000; t <= 2_600_000; t += 100_000) manager.OnGazeMoved(neighbourEdit, t);
+            // The neighbour's reveal target is back, under the still-held gaze: a full second
+            // must not reveal it.
+            for (long t = 1_600_000; t <= 2_600_000; t += 100_000) manager.OnGazeMoved(p, t);
             Check.WithCustomMessage(
-                    "the empty-new exit must latch every target under the held gaze — the neighbour's "
-                    + "✎ must not pull the saved note into Edit under eyes that never left")
-                .That(manager.IsEditing).IsFalse();
+                    "the empty-new exit must latch every target under the held gaze — the neighbour "
+                    + "must not reveal under eyes that never left")
+                .That(manager.IsRevealedForTest(neighbourId)).IsFalse();
 
-            // Liveness: a leave and a return release the latch, and the ✎ works.
+            // Liveness: a leave and a return release the latch, and the look reveals it.
             for (long t = 2_700_000; t <= 2_900_000; t += 100_000) manager.OnGazeMoved(away, t);
-            for (long t = 3_000_000; t <= 3_800_000; t += 100_000) manager.OnGazeMoved(neighbourEdit, t);
-            Check.That(manager.IsEditing).IsTrue();
+            for (long t = 3_000_000; t <= 3_700_000; t += 100_000) manager.OnGazeMoved(p, t);
+            Check.That(manager.IsRevealedForTest(neighbourId)).IsTrue();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -800,9 +803,18 @@ public class NoteGateTests
         NoteTestBench.CellCentreAtAnchor(manager, anchor, slot);
 
     /// <summary>Arms ✕ (a 200 ms excursion outside its circle, past the 150 ms release) and then
-    /// holds the gaze on it for 900 ms — enough for a fresh 600 ms dwell to complete.</summary>
+    /// holds the gaze on it for 900 ms — enough for a fresh 600 ms dwell to complete. D: a
+    /// resting Display note's row cell reveals the row first (the reveal is not an action).</summary>
     private static void ArmThenHold(NoteManager manager, PhysicalPoint closeCenter, long startUs)
     {
+        var resting = manager.ActiveNotes.FirstOrDefault(n => n.State == NoteState.Display
+            && !manager.IsRevealedForTest(n.Id)
+            && (NoteTestBench.CellCentre(manager, n.Id, 0) == closeCenter
+                || NoteTestBench.CellCentre(manager, n.Id, 1) == closeCenter
+                || NoteTestBench.CellCentre(manager, n.Id, 3) == closeCenter));
+        if (resting is not null)
+            startUs = NoteTestBench.Reveal(manager, resting.Id, startUs);
+
         Arm(manager, closeCenter, startUs);
         for (long t = startUs + 300_000; t <= startUs + 1_200_000; t += 100_000)
             manager.OnGazeMoved(closeCenter, t);

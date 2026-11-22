@@ -187,9 +187,18 @@ public class NoteWindowShowSeamTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
-    /// <summary>Looks away past every control for 200 ms, then holds past the 600 ms dwell.</summary>
+    /// <summary>Looks away past every control for 200 ms, then holds past the 600 ms dwell.
+    /// D: a resting Display note's row cell reveals the row first (the reveal is not an action).</summary>
     private static long HoldGaze(NoteManager manager, PhysicalPoint point, long present, int ms = 1200)
     {
+        var resting = manager.ActiveNotes.FirstOrDefault(n => n.State == NoteState.Display
+            && !manager.IsRevealedForTest(n.Id)
+            && (NoteTestBench.CellCentre(manager, n.Id, 0) == point
+                || NoteTestBench.CellCentre(manager, n.Id, 1) == point
+                || NoteTestBench.CellCentre(manager, n.Id, 3) == point));
+        if (resting is not null)
+            present = NoteTestBench.Reveal(manager, resting.Id, present);
+
         var away = new PhysicalPoint(point.X + 10_000, point.Y);
         for (var t = present; t <= present + 220_000; t += 33_000)
             manager.OnGazeMoved(away, t);

@@ -109,9 +109,13 @@ public class NoteMoveExclusivityTests
             Check.WithCustomMessage("the Other-side dwell applied its judged side")
                 .That(manager.PlacementForTest(id)!.Side).IsEqualTo(judged!.Side);
             Check.WithCustomMessage("the Other-side dwell applied its judged window rect — the "
-                    + "judged candidate plus the number tag's top strip (T6 fixup-01)")
+                    + "judged candidate plus the number tag's top strip (T6 fixup-01) and the "
+                    + "reveal target's clearance (fixup-01 F3; the seam note is windowless, so "
+                    + "its at-rest card is the zero-text 20 x 20 DIP)")
                 .That(manager.PlacementForTest(id)!.Window)
-                .IsEqualTo(NoteLayout.WithTagClearance(judged!, NoteSettings.DefaultTextSizeDip).Window);
+                .IsEqualTo(NoteLayout.WithRevealTargetClearance(
+                    NoteLayout.WithTagClearance(judged!, NoteSettings.DefaultTextSizeDip),
+                    NoteLayout.DisplayRestSize(0, 0), DpiHelper.ScaleX).Window);
             Check.That(manager.ActiveNotes[0].Side).IsEqualTo(NoteSide.Above);
             Check.WithCustomMessage("the dwell ends the move")
                 .That(manager.IsMoving).IsFalse();

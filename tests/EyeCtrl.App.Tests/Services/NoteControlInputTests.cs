@@ -74,12 +74,27 @@ public class NoteControlInputTests
         return (manager, counter);
     }
 
+    // D: every SavedNote look consumes a monotonic slice, so two notes in one test cannot send
+    // the reveal detector backwards past its cooldown.
+    private static long _gazeClock;
+
+    private static long NextGazeBase()
+    {
+        long b = _gazeClock;
+        _gazeClock += 10_000_000;
+        return b;
+    }
+
     private static string SavedNote(NoteManager manager, string text, PhysicalPoint anchor)
     {
         manager.CreateNoteAt(anchor);
         var id = manager.ActiveNotes[^1].Id;
         manager.Apply(new NoteAppend(text));
         manager.FinishEdit(id, commit: true);
+        // D (sitting 11): the caretaker input tests need the row DRAWN; a look reveals it (the
+        // reveal is not an action and needs no pointer).
+        long baseUs = NextGazeBase();
+        NoteTestBench.Reveal(manager, id, baseUs);
         return id;
     }
 
@@ -450,10 +465,20 @@ public class NoteControlInputTests
             canvas.Measure(new Size(window.Width, window.Height));
             canvas.Arrange(new Rect(new Point(0, 0), new Size(window.Width, window.Height)));
             var cell = window.CellFillForTest(3)!;
+            Check.WithCustomMessage("D: the note is revealed and row cell 3 is drawn")
+                .That(window.RevealedForTest && cell.Visibility == Visibility.Visible).IsTrue();
             var corner = new Point(Canvas.GetLeft(cell) + 2, Canvas.GetTop(cell) + 2);
-            var hit = VisualTreeHelper.HitTest(canvas, corner)?.VisualHit;
+            // TopHit applies the input filter (Visibility + IsHitTestVisible), the same view a
+            // shown window routes a finger through; D made the text plate sit over the row, and
+            // it is deliberately not hit-testable.
+            var hit = TopHit(canvas, corner);
+            string which = ReferenceEquals(hit, window.CardBorderForTest) ? "the card border"
+                : ReferenceEquals(hit, window.ContentBorderForTest) ? "the content border"
+                : hit?.GetType().Name ?? "null";
+            Check.WithCustomMessage($"the hit at {corner} is {which}")
+                .That(hit).IsNotNull();
             Check.WithCustomMessage("a finger at the cell corner lands on the CELL FILL — the touch "
-                    + "target must be at least the area gaze uses")
+                    + $"target must be at least the area gaze uses; the hit is {which}")
                 .That(hit).IsSameReferenceAs(cell);
 
             int cuesBefore = counter.Cues;
@@ -696,6 +721,8 @@ public class NoteControlInputTests
             Check.That(fired).IsEqualTo(1);
             Check.That(counter.Cues - cuesBefore).IsEqualTo(1);
             manager.FinishEdit(id, commit: true); // back to Display for the second point
+            // D: at rest the row is not drawn; the look reveals it again for the second hit.
+            NoteTestBench.Reveal(manager, id, NextGazeBase());
 
             // K2a changed the card: the compact Edit card is 560 wide, the Display card 732, and
             // the redraw replaced every element. Re-arrange the canvas at the new window size and
@@ -837,10 +864,13 @@ public class NoteControlInputTests
     private static void ArmThenChip(NoteManager manager, string id)
     {
         var close = NoteTestBench.CellCentre(manager, id, 3);
-        for (long t = 0; t <= 200_000; t += 100_000)
+        // D: a monotonic slice *past* SavedNote's reveal look (the reveal detector's cooldown
+        // must not swallow the close dwell because the timestamps went backwards).
+        long start = NextGazeBase();
+        for (long t = start; t <= start + 200_000; t += 100_000)
             manager.Receive(new GazeCursorMovedMessage(new GazeFrame(
                 new PhysicalPoint(close.X + 10_000, close.Y), t, IsInGap: false)));
-        for (long t = 300_000; t <= 1_200_000; t += 100_000)
+        for (long t = start + 300_000; t <= start + 1_200_000; t += 100_000)
             manager.Receive(new GazeCursorMovedMessage(new GazeFrame(close, t, IsInGap: false)));
     }
 

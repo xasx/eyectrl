@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Notes;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels.Messages;
@@ -177,17 +178,21 @@ public class NoteManagerTests
         Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
         Check.That(manager.ActiveNotes[1].State).IsEqualTo(NoteState.Display);
 
-        // A ClearTargets anywhere in note 1's move flow would wipe note 2's column: two
-        // Display notes each register exactly ✎/↕/✕ (3 cells, 80 DIP squares).
+        // A ClearTargets anywhere in note 1's move flow would wipe note 2's targets: at rest each
+        // Display note carries exactly ONE target — its reveal target (D1).
         Check.WithCustomMessage(
-                "moving note 1 must not unregister note 2's close/edit/move targets — " +
+                "moving note 1 must not unregister note 2's reveal target — " +
                 "a ClearTargets in the move flow wiped them")
-            .That(manager.LiveTargetRects()).HasSize(6);
+            .That(manager.LiveTargetRects()).HasSize(2);
 
-        // And functionally: dwelling note 2's ✎ cell (slot 0) still enters Edit on NOTE 2 —
-        // the registered target really belongs to it, not a stale rect.
+        // And functionally: after a look reveals note 2, dwelling its ✎ row cell still enters
+        // Edit on NOTE 2 — the re-registered target really belongs to it, not a stale rect.
+        long t0 = NoteTestBench.Reveal(manager, id2, 0);
         var edit2 = NoteTestBench.CellCentre(manager, id2, 0);
-        for (long t = 0; t <= 800_000; t += 33_000)
+        var away = new PhysicalPoint(edit2.X + 10_000, edit2.Y);
+        for (long t = t0; t <= t0 + 200_000; t += 33_000)
+            manager.OnGazeMoved(away, t);
+        for (long t = t0 + 300_000; t <= t0 + 1_200_000; t += 33_000)
             manager.OnGazeMoved(edit2, t);
 
         Check.WithCustomMessage("note 2's edit target no longer dwells after note 1's move")
@@ -599,18 +604,19 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = manager.AddNoteTargetsForTest(anchor);
+            var id = manager.AddNoteTargetsForTest(anchor); // the seam's note is REVEALED
+            const long t0 = 0;
             var close = NoteTestBench.CellCentre(manager, id, 3);
 
             probe.RectsProvider = () => new[] { new PhysicalRect(close.X - 200, close.Y - 200, 400, 400) };
             probe.IsVisible = true;
-            for (long t = 0; t <= 2_000_000; t += 33_000)
+            for (long t = t0; t <= t0 + 2_000_000; t += 33_000)
                 manager.OnGazeMoved(close, t);
             Check.WithCustomMessage("a Display note's close must not dwell under the keyboard rect")
                 .That(manager.ActiveNotes).HasSize(1);
 
             probe.RectsProvider = () => Array.Empty<PhysicalRect>();
-            for (long t = 3_000_000; t <= 3_800_000; t += 33_000)
+            for (long t = t0 + 3_000_000; t <= t0 + 3_800_000; t += 33_000)
                 manager.OnGazeMoved(close, t);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
             Check.That(id).IsNotEmpty();
@@ -622,15 +628,13 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void DoneMovesTheControlsFromRowToColumn_TheOldDoneCellIsInert_AndTheDisplayControlWorksAfterALeave()
+    public void DoneMovesTheControlsFromEditRowToTheRevealedRow_TheOldDoneCellIsInert_AndTheDisplayControlWorksAfterALeave()
     {
-        // Fixup B2's positive control for R2, adapted to K2a: the Edit card's ✓ Done is in the
-        // ROW under the text, the Display card's ✎ is back in the right-hand COLUMN, so after
-        // Done the old Done cell is empty space — a lingering held gaze there must do nothing.
-        // The ✎ is a new target at a different spot; a leave and a return arm it and the dwell
-        // re-enters Edit. (The latch's "born under the held gaze" teeth live in
-        // NoteGateTests.AnEmptyNewNotesDone_StillLatchesTheNeighbourControl, where the geometry
-        // can still put one note's control under another's.)
+        // Fixup B2's positive control for R2, adapted to K2a and D: the Edit card's ✓ Done is in
+        // its centred ROW under the text; after Done the note is AT REST (no control row at all),
+        // so the old Done cell is empty space — a lingering held gaze there fires nothing. The
+        // ✎ appears only after a look reveals the row; a leave and a return arm it and the dwell
+        // re-enters Edit.
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
@@ -649,17 +653,18 @@ public class NoteManagerTests
             Check.WithCustomMessage("Done must have committed the draft")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
 
-            // The old Done spot is empty on the Display card: a full second of gaze there fires
-            // nothing (K2a moved ✎ into the column).
+            // The old Done spot is inert on the at-rest card: a full second of gaze there fires
+            // nothing (it may reveal the row, but a reveal is not an action).
             for (long t = 800_000; t <= 1_800_000; t += 33_000) manager.OnGazeMoved(doneSlot, t);
-            Check.WithCustomMessage("the old Done row cell must be inert on the Display card")
+            Check.WithCustomMessage("the old Done row cell must fire nothing on the Display card")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
 
-            // Liveness: leave past the release, then dwell the Display ✎ column cell.
-            var editSlot = NoteTestBench.CellCentre(manager, id, 0); // ✎ in the Display column
+            // D: reveal the row, then leave past the release and dwell the Display ✎ row cell.
+            long t0 = NoteTestBench.Reveal(manager, id, 2_000_000);
+            var editSlot = NoteTestBench.CellCentre(manager, id, 0); // ✎ in the revealed row
             var away = new PhysicalPoint(editSlot.X + 10_000, editSlot.Y);
-            for (long t = 1_900_000; t <= 2_100_000; t += 33_000) manager.OnGazeMoved(away, t);
-            for (long t = 2_200_000; t <= 3_100_000; t += 33_000) manager.OnGazeMoved(editSlot, t);
+            for (long t = t0; t <= t0 + 200_000; t += 33_000) manager.OnGazeMoved(away, t);
+            for (long t = t0 + 300_000; t <= t0 + 1_200_000; t += 33_000) manager.OnGazeMoved(editSlot, t);
             Check.WithCustomMessage("after the gaze left and returned, ✎ must work")
                 .That(manager.IsEditing).IsTrue();
             Check.That(manager.ActiveNotes[0].Id).IsEqualTo(id);
@@ -668,13 +673,12 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void TheKeyboardGate_HoldsEvenWhileTheLatchIsNonEmpty_GatedDwellFiresNothing()
+    public void TheKeyboardGate_HoldsAfterAReveal_GatedDwellFiresNothing()
     {
-        // Fixup F4: the latch filter keeps the keyboard gate — while ANY target is latched, a
-        // gated sample (gaze inside the keyboard's rect) must not complete a dwell on an ARMED
-        // target either. After Done the ✎ sits LATCHED in the held slot (P2 D8) while the ↕ one
-        // slot down is armed; the gate over the ↕ must hold it, and only an ungated dwell may
-        // fire it.
+        // Fixup F4's subject, re-based on D: after a look reveals the row, the ↕ cell is a live
+        // target. A gated sample (gaze inside the keyboard's rect) must not complete its dwell;
+        // the same held gaze fires the moment the gate opens. (The old "✎ still latched" shape
+        // is gone: at rest there is no ✎ target, and a reveal latches the row it registers.)
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
         var probe = new FakeKeyboardProbe { IsVisible = false };
@@ -688,23 +692,24 @@ public class NoteManagerTests
             var slot0 = NoteTestBench.CellCentre(manager, id, 0); // ✓ in the Edit row
 
             for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
-            Check.That(manager.IsEditing).IsFalse(); // Done fired; ✎ latched → latch non-empty
+            Check.That(manager.IsEditing).IsFalse(); // Done fired; the note is at rest
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
-            // K2a: the Display card's column is back, so ↕ (slot 1) exists only now.
+
+            // Reveal the row, then hold the ↕ cell under the keyboard's rect.
+            long t0 = NoteTestBench.Reveal(manager, id, 800_000);
             var slot1 = NoteTestBench.CellCentre(manager, id, 1);
 
-            // The keyboard rect covers the ↕: the gaze rests there, gated.
             probe.RectsProvider = () => new[] { new PhysicalRect(slot1.X - 300, slot1.Y - 300, 600, 600) };
             probe.IsVisible = true;
             probe.RaiseChanged();
-            for (long t = 800_000; t <= 1_600_000; t += 33_000) manager.OnGazeMoved(slot1, t);
-            Check.WithCustomMessage("a gated dwell must not fire the armed ↕, even with a target latched")
+            for (long t = t0; t <= t0 + 800_000; t += 33_000) manager.OnGazeMoved(slot1, t);
+            Check.WithCustomMessage("a gated dwell must not fire the armed ↕")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
 
             // The gate moves away: the same held gaze now fires the ↕ — the hold was the gate.
             probe.RectsProvider = () => Array.Empty<PhysicalRect>();
             probe.RaiseChanged();
-            for (long t = 1_700_000; t <= 2_500_000; t += 33_000) manager.OnGazeMoved(slot1, t);
+            for (long t = t0 + 900_000; t <= t0 + 1_700_000; t += 33_000) manager.OnGazeMoved(slot1, t);
             Check.WithCustomMessage("once ungated, the armed ↕ dwell must complete")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Move);
             Check.That(manager.ActiveNotes).HasSize(1);
@@ -964,7 +969,7 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void LiveTargetRects_DisplayState_IsAllThreeButtonSquares()
+    public void LiveTargetRects_DisplayState_IsOnlyTheRevealTarget_UntilTheLookRevealsTheRow()
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance, workAreaDip: NoteTestBench.WorkAreaProvider);
@@ -976,21 +981,38 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "x", anchor);
-            manager.FinishEdit(id, commit: true); // Display: close/edit/move
+            manager.FinishEdit(id, commit: true); // Display at rest
 
-            // The detector snapshot's order is unspecified (dictionary-backed) — compare as a set
-            // by sorting both sides down the button column.
-            var rects = manager.LiveTargetRects().OrderBy(r => r.Y).ToList();
-            var top = NoteTestBench.CellCentre(manager, id, 0);
-            var mid = NoteTestBench.CellCentre(manager, id, 1);
-            // P4 D3: close sits in the bottom row (slot 3), past the full gap cell.
-            var bottom = NoteTestBench.CellCentre(manager, id, 3);
+            // D1: exactly ONE target at rest — the reveal target — and it is the at-rest card
+            // rect enlarged to at least 112x112 with its bottom edge on the card's bottom.
+            var rest = manager.DrawnCardForTest(id);
+            var target = manager.RevealTargetForTest(id);
+            Check.That(manager.LiveTargetRects()).HasSize(1);
+            Check.That(target).IsNotNull();
+            var revealRect = target!.Value;
+            Check.WithCustomMessage("the reveal target is at least one hit cell on each axis")
+                .That(revealRect.Width >= LayoutConstants.NoteCellDip
+                    && revealRect.Height >= LayoutConstants.NoteCellDip).IsTrue();
+            Check.WithCustomMessage("the reveal target's bottom edge is the at-rest card's bottom")
+                .That(revealRect.Bottom).IsEqualTo(rest.Bottom);
+            Check.WithCustomMessage("it grows upward only (top at or above the card top)")
+                .That(revealRect.Top <= rest.Top).IsTrue();
 
+            // D4: reveal it — the row's three cells replace the reveal target.
+            NoteTestBench.Reveal(manager, id, 0);
+            var rects = manager.LiveTargetRects().OrderBy(r => r.Y).ThenBy(r => r.X).ToList();
+            var first = NoteTestBench.CellCentre(manager, id, 0);
+            var second = NoteTestBench.CellCentre(manager, id, 1);
+            // P4 D3: ✕ sits in the fourth row cell (slot 3).
+            var fourth = NoteTestBench.CellCentre(manager, id, 3);
             Check.That(rects).HasSize(3);
             Check.That(rects).ContainsExactly(
-                CellRect(top),
-                CellRect(mid),
-                CellRect(bottom));
+                CellRect(first),
+                CellRect(second),
+                CellRect(fourth));
+            Check.WithCustomMessage("✓/↕/✕ share one row under the text")
+                .That(Math.Abs(first.Y - second.Y) < 1e-6 && Math.Abs(second.Y - fourth.Y) < 1e-6)
+                .IsTrue();
         }
         finally
         {
@@ -1016,10 +1038,11 @@ public class NoteManagerTests
             var otherside = NoteTestBench.CellCentre(manager, id, 0);
             var cancel = NoteTestBench.CellCentre(manager, id, 1);
             double half = DpiHelper.LogicalToPhysicalX(EyeCtrl.Core.LayoutConstants.NoteCellDip / 2);
-            // Order follows the detector's enumeration, not the registration order — sort by Y
-            // (the same discipline as the Edit-state rect test) and pin the two squares.
-            Check.That(manager.LiveTargetRects().OrderBy(r => r.Y).ToList()).ContainsExactly(
-                new[] { otherside, cancel }.OrderBy(c => c.Y).Select(c =>
+            // Order follows the detector's enumeration, not the registration order — sort both
+            // sides by the row's X (D: the Move controls share one row, so Y no longer separates
+            // them) and pin the two squares.
+            Check.That(manager.LiveTargetRects().OrderBy(r => r.X).ToList()).ContainsExactly(
+                new[] { otherside, cancel }.OrderBy(c => c.X).Select(c =>
                     new PhysicalRect(c.X - half, c.Y - half, half * 2, half * 2)).ToList());
         }
         finally
@@ -1074,17 +1097,19 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "x", anchor);
-            manager.FinishEdit(id, commit: true); // -> Display: registers edit/move/close dwell targets
+            manager.FinishEdit(id, commit: true); // -> Display at rest: only the reveal target
+            // D (sitting 11): a Display note has no controls until a look reveals the row.
+            long t0 = NoteTestBench.Reveal(manager, id, 0);
             var closeCenter = NoteTestBench.CellCentre(manager, id, 3);
 
             // Fixup B2: ✕ re-arms only after the gaze has LEFT its circle — a sample stream that
             // arrives at ✕ without a prior outside sample is exactly the held-Done hazard. Look
             // away first, then hold the close button.
-            for (long t = 0; t <= 200_000; t += 33_000)
+            for (long t = t0; t <= t0 + 200_000; t += 33_000)
                 manager.OnGazeMoved(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t);
 
             // Hold gaze on the close button past the 600ms dwell threshold.
-            for (long t = 300_000; t <= 1_100_000; t += 33_000)
+            for (long t = t0 + 300_000; t <= t0 + 1_100_000; t += 33_000)
                 manager.OnGazeMoved(closeCenter, t);
 
             // P2 D5: the dwell no longer deletes — the window re-renders in place as a chip.
@@ -1137,7 +1162,8 @@ public class NoteManagerTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = TypeIntoNewDraftNote(manager, "x", anchor);
-            manager.FinishEdit(id, commit: true); // -> Display: registers edit/move/close dwell targets
+            manager.FinishEdit(id, commit: true); // -> Display at rest: only the reveal target
+            long t0 = NoteTestBench.Reveal(manager, id, 0);
             // The ✕ effect (P2 D5) is the chip entry; the cue must fire AFTER the note is pending.
             var probe = new CueProbe(EffectRanAtSend: () =>
                 manager.ActiveNotes.Count == 1 && manager.ActiveNotes[0].State == NoteState.PendingUndo);
@@ -1145,10 +1171,10 @@ public class NoteManagerTests
             var closeCenter = NoteTestBench.CellCentre(manager, id, 3);
 
             // Fixup B2: arm ✕ by leaving its circle first (see CloseButtonDwell_AtVisiblePosition).
-            for (long t = 0; t <= 200_000; t += 33_000)
+            for (long t = t0; t <= t0 + 200_000; t += 33_000)
                 manager.OnGazeMoved(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t);
 
-            for (long t = 300_000; t <= 1_100_000; t += 33_000)
+            for (long t = t0 + 300_000; t <= t0 + 1_100_000; t += 33_000)
                 manager.OnGazeMoved(closeCenter, t);
 
             // The real action ran (nothing vacuous about the count) and the cue fired exactly once,
@@ -1215,19 +1241,20 @@ public class NoteManagerTests
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
-            var id = manager.AddNoteTargetsForTest(anchor);
+            var id = manager.AddNoteTargetsForTest(anchor); // the seam's note is REVEALED
+            const long t0 = 0;
             var closeCenter = NoteTestBench.CellCentre(manager, id, 3);
 
             // Pre-probe: 500 ms of a 600 ms close dwell accrued on the button. Every delivered sample
             // is 100 ms after the previous one, below DwellDetector's 150 ms silence clamp.
-            for (long t = 0; t <= 500_000; t += 100_000)
+            for (long t = t0; t <= t0 + 500_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
 
             // The gate holds for 500 ms on the SAME timeline (every sample dropped — under no gate
-            // the 600 ms dwell would complete at t=700 ms), so the destructive target cannot
+            // the 600 ms dwell would complete at t0+700 ms), so the destructive target cannot
             // complete underneath the probe's window.
             modal.ProbeOpen = true;
-            for (long t = 600_000; t <= 1_000_000; t += 100_000)
+            for (long t = t0 + 600_000; t <= t0 + 1_000_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
             Check.WithCustomMessage("while the probe is open the close dwell must not advance")
                 .That(manager.ActiveNotes).HasSize(1);
@@ -1235,7 +1262,7 @@ public class NoteManagerTests
             // Resume. The recovery resets the detector and arm-latches ✕ under the held gaze
             // (P2 D1), so the held samples cannot fire it either.
             modal.ProbeOpen = false;
-            for (long t = 1_100_000; t <= 1_600_000; t += 100_000)
+            for (long t = t0 + 1_100_000; t <= t0 + 1_600_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
             Check.WithCustomMessage(
                     "the probe resume must reset the detector and latch the target under the held gaze")
@@ -1243,10 +1270,10 @@ public class NoteManagerTests
 
             // Negative control: leave ✕'s circle for 200 ms (past the 150 ms latch release), return,
             // and the target is live and completes from the reset anchor — into the chip (P2 D5).
-            for (long t = 1_700_000; t <= 1_900_000; t += 100_000)
+            for (long t = t0 + 1_700_000; t <= t0 + 1_900_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(
                     new GazeFrame(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t, IsInGap: false)));
-            for (long t = 2_000_000; t <= 2_800_000; t += 100_000)
+            for (long t = t0 + 2_000_000; t <= t0 + 2_800_000; t += 100_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
         }
@@ -1287,20 +1314,23 @@ public class NoteManagerTests
             manager.FinishEdit(id, commit: true);
             Check.That(manager.IsEditing).IsFalse();
             counting = true;
-            var editSlot = NoteTestBench.CellCentre(manager, id, 0); // ✎ in Display (P2 D8: ✎ · ↕ · ✕)
+            // D: the Display note is at rest; reveal its row first, then the ✎ dwell is the look
+            // the latch test is about.
+            long t0 = NoteTestBench.Reveal(manager, id, 0);
+            var editSlot = NoteTestBench.CellCentre(manager, id, 0); // ✎ in the revealed row
             var away = new PhysicalPoint(editSlot.X + 10_000, editSlot.Y);
 
             // Arm ✎ (200 ms outside), then dwell it: the note enters Edit, whose ✓ Done sits in
-            // the ROW under the text (K2a), not in the column cell the gaze is holding. The entry
-            // itself summons the keyboard exactly once.
-            for (long t = 0; t <= 200_000; t += 100_000) manager.OnGazeMoved(away, t);
-            for (long t = 300_000; t <= 1_100_000; t += 100_000) manager.OnGazeMoved(editSlot, t);
+            // the ROW under the text (K2a), not in the Display row cell the gaze is holding. The
+            // entry itself summons the keyboard exactly once.
+            for (long t = t0; t <= t0 + 200_000; t += 100_000) manager.OnGazeMoved(away, t);
+            for (long t = t0 + 300_000; t <= t0 + 1_100_000; t += 100_000) manager.OnGazeMoved(editSlot, t);
             Check.That(manager.IsEditing).IsTrue();
             Check.That(showRequests).IsEqualTo(1);
 
-            // The held gaze must not re-summon: the Display column point is empty on the Edit
+            // The held gaze must not re-summon: the Display row point is empty on the Edit
             // card, and the Edit targets were registered under a gaze that is not on any of them.
-            for (long t = 1_200_000; t <= 2_400_000; t += 100_000) manager.OnGazeMoved(editSlot, t);
+            for (long t = t0 + 1_200_000; t <= t0 + 2_400_000; t += 100_000) manager.OnGazeMoved(editSlot, t);
             Check.WithCustomMessage(
                     "the Edit-entry latch must hold the held slot — a duplicate show " +
                     "request is exactly the regression T3's Undo re-entry would ride")
@@ -1309,8 +1339,8 @@ public class NoteManagerTests
             // Liveness: leave past the 150 ms release, then dwell ⌨ — the arm is gone, and ⌨
             // re-summons. Its cell exists only now: the Edit card's row is laid out by the flip.
             var keyboardSlot = NoteTestBench.CellCentre(manager, id, 1);
-            for (long t = 2_500_000; t <= 2_700_000; t += 100_000) manager.OnGazeMoved(away, t);
-            for (long t = 2_800_000; t <= 3_600_000; t += 100_000) manager.OnGazeMoved(keyboardSlot, t);
+            for (long t = t0 + 2_500_000; t <= t0 + 2_700_000; t += 100_000) manager.OnGazeMoved(away, t);
+            for (long t = t0 + 2_800_000; t <= t0 + 3_600_000; t += 100_000) manager.OnGazeMoved(keyboardSlot, t);
             Check.That(showRequests).IsEqualTo(2);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }

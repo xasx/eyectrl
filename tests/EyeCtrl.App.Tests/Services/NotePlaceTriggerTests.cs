@@ -78,16 +78,18 @@ public class NotePlaceTriggerTests
             manager.FinishEdit(id, commit: true);
             var restored = manager.PlacementForTest(id)!;
             Check.That(restored.Side).IsEqualTo(NoteSide.Right);
-            // Display is a DIFFERENT card since K2a (the four-row column: 702 x 468 at 36, not the
-            // compact Edit card), so the restored window is the no-avoid Display derivation —
-            // not the Edit window it replaced.
-            var display = NoteLayout.WithTagClearance(
-                NoteLayout.Place(new PhysicalPoint(1800, 1000), restored.Side, restored.Card.Size,
-                    NoteTestBench.WorkArea, Array.Empty<Rect>(), 2.0)!,
-                NoteSettings.DefaultTextSizeDip);
+            // Display is a DIFFERENT card since K2a and D (the reserved text + four-cell row:
+            // pad + text + cell + pad at 36), not the compact Edit card, so the restored window is
+            // the no-avoid Display derivation — not the Edit window it replaced.
+            var display = NoteLayout.WithRevealTargetClearance(
+                NoteLayout.WithTagClearance(
+                    NoteLayout.Place(new PhysicalPoint(1800, 1000), restored.Side, restored.Card.Size,
+                        NoteTestBench.WorkArea, Array.Empty<Rect>(), 2.0)!,
+                    NoteSettings.DefaultTextSizeDip),
+                NoteLayout.DisplayRestSize(0, 0), 2.0); // the seam note is windowless: zero-text rest card
             Check.That(restored.Window).IsEqualTo(display.Window);
             Check.WithCustomMessage("the restored Display card must not be the compact Edit card")
-                .That(restored.Card.Height).IsEqualTo(NoteLayout.ControlsColumnHeightDip);
+                .That(restored.Card.Height).IsEqualTo(NoteLayout.DisplayReservedHeightDip(0));
         }
         finally
         {

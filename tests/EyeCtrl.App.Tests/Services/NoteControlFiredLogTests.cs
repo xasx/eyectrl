@@ -145,7 +145,9 @@ public class NoteControlFiredLogTests
             manager.Apply(new NoteAppend("saved"));
             manager.FinishEdit(id, commit: true);
 
-            for (long t = 0; t <= 200_000; t += 100_000)
+            // D: the close control is drawn only in the revealed row.
+            NoteTestBench.Reveal(manager, id, 0);
+            for (long t = 1_000_000; t <= 1_200_000; t += 100_000)
                 manager.OnGazeMoved(new PhysicalPoint(4000, 5000), t);
             manager.RunControlInput(id, "close", NoteInputKind.Touch, fromStylus: false);
 
@@ -156,9 +158,18 @@ public class NoteControlFiredLogTests
         finally { DpiHelper.Initialize(1.0, 1.0); manager.Dispose(); }
     }
 
-    /// <summary>Looks away past every control for 200 ms, then holds past the 600 ms dwell.</summary>
+    /// <summary>Looks away past every control for 200 ms, then holds past the 600 ms dwell.
+    /// D: a hold on a resting Display note's row cell reveals the row first (not an action).</summary>
     private static void ArmThenHold(NoteManager manager, PhysicalPoint point, long startUs)
     {
+        var resting = manager.ActiveNotes.FirstOrDefault(n => n.State == NoteState.Display
+            && !manager.IsRevealedForTest(n.Id)
+            && (NoteTestBench.CellCentre(manager, n.Id, 0) == point
+                || NoteTestBench.CellCentre(manager, n.Id, 1) == point
+                || NoteTestBench.CellCentre(manager, n.Id, 3) == point));
+        if (resting is not null)
+            startUs = NoteTestBench.Reveal(manager, resting.Id, startUs);
+
         var away = new PhysicalPoint(point.X + 10_000, point.Y);
         for (long t = startUs; t <= startUs + 200_000; t += 100_000)
             manager.OnGazeMoved(away, t);

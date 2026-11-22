@@ -577,12 +577,27 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\":reveal\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
       "Literal": "\":undo\"",
       "Count": 1
     },
     {
       "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
       "Literal": "\"NOTE-MOVE end={0} ms={1:0} settles={2} holds={3} moves={4}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"NOTE-REVEAL out=hidden note={0} ms={1} why={2}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"NOTE-REVEAL out=shown note={0} ms={1}\"",
       "Count": 1
     },
     {

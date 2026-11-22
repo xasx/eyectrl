@@ -149,6 +149,32 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>The chip's frozen geometry: the text size it was composed at and the measured
     /// text column its text is drawn in (T6 fixup-06 G1).</summary>
     private readonly record struct ChipGeometry(double TextSizeDip, double ColumnWidthDip);
+
+    /// <summary>
+    /// Fixup-01 F1: one revealed note's arming clock. The revealed row stays disarmed until the
+    /// gaze has spent <see cref="LeaveBeforeArmMs"/> of REACHABLE time continuously outside the
+    /// at-rest card ∪ the reveal target. <see cref="LastSampleUs"/> is null when the previous
+    /// sample carried no information (inside, or gated): the next valid sample then credits
+    /// nothing for the absent interval.
+    /// </summary>
+    private sealed class RevealArming
+    {
+        public double OutsideMs;
+        public long? LastSampleUs;
+    }
+
+    /// <summary>
+    /// Fixup-01 F2 (belt and braces): the fired ✕'s cell, kept with the chip born while the gaze
+    /// was inside it. The chip's ↺ stays disarmed until the gaze has been outside that cell for
+    /// <see cref="LeaveBeforeArmMs"/> of reachable time. The geometry already keeps ↺ two cells
+    /// away; this clock covers a future geometry change.
+    /// </summary>
+    private sealed class CloseCellArming
+    {
+        public Rect CellDip;
+        public double OutsideMs;
+        public long? LastSampleUs;
+    }
     // The injected monotonic clock, in milliseconds. Production: Environment.TickCount64.
     private readonly Func<long> _clockMs;
     // The injected 100 ms UI timer; created lazily so tests and non-UI constructions never pay
@@ -158,6 +184,51 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private long _lastTickClockMs;
     // The clock's stamp of the last valid (non-gap, gate-passing) sample. Null before the first.
     private long? _lastValidSampleClockMs;
+
+    // ── the reveal (D, sitting 11): a Display note is its text until a look reveals its row ──
+    /// <summary>How long the gaze must rest on the at-rest card before the row appears (D3). A
+    /// constant, NOT an adapted target: a reveal is not an action.</summary>
+    internal const int NoteRevealDwellMs = NoteLayout.RevealDwellMs;
+
+    /// <summary>How long the gaze must stay outside the revealed card plus
+    /// <see cref="NoteRevealHideMarginDip"/> before the note returns to rest (D5).</summary>
+    internal const int NoteRevealHideMs = NoteLayout.RevealHideMs;
+
+    /// <summary>The margin around the revealed card that still counts as "on the note" for the
+    /// hide clock (D5), in DIP.</summary>
+    internal const double NoteRevealHideMarginDip = NoteLayout.RevealHideMarginDip;
+
+    // The reveal target's own detector (D3): a fixed 500 ms, NOT registered with the adaptation
+    // registry (a reveal is not an action and its time must not move), gated by the same
+    // per-sample filter as every card target. One target per Display note at rest.
+    private readonly DwellDetector _revealDetector;
+    // The reveal targets' HWNDs, separate from _targetWindows for the same reason the chip's map
+    // is: the full-replacement clears of the card registrations never drop a reveal target.
+    private readonly Dictionary<string, IntPtr> _revealTargetWindows = new();
+    // The ONE revealed note (D5: at most one) and its hide clock: the reachable time the gaze
+    // has spent OUTSIDE the revealed card + margin, and the previous valid sample's timestamp.
+    // Time is accumulated from valid samples only (D5: gated/gap samples are no information),
+    // capped per interval like the dwell detector's silence clamp so a 3 s gaze loss cannot
+    // count as 3 s away.
+    private string? _revealedNoteId;
+    private double _revealOutsideMs;
+    private long? _revealLastSampleUs;
+    // When the revealed row appeared, on the injected monotonic ms clock (D8's ms={visible}).
+    private long _revealShownAtMs;
+    // SEAM-ONLY (AddNoteTargetsForTest): windowless test notes whose row is registered as if
+    // revealed. Production has at most one revealed note; the seam predates D and its callers
+    // dwell several Display notes' rows in one test.
+    private readonly HashSet<string> _seamRevealedNotes = new(StringComparer.Ordinal);
+    // Fixup-01 F1: note id → its revealed-row arming clock. Present = every row target of that
+    // note is disarmed right now; removed once the gaze has left the at-rest card ∪ reveal
+    // target for 150 ms of reachable time. Production has at most one entry.
+    private readonly Dictionary<string, RevealArming> _revealArming = new(StringComparer.Ordinal);
+    // Fixup-01 F2's belt: note id → the fired ✕ cell its chip's Undo must stay disarmed under.
+    private readonly Dictionary<string, CloseCellArming> _undoCloseCellArming = new(StringComparer.Ordinal);
+
+    /// <summary>Whether the note presents its row: the one production reveal, or a seam note.</summary>
+    private bool IsPresentedRevealed(string noteId) =>
+        _revealedNoteId == noteId || _seamRevealedNotes.Contains(noteId);
 
     // ── placement and Move (P3) ──
     // Every note's derived placement (P3 D2): the window rect, the card rect and the side are
@@ -261,13 +332,15 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// </summary>
     public IReadOnlyList<PhysicalRect> LiveTargetRects()
     {
-        // Both detectors (P2 D7 + P2 D5): the inventory must also see the chips' Undo targets.
+        // Both card/chip detectors plus the reveal targets (D7): the inventory must also see the
+        // at-rest reveal target - it is a note gaze consumer like every cell.
         var targets = _dwellDetector.Targets;
         var undo = _undoDetector.Targets;
-        if (targets.Count == 0 && undo.Count == 0)
+        var reveal = _revealDetector.Targets;
+        if (targets.Count == 0 && undo.Count == 0 && reveal.Count == 0)
             return Array.Empty<PhysicalRect>();
-        var rects = new List<PhysicalRect>(targets.Count + undo.Count);
-        foreach (var target in targets.Concat(undo))
+        var rects = new List<PhysicalRect>(targets.Count + undo.Count + reveal.Count);
+        foreach (var target in targets.Concat(undo).Concat(reveal))
         {
             if (target.Bounds is { } bounds)
                 rects.Add(bounds);
@@ -317,6 +390,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _undoDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: sink);
         _undoDetector.TargetActivated += OnUndoDetectorTargetActivated;
         _undoDetector.TargetProgress += OnTargetProgress;
+        // D (sitting 11): the reveal target's own detector. Deliberately NOT registered with the
+        // adaptation registry: NoteRevealDwellMs is a constant, and a reveal is not an action.
+        // Fixup-01 F4: it also gets NO telemetry sink — reading glances and reveals must never
+        // reach the Notes struggle signals the adaptation reads for the row's controls.
+        _revealDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: null);
+        _revealDetector.TargetActivated += OnRevealTargetActivated;
+        _revealDetector.TargetProgress += OnTargetProgress;
         // P2 D5's injected clock: an absent argument IS the production clock.
         _clockMs = clockMs ?? DefaultClockMs;
         // M3 (sitting 10): the settle/move-end log lines' sink. A pre-formatted line per call —
@@ -378,18 +458,44 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// (T6 fixup-06 G1): the chip's captured size, which the current setting may no longer be.
     /// <para>
     /// K2a: an EDITING note uses the compact Edit card (the text above, one row of three controls
-    /// below); Display, Move and the chips keep the four-row control column. Every placement, the
+    /// below). D (sitting 11): every card presentation is placed at the RESERVED (revealed) size —
+    /// the four-cell row's footprint — and the at-rest card is its top part. Every placement, the
     /// drawn window, the dwell registrations and the chrome rects read this one answer.
     /// </para></summary>
     private Size CardSizeFor(NoteData note, double textSize)
     {
         double workHeight = WorkAreaDip().Height;
         string text = note.State == NoteState.Edit ? note.Draft : note.Text;
-        double textHeight = Window(note.Id)?.MeasureTextHeightDip(text, textSize) ?? 0;
+        var window = Window(note.Id);
+        double textHeight = window?.MeasureTextHeightDip(text, textSize) ?? 0;
         return note.State == NoteState.Edit
             ? NoteLayout.EditCardSize(textSize, textHeight, workHeight)
-            : new Size(NoteLayout.CardWidthDip(textSize), NoteLayout.CardHeightDip(textSize, textHeight, workHeight));
+            : DisplaySizesFor(window, text, textSize, workHeight).Reserved;
     }
+
+    /// <summary>The Display card's two sizes at the current text size (D1/D2): the at-rest top
+    /// part and the RESERVED (revealed) footprint every placement uses. The text height is the
+    /// same capped measure the old card height used; the width is the MEASURED wrapped width, so
+    /// a short note's card is short. The window measures with the same face the manager does.</summary>
+    private (Size AtRest, Size Reserved) DisplaySizesFor(NoteData note, double textSize) =>
+        DisplaySizesFor(Window(note.Id), note.State == NoteState.Edit ? note.Draft : note.Text,
+            textSize, WorkAreaDip().Height);
+
+    private static (Size AtRest, Size Reserved) DisplaySizesFor(NoteWindow? window, string text,
+        double textSize, double workHeight)
+    {
+        double cap = NoteLayout.TextCapHeightDip(workHeight, textSize);
+        double textHeight = Math.Min(window?.MeasureTextHeightDip(text, textSize) ?? 0, cap);
+        double textWidth = window?.MeasureTextWidthDip(text, textSize) ?? 0;
+        return (
+            NoteLayout.DisplayRestSize(textWidth, textHeight),
+            NoteLayout.DisplayReservedSize(textWidth, textHeight));
+    }
+
+    /// <summary>The at-rest Display card's size (D1) for a note — the manager's reveal-target and
+    /// chrome math, measured with the same face and cap the placement used.</summary>
+    private Size RestCardSizeFor(NoteData note) =>
+        DisplaySizesFor(note, _noteSettings.TextSizeDip).AtRest;
 
     /// <summary>
     /// The chip's geometry at a text size (T6 fixup-06 G1): the size itself and the MEASURED
@@ -408,10 +514,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             : ChipGeometryAt(_noteSettings.TextSizeDip);
 
     /// <summary>The chip placement (P4 D3, the owner default "the note window shrunk in place"):
-    /// the chip card re-placed from the anchor, then TRANSLATED so its window top-left equals the
-    /// full card top-left - the Undo cell (slot 0) keeps its centre, so a gaze resting on it is
-    /// never displaced by the shrink. The smaller rect at the same top-left stays inside the work
-    /// area whenever the full one did.
+    /// the chip card TRANSLATED so its top-left equals the RESERVED Display card's top-left — the
+    /// text corner (D6, sitting 11). The chip is where the text was; its Undo disc sits at the
+    /// chip's own corner, never where ✕ was in the row (the latch rule covers any near miss).
+    /// The smaller rect at the same top-left stays inside the work area whenever the reserved one
+    /// did.
     ///
     /// <para>
     /// The chip carries NO tail (T5b review-02 F1): the translation moves the chip window off
@@ -431,19 +538,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         var chip = NoteLayout.Place(note.Anchor, full.Side,
             NoteLayout.ChipCardSize(geometry.TextSizeDip, ChipTextCandidates()), WorkAreaDip(),
             new List<Rect>(), DpiHelper.ScaleX)!;
-        // B1: the translation anchors the full card COLUMN edge (the card edge away from the
-        // tail: the window right for Right/Below/Above, the window left for Left), so the Undo
-        // cell keeps its pre-shrink centre under a resting gaze. A re-place (T6/T1) re-derives
-        // the full first, so the chip tracks its note geometry; T8 never re-places chips at
-        // all (see OnNoteTextSizeChanged) because the chip card is size-independent (R12).
-        double dy = full.Window.Top - chip.Window.Top;
-        double dx = full.Side switch
-        {
-            // Left: the column hugs the window left - keep the left edge.
-            NoteSide.Left => full.Window.Left - chip.Window.Left,
-            // Right/Below/Above: the column hugs the window right - keep the right edge.
-            _ => (full.Window.Right - chip.Window.Width) - chip.Window.Left,
-        };
+        // D6: anchor the chip's card at the reserved card's top-left (the text corner).
+        double dx = full.Card.Left - chip.Card.Left;
+        double dy = full.Card.Top - chip.Card.Top;
         return new NotePlacement(
             chip.Side,
             new Rect(chip.Window.X + dx, chip.Window.Y + dy, chip.Window.Width, chip.Window.Height),
@@ -518,9 +615,33 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// drawn-tree references stay valid, review-01's drawn⌁registered invariant holds).</summary>
     private void ApplyPlacementToWindow(NoteData note)
     {
-        var placement = NoteLayout.WithTagClearance(note.State == NoteState.PendingUndo
-            ? ChipPlacementFor(note)
-            : PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit), _noteSettings.TextSizeDip);
+        NotePlacement placement;
+        if (note.State == NoteState.PendingUndo)
+        {
+            placement = NoteLayout.WithTagClearance(ChipPlacementFor(note), _noteSettings.TextSizeDip);
+        }
+        else if (note.State == NoteState.Move)
+        {
+            // D6 (coordinator's option C): the moving card GROWS DOWNWARD by the Move hint's
+            // block so the instruction is never clipped. The landing outline stays the reserved
+            // rect (PreviewPlacementFor derives from CardSizeFor), so it shows what will land.
+            placement = NoteLayout.WithTagClearance(
+                MovePlacementFor(note, PlaceFor(note, avoidKeyboard: false)),
+                _noteSettings.TextSizeDip);
+        }
+        else
+        {
+            placement = NoteLayout.WithTagClearance(
+                PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit), _noteSettings.TextSizeDip);
+        }
+
+        // Fixup-02 F1: the ONE final step every path that ends a Display note at rest runs — a
+        // Display window must contain its whole reveal target, at rest and revealed alike, so the
+        // enlarged band belongs to this window and its alpha-1 fill is hit-testable. The CARD
+        // never moves; only the window surface grows. FinishMove builds its own placement (the one
+        // the move preview showed) and runs this same helper, so a path that adds its own Place
+        // cannot miss the clearance again.
+        placement = WithDisplayRevealClearance(note, placement);
 
         if (_placements.TryGetValue(note.Id, out var current) && current == placement)
             return;
@@ -542,6 +663,65 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             _undoDetector.ResetAllState();
             LatchTargetsUnderTheGaze();
         }
+    }
+
+    /// <summary>
+    /// Fixup-02 F1: the single final step every path that ends a Display note at rest runs, so the
+    /// reveal target's window clearance cannot be missed by a path that derives its own placement.
+    /// <see cref="ApplyPlacementToWindow"/> applies it after its state-specific derivation, and
+    /// <see cref="FinishMove"/> keeps its own (preview-matching) <see cref="NoteLayout.Place"/>
+    /// call and then runs this same helper. Non-Display states are untouched: their windows carry
+    /// their own card geometry and no reveal target.
+    /// </summary>
+    private NotePlacement WithDisplayRevealClearance(NoteData note, NotePlacement placement) =>
+        note.State == NoteState.Display
+            ? NoteLayout.WithRevealTargetClearance(placement, RestCardSizeFor(note), DpiHelper.ScaleX)
+            : placement;
+
+    /// <summary>
+    /// The DRAWN Move placement (D6, option C): the reserved card plus the Move hint's block
+    /// between the body text and the ⇄/⊘ row. Only the drawn card/window grow; the reserved
+    /// placement stays the basis for the landing outline. If the grown card would leave the
+    /// inset work area it is shifted UP just enough to stay inside — the one case where the text
+    /// moves during a Move; it never feeds placement, collisions or keyboard avoidance, because
+    /// the note is already placed and does not re-place while moving.
+    /// </summary>
+    private NotePlacement MovePlacementFor(NoteData note, NotePlacement reserved)
+    {
+        if (Window(note.Id) is not { } window)
+            return reserved; // windowless seam: nothing draws the hint, nothing grows
+        double hint = window.MoveHintBlockHeightDip(reserved.Card.Width);
+        if (hint <= 0)
+            return reserved;
+
+        var card = new Rect(reserved.Card.Left, reserved.Card.Top,
+            reserved.Card.Width, reserved.Card.Height + hint);
+        var inset = InsetWorkArea(WorkAreaDip());
+        double dy = 0;
+        if (card.Bottom > inset.Bottom)
+            dy = inset.Bottom - card.Bottom;
+        if (card.Top + dy < inset.Top)
+            dy = inset.Top - card.Top; // taller than the inset: keep its top in, the bottom overflows
+        if (dy != 0)
+            card = new Rect(card.Left, card.Top + dy, card.Width, card.Height);
+
+        return reserved with
+        {
+            Window = new Rect(reserved.Window.X, reserved.Window.Y + dy,
+                reserved.Window.Width, reserved.Window.Height + hint),
+            Card = card,
+        };
+    }
+
+    /// <summary>The inset work area a placement must stay inside (P3 D2's edge margin).</summary>
+    private static Rect InsetWorkArea(Rect workArea)
+    {
+        double margin = NoteLayout.Constants.EdgeMarginDip;
+        return new Rect(
+            workArea.Left + margin,
+            workArea.Top + margin,
+            Math.Max(0, workArea.Width - (2 * margin)),
+            Math.Max(0, workArea.Height - (2 * margin)));
     }
 
     /// <summary>
@@ -690,6 +870,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             FinalizeOldestYieldableChip();
         }
 
+        // D5/D6: this pin really enters Edit, so any revealed note returns to rest (why=edit).
+        // (An at-capacity pin creates no editor, so it leaves the reveal alone.)
+        ClearRevealedState("edit");
+
         var data = new NoteData { Anchor = point, Side = NoteSide.Right, State = NoteState.Edit, PreviousText = null, Draft = string.Empty, Number = LowestFreeNumber() };
         var window = new NoteWindow(data.Id);
         window.ControlInputActivated +=
@@ -732,6 +916,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     public void RemoveNote(string id)
     {
+        // D6: a removed revealed note leaves the revealed state like ✕ (why=close).
+        if (_revealedNoteId == id) ClearRevealedState("close");
+        _seamRevealedNotes.Remove(id);
+        _revealArming.Remove(id);
+        _undoCloseCellArming.Remove(id);
         var note = _notes.FirstOrDefault(n => n.Id == id);
         if (note is { State: NoteState.PendingUndo })
         {
@@ -777,6 +966,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         }
         // Commit-first (P1 D8), then hand the keyboard over: if it is up it stays up and its
         // ownership moves; if not, BeginEditing summons it.
+        // D5/D6: entering Edit leaves the revealed state (why=edit) and ends at rest. The
+        // sole-editor registration clears the reveal detector right after.
+        ClearRevealedState("edit");
         ExitEditing(commit: true, handOver: true);
 
         note.PreviousText = note.Text;
@@ -793,6 +985,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// </summary>
     private void BeginEditOn(NoteData note)
     {
+        // D5/D6: an editor takes the screen; any revealed note returns to rest (why=edit). The
+        // sole-editor registration below then clears the reveal detector itself.
+        ClearRevealedState("edit");
         note.State = NoteState.Edit;
         // T1-T5's state-driven avoid (P3 D3): entering Edit re-derives against the keyboard's
         // rects — Place keeps the saved side when it already clears them and moves only when it
@@ -980,9 +1175,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     public void LatchTargetsUnderTheGaze()
     {
         if (_disposed) return;
-        // Both detectors: a chip's Undo target born under a held gaze waits for a leave too
-        // (P2 D4 covers every (re)registration, P2 D5's chips included).
-        foreach (var target in _dwellDetector.Targets.Concat(_undoDetector.Targets))
+        // All three detectors: a chip's Undo target and an at-rest note's reveal target born
+        // under a held gaze wait for a leave too (P2 D4 covers every (re)registration).
+        foreach (var target in _dwellDetector.Targets.Concat(_undoDetector.Targets).Concat(_revealDetector.Targets))
         {
             if (TargetContains(target, _lastGazePoint))
                 _targetsAwaitingGazeLeave.TryAdd(target.Id, null);
@@ -1017,6 +1212,153 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         }
     }
 
+    // ── fixup-01 F1/F2: the revealed row's arming clock and the chip's close-cell belt ──
+
+    /// <summary>
+    /// Whether <paramref name="targetId"/> is one of the freshly revealed note's row cells
+    /// (✎/↕/✕) and its arming clock is still pending. The reveal target itself is never gated
+    /// by this (it is the thing that reveals), and other notes' rows are untouched.
+    /// </summary>
+    private static bool RowDisarmedByReveal(string targetId, Dictionary<string, RevealArming> arming)
+    {
+        if (arming.Count == 0) return false;
+        int colon = targetId.LastIndexOf(':');
+        if (colon < 0) return false;
+        if (targetId[(colon + 1)..] is not ("edit" or "move" or "close")) return false;
+        return arming.ContainsKey(targetId[..colon]);
+    }
+
+    /// <summary>Whether the chip's Undo target is still disarmed because it was born under the
+    /// fired ✕'s cell (fixup-01 F2's belt).</summary>
+    private static bool UndoDisarmedByCloseCell(string targetId, Dictionary<string, CloseCellArming> arming)
+    {
+        if (arming.Count == 0) return false;
+        if (!targetId.EndsWith(":undo", StringComparison.Ordinal)) return false;
+        return arming.ContainsKey(targetId[..^5]);
+    }
+
+    /// <summary>
+    /// Advances the revealed row's arming clock (fixup-01 F1). The region is the at-rest card ∪
+    /// its reveal target (the target contains the card, but both are tested so a future geometry
+    /// change cannot silently shrink the protected area). Inside resets the clock; outside
+    /// accumulates reachable valid-sample time (an interval longer than 150 ms is no information
+    /// and starts the clock over), and the row re-arms at <see cref="LeaveBeforeArmMs"/>. A note
+    /// that stopped being Display (or lost its placement) is dropped.
+    /// </summary>
+    private void AdvanceRevealArming(PhysicalPoint sample, long timestamp)
+    {
+        if (_revealArming.Count == 0) return;
+        double x = DpiHelper.PhysicalToLogicalX(sample.X);
+        double y = DpiHelper.PhysicalToLogicalY(sample.Y);
+        var point = new Point(x, y);
+        List<string>? armed = null;
+        foreach (var id in _revealArming.Keys.ToList())
+        {
+            var note = FindNote(id);
+            if (note is not { State: NoteState.Display }
+                || !_placements.TryGetValue(id, out var placement))
+            {
+                (armed ??= new()).Add(id);
+                continue;
+            }
+            var rest = NoteLayout.RestCardRect(placement, RestCardSizeFor(note));
+            var target = NoteLayout.RevealTargetRect(rest);
+            var state = _revealArming[id];
+            if (rest.Contains(point) || target.Contains(point))
+            {
+                state.OutsideMs = 0;
+                state.LastSampleUs = timestamp;
+                continue;
+            }
+            // Credit only a genuine valid-sample interval. A gap longer than the 150 ms
+            // threshold is no information (a gap sample never reaches OnGazeMoved), and the
+            // clock starts over at this sample instead of crediting the absence.
+            if (state.LastSampleUs is { } last && timestamp > last
+                && timestamp - last <= 150_000L)
+            {
+                state.OutsideMs += (timestamp - last) / 1000.0;
+            }
+            state.LastSampleUs = timestamp;
+            if (state.OutsideMs >= LeaveBeforeArmMs)
+                (armed ??= new()).Add(id);
+        }
+        if (armed is not null)
+        {
+            foreach (var id in armed)
+                _revealArming.Remove(id);
+        }
+    }
+
+    /// <summary>A gated sample is no information for the reveal arming clock: neither advance
+    /// nor reset it, and credit nothing for the interval it covers.</summary>
+    private void PauseRevealArming()
+    {
+        foreach (var state in _revealArming.Values)
+            state.LastSampleUs = null;
+    }
+
+    /// <summary>
+    /// Advances the chip's close-cell belt (fixup-01 F2). A gaze still inside the fired ✕'s cell
+    /// keeps the ↺ disarmed; outside accumulates reachable time and releases it after 150 ms.
+    /// </summary>
+    private void AdvanceCloseCellArming(PhysicalPoint sample, long timestamp)
+    {
+        if (_undoCloseCellArming.Count == 0) return;
+        var point = new Point(
+            DpiHelper.PhysicalToLogicalX(sample.X),
+            DpiHelper.PhysicalToLogicalY(sample.Y));
+        List<string>? armed = null;
+        foreach (var id in _undoCloseCellArming.Keys.ToList())
+        {
+            var state = _undoCloseCellArming[id];
+            if (state.CellDip.Contains(point))
+            {
+                state.OutsideMs = 0;
+                state.LastSampleUs = timestamp;
+                continue;
+            }
+            if (state.LastSampleUs is { } last && timestamp > last
+                && timestamp - last <= 150_000L)
+            {
+                state.OutsideMs += (timestamp - last) / 1000.0;
+            }
+            state.LastSampleUs = timestamp;
+            if (state.OutsideMs >= LeaveBeforeArmMs)
+                (armed ??= new()).Add(id);
+        }
+        if (armed is not null)
+        {
+            foreach (var id in armed)
+                _undoCloseCellArming.Remove(id);
+        }
+    }
+
+    private void PauseCloseCellArming()
+    {
+        foreach (var state in _undoCloseCellArming.Values)
+            state.LastSampleUs = null;
+    }
+
+    /// <summary>The Display row's <paramref name="slot"/> cell in screen DIP, read before a
+    /// state flip (fixup-01 F2's belt). Empty when the note has no placement.</summary>
+    private Rect DisplayCellRectDip(string noteId, int slot)
+    {
+        if (!_placements.TryGetValue(noteId, out var placement))
+            return Rect.Empty;
+        var (lx, ly) = NoteLayout.ButtonCenter(placement, slot, NoteState.Display);
+        double half = LayoutConstants.NoteCellDip / 2;
+        return new Rect(
+            placement.Window.Left + lx - half,
+            placement.Window.Top + ly - half,
+            LayoutConstants.NoteCellDip,
+            LayoutConstants.NoteCellDip);
+    }
+
+    private static bool InsideDipRect(Rect rect, PhysicalPoint physical) =>
+        rect.Contains(new Point(
+            DpiHelper.PhysicalToLogicalX(physical.X),
+            DpiHelper.PhysicalToLogicalY(physical.Y)));
+
     /// <summary>
     /// The keyboard release half of an exit (P1 D5, fixup m1): only a keyboard the EDITING note
     /// summoned is hidden, and only when the keyboard is still up. On a hand-over the release
@@ -1048,6 +1390,22 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// </summary>
     private void EnterPendingUndo(NoteData note, PendingUndoKind kind)
     {
+        // Fixup-01 F2's belt: when the chip is born from a fired ✕ while the gaze still sits in
+        // that ✕'s cell, remember the cell. The ↺ stays disarmed until the gaze has been outside
+        // it for 150 ms — the geometry keeps ↺ two cells away already, so this only matters if a
+        // future change brings them closer. Captured before the state flip (the cell reads the
+        // Display row).
+        bool fromRevealedRow = note.State == NoteState.Display && IsPresentedRevealed(note.Id);
+        Rect? firedCloseCell = fromRevealedRow ? DisplayCellRectDip(note.Id, slot: 3) : null;
+
+        // D6: ✕ from the revealed row leaves the revealed state (why=close); the chip's own
+        // registration below replaces every target. A DIFFERENT note's chip entry does not
+        // touch a revealed note (chips do not suspend notes).
+        if (_revealedNoteId == note.Id) ClearRevealedState("close");
+        if (firedCloseCell is { } closeCell && InsideDipRect(closeCell, _lastGazePoint))
+        {
+            _undoCloseCellArming[note.Id] = new CloseCellArming { CellDip = closeCell };
+        }
         note.State = NoteState.PendingUndo;
         note.UndoKind = kind;
         if (kind == PendingUndoKind.Removed)
@@ -1229,6 +1587,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         _chipReachedMs.Remove(note.Id);
         _chipGeometry.Remove(note.Id);
+        _undoCloseCellArming.Remove(note.Id);
         _undoDetector.RemoveTarget($"{note.Id}:undo");
         _undoTargetWindows.Remove($"{note.Id}:undo");
         _targetsAwaitingGazeLeave.Remove($"{note.Id}:undo");
@@ -1408,6 +1767,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     private void RemoveNoteInternal(NoteData note)
     {
+        // D6: a removed revealed note leaves the revealed state like ✕ (why=close).
+        if (_revealedNoteId == note.Id) ClearRevealedState("close");
+        _seamRevealedNotes.Remove(note.Id);
+        _revealArming.Remove(note.Id);
+        _undoCloseCellArming.Remove(note.Id);
         var window = Window(note.Id);
         if (window != null) { window.Close(); _windows.Remove(window); }
         _notes.Remove(note);
@@ -1575,7 +1939,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         note = _notes.FirstOrDefault(n => n.Id == id);
         if (note == null) return;
 
+        // D5/D6: entering Move leaves the revealed state (why=move). At most one note is
+        // revealed, so any revealed note — not just this one — returns to rest here.
+        ClearRevealedState("move");
         note.State = NoteState.Move;
+        // D6 (option C): the drawn Move card grows downward by the Move hint's block; the row
+        // targets and the chrome read this grown placement, so ⇄/⊘ sit where they are drawn.
+        ApplyPlacementToWindow(note);
         window.SetState(NoteState.Move); // dims to 0.6, shows Cancel (+ Other side when it fits)
         HidePlaceHere();                 // a fresh Move never inherits a stale place window
         HideMovePreview();               // ...nor a stale settle ring or landing outline
@@ -1585,6 +1955,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _moveSettles = _moveHolds = _moveMoves = 0;
         _dwellDetector.ClearTargets();
         _targetWindows.Clear();
+        // D: Move is exclusive - the other notes' reveal targets freeze with their cards.
+        _revealDetector.ClearTargets();
+        _revealTargetWindows.Clear();
         RegisterMoveTargetsForNote(note);
         _dwellDetector.ResetAllState();
         LatchTargetsUnderTheGaze();
@@ -1624,7 +1997,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// resets, the note returns to Display (or, with <paramref name="registerDisplay"/> false, a
     /// caller that re-registers itself first suppresses the double registration), and the
     /// full re-registrations re-latch everything under the held gaze. Sends the targets-changed
-    /// raise so the activation offers re-publish (the Move suspension reason may be ending).</summary>
+    /// raise so the activation offers re-publish (the Move suspension reason may be ending).
+    /// <para>D: the note ends AT REST — the drawn Move card (grown by the hint, option C) shrinks
+    /// back to the reserved rect the note was placed at, so the text is where it was before the
+    /// Move unless the grown card had to shift up at the work-area edge (that shift is transient
+    /// and this re-derivation puts the card back on the placement).</para></summary>
     private void LeaveMove(NoteData note)
     {
         HidePlaceHere(); // must run while _movingNoteId still names this move
@@ -1634,6 +2011,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _settleTracker.Reset();
         note.State = NoteState.Display;
         Window(note.Id)?.SetState(NoteState.Display);
+        // D6: shrink the drawn card back to the reserved rect (a no-op when nothing grew).
+        ApplyPlacementToWindow(note);
         ReRegisterAllTargets();
         RaiseTargetsChanged();
     }
@@ -1701,8 +2080,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _judgedOtherSideForMoving = null;
         _settleTracker.Reset();
         note.State = NoteState.Display;
-        var placement = NoteLayout.WithTagClearance(NoteLayout.Place(note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(),
-            new List<Rect>(), DpiHelper.ScaleX)!, _noteSettings.TextSizeDip);
+        // Fixup-02 F1: keep this path's OWN Place call — the placement is exactly the one the
+        // move preview showed — but run the shared final Display step, so the reveal target's
+        // window clearance (fixup-01 F3) survives every Place-here move.
+        var placement = WithDisplayRevealClearance(note, NoteLayout.WithTagClearance(
+            NoteLayout.Place(note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(),
+                new List<Rect>(), DpiHelper.ScaleX)!,
+            _noteSettings.TextSizeDip));
         _placements[id] = placement;
         window.ApplyPlacement(placement);
         window.Left = placement.Window.Left;
@@ -1738,12 +2122,15 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         bool badged = _notes.Count(n => n.State != NoteState.PendingUndo) >= 2;
         foreach (var note in _notes)
         {
-            // P3 D2: the card is the drawn card (the placement's Card rect, tail zone excluded —
-            // P2 D7 keeps the tail and the raw window rect out of the chrome zones), and the three
-            // column cells follow the placement's side.
+            bool revealed = IsPresentedRevealed(note.Id);
+            // D7: the chrome carries the CURRENTLY DRAWN rect — the at-rest top part until a
+            // look reveals the row, then the reserved rect; Edit/Move/the chip draw their card.
             if (_placements.TryGetValue(note.Id, out var placement))
             {
-                rects.Add(DipRectToPhysical(placement.Card));
+                var drawn = note.State is NoteState.Edit or NoteState.Move or NoteState.PendingUndo
+                    ? placement.Card
+                    : NoteLayout.DrawnCardRect(placement, RestCardSizeFor(note), revealed);
+                rects.Add(DipRectToPhysical(drawn));
                 if (badged && note.State != NoteState.PendingUndo)
                 {
                     var tagLocal = NoteLayout.TagRect(placement, _noteSettings.TextSizeDip);
@@ -1753,14 +2140,25 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 }
             }
 
-            // The occupied cells only (P4 D3): the gap cell and the states other rows are
-            // chrome for nobody.
+            // The occupied cells only (P4 D3, D1): a Display note at rest draws no cell, and the
+            // gap cell is chrome for nobody.
             double half = DpiHelper.LogicalToPhysicalX(LayoutConstants.NoteCellDip / 2);
-            foreach (var slot in NoteLayout.SlotsFor(note.State))
+            foreach (var slot in NoteLayout.DrawnSlotsFor(note.State, revealed))
             {
                 if (!TryColumnCentre(note.Id, slot, note.State, out var centre)) continue;
                 rects.Add(new PhysicalRect(centre.X - half, centre.Y - half, half * 2, half * 2));
             }
+        }
+        // D7: an at-rest note's reveal target is a gaze consumer of its own (it can grow above
+        // the drawn card), so no activation offer may sit on it either.
+        foreach (var target in _revealDetector.Targets)
+        {
+            if (target.Bounds is { } bounds)
+                rects.Add(bounds);
+            else
+                rects.Add(new PhysicalRect(
+                    target.Center.X - target.Radius, target.Center.Y - target.Radius,
+                    target.Radius * 2, target.Radius * 2));
         }
         // P3 D4: a shown Place-here window is chrome — the activation offers must not overlap it.
         if (_placeShown)
@@ -1805,7 +2203,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         bool genuineOcclusion = false;
         bool occluderFailed = false;
         IntPtr rootWindow = IntPtr.Zero;
-        if (_dwellDetector.Targets.Count > 0 || _undoDetector.Targets.Count > 0)
+        if (_dwellDetector.Targets.Count > 0 || _undoDetector.Targets.Count > 0
+            || _revealDetector.Targets.Count > 0)
         {
             (genuineOcclusion, occluderFailed) = EvaluateOccluders(gazePoint);
             if (!genuineOcclusion && OwnWindowConjunctActive && AnyWindowedTarget && GazeInsideTargetUnion(gazePoint))
@@ -1820,18 +2219,50 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (_targetsAwaitingGazeLeave.Count > 0 && !genuineOcclusion && !occluderFailed)
             AdvanceLeaveTimers(gazePoint, timestamp);
 
+        // Fixup-01 F1: the freshly revealed row's own arming clock. Gated samples are no
+        // information: they neither advance nor reset it (the next valid sample credits
+        // nothing for the gated interval).
+        if (_revealArming.Count > 0)
+        {
+            if (genuineOcclusion || occluderFailed)
+                PauseRevealArming();
+            else
+                AdvanceRevealArming(gazePoint, timestamp);
+        }
+
+        // Fixup-01 F2's belt: the same clock for a ↺ born under the fired ✕'s cell.
+        if (_undoCloseCellArming.Count > 0)
+        {
+            if (genuineOcclusion || occluderFailed)
+                PauseCloseCellArming();
+            else
+                AdvanceCloseCellArming(gazePoint, timestamp);
+        }
+
         Func<DwellTarget, bool>? filter = null;
-        if (genuineOcclusion || occluderFailed || _targetsAwaitingGazeLeave.Count > 0 || OwnWindowConjunctActive)
+        if (genuineOcclusion || occluderFailed || _targetsAwaitingGazeLeave.Count > 0
+            || _revealArming.Count > 0 || _undoCloseCellArming.Count > 0 || OwnWindowConjunctActive)
         {
             var disarmed = _targetsAwaitingGazeLeave;
+            var revealArming = _revealArming;
+            var closeCellArming = _undoCloseCellArming;
             filter = t => GateOpenFor(t, genuineOcclusion, occluderFailed)
                 && !disarmed.ContainsKey(t.Id)
+                && !RowDisarmedByReveal(t.Id, revealArming)
+                && !UndoDisarmedByCloseCell(t.Id, closeCellArming)
                 && WindowOwns(t, rootWindow);
         }
         _dwellDetector.Update(gazePoint, timestamp, filter);
         // The chip's Undo target is gated EXACTLY like the card targets (P2 D5): same occluders,
         // same latch, same own-window conjunct — the one filter serves both detectors.
         _undoDetector.Update(gazePoint, timestamp, filter);
+        // D: the reveal target is gated EXACTLY like ✎ — the same filter, the same occluders and
+        // latch, and a reveal is not an action (its activation sends no cue).
+        _revealDetector.Update(gazePoint, timestamp, filter);
+        // D5's hide clock: a valid sample outside the revealed card + 24 DIP runs it; gated
+        // samples are no information (neither advance nor reset), which is why the flag is
+        // passed rather than read inside.
+        AdvanceRevealHideClock(gazePoint, timestamp, genuineOcclusion || occluderFailed);
 
         // P3 D4: a moving note never chases the gaze. Every valid sample feeds the settle
         // tracker (DIP); an accepted settle shows the Place-here window beside the centroid.
@@ -2142,7 +2573,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// The landing preview's placement: EXACTLY the derivation <see cref="FinishMove"/> applies
     /// when the note re-anchors — <see cref="NoteLayout.Place"/> over the same anchor, saved side,
     /// card size, work area and (no avoid rects, no displacement), plus the tag clearance — so
-    /// the dashed outline and the real result cannot disagree.
+    /// the dashed outline and the real result cannot disagree. Fixup-02 F1: the final Display step
+    /// (<see cref="WithDisplayRevealClearance"/>) only grows the WINDOW around that card, so the
+    /// outline's card is still the one that lands.
     /// </summary>
     private NotePlacement PreviewPlacementFor(NoteData note, PhysicalPoint anchorDip) =>
         NoteLayout.WithTagClearance(
@@ -2297,11 +2730,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         }
     }
 
-    /// <summary>The target with this id, in either detector - the card detector first, then the
-    /// chips. Ids never collide (the suffixes differ).</summary>
+    /// <summary>The target with this id, across the card detector, the chips and the reveal
+    /// targets. Ids never collide (the suffixes differ).</summary>
     private DwellTarget? FindTarget(string id) =>
         _dwellDetector.Targets.FirstOrDefault(t => t.Id == id)
-        ?? _undoDetector.Targets.FirstOrDefault(t => t.Id == id);
+        ?? _undoDetector.Targets.FirstOrDefault(t => t.Id == id)
+        ?? _revealDetector.Targets.FirstOrDefault(t => t.Id == id);
 
     /// <summary>Whether the point lies in a target hit area (P4 D3): rect containment for the
     /// note hit cells AND for the chip Undo cell (it is a cell too); circle distance for every
@@ -2321,7 +2755,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     private bool GazeInsideTargetUnion(PhysicalPoint gazePoint)
     {
-        foreach (var target in _dwellDetector.Targets.Concat(_undoDetector.Targets))
+        foreach (var target in _dwellDetector.Targets.Concat(_undoDetector.Targets).Concat(_revealDetector.Targets))
         {
             if (target.Bounds is { } bounds)
             {
@@ -2339,7 +2773,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     private bool AnyWindowedTarget =>
         _targetWindows.Values.Any(handle => handle != IntPtr.Zero)
-        || _undoTargetWindows.Values.Any(handle => handle != IntPtr.Zero);
+        || _undoTargetWindows.Values.Any(handle => handle != IntPtr.Zero)
+        || _revealTargetWindows.Values.Any(handle => handle != IntPtr.Zero);
 
     /// <summary>Whether the own-window conjunct is in force: it switches off only for the named
     /// <see cref="InactiveNoteHitTester"/> sentinel that headless tests pass (fixup 01 M2) — the
@@ -2357,9 +2792,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             return true;
         bool hasCard = _targetWindows.TryGetValue(target.Id, out var own) && own != IntPtr.Zero;
         bool hasUndo = _undoTargetWindows.TryGetValue(target.Id, out var undoOwn) && undoOwn != IntPtr.Zero;
-        if (!hasCard && !hasUndo)
+        bool hasReveal = _revealTargetWindows.TryGetValue(target.Id, out var revealOwn) && revealOwn != IntPtr.Zero;
+        if (!hasCard && !hasUndo && !hasReveal)
             return true; // windowless (the test seams)
-        var expected = hasCard ? own : undoOwn;
+        var expected = hasCard ? own : hasUndo ? undoOwn : revealOwn;
         return rootWindow != IntPtr.Zero && rootWindow == expected;
     }
 
@@ -2407,6 +2843,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             _gateClosed = false;
             _dwellDetector.ResetAllState();
             _undoDetector.ResetAllState();
+            // Fixup-01 F8: the reveal detector's clock is timestamp-based too; the latch below
+            // covers the same spot, but the rule is the same as the other two detectors.
+            _revealDetector.ResetAllState();
             _settleTracker.Reset(); // P3 D4: a settle interrupted by the gate starts over, too
             _lastGazePoint = message.Position;
             LatchTargetsUnderTheGaze();
@@ -2544,12 +2983,19 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// Test seam (review 03 F5): registers a Display note's dwell targets without constructing a
     /// <see cref="NoteWindow"/> — <see cref="CreateNoteAt"/> shows and focuses a real window, which
     /// W5(d) must not do. Returns the generated note id.
+    /// <para>
+    /// D (sitting 11): the seam's note is the REVEALED Display note — its row (✎ ↕ ✕) is what
+    /// every caller of this seam wants to dwell. The at-rest path (only the reveal target) is
+    /// covered by the real-window reveal tests; a caller that needs it uses a real note.
+    /// </para>
     /// </summary>
     internal string AddNoteTargetsForTest(PhysicalPoint anchor)
     {
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Display };
-        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip);
+        _placements[data.Id] = WithDisplayRevealClearance(data,
+            NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip));
         _notes.Add(data);
+        _seamRevealedNotes.Add(data.Id);
         RegisterDwellTargets(data.Id);
         _dwellDetector.ResetAllState();
         return data.Id;
@@ -2642,6 +3088,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         _dwellDetector.ClearTargets();
         _targetWindows.Clear();
+        // D: the reveal targets are replaced with the row on a reveal and with a fresh reveal
+        // target on a hide; every full replacement rebuilds them here too.
+        _revealDetector.ClearTargets();
+        _revealTargetWindows.Clear();
         if (_movingNoteId is { } movingId && FindNote(movingId) is { } moving)
         {
             // Move is exclusive: the moving note's Move set plus a live :place, and nothing
@@ -2664,6 +3114,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 RegisterTargetsForState(n);
         }
         _dwellDetector.ResetAllState();
+        _revealDetector.ResetAllState();
         LatchTargetsUnderTheGaze();
     }
 
@@ -2737,26 +3188,57 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         _dwellDetector.ClearTargets();
         _targetWindows.Clear();
+        // D: an editor takes the screen; no Display note may reveal while it does.
+        _revealDetector.ClearTargets();
+        _revealTargetWindows.Clear();
         RegisterEditTargets(noteId);
         LatchTargetsUnderTheGaze();
     }
 
     private void RegisterDwellTargets(string noteId)
     {
+        if (IsPresentedRevealed(noteId))
+            RegisterDisplayRowTargets(noteId);
+        else
+            RegisterRevealTarget(noteId);
+    }
+
+    /// <summary>
+    /// The revealed Display row (D4): ✎ ↕ · ✕ in the four cells under the text — the same
+    /// control table slots as before (0, 1, 3), now in the row. Registered only while the note
+    /// is revealed; the reveal itself is not an action, so the row is the first actionable set.
+    /// </summary>
+    private void RegisterDisplayRowTargets(string noteId)
+    {
         var note = _notes.FirstOrDefault(n => n.Id == noteId);
         if (note == null) return;
 
-        // P2 D8: the column reads ✎ · ↕ · ✕ — Remove sits apart in the bottom slot (2), away from
-        // the targets a hand-over or an exit can re-register under a held gaze. The one-cell gap
-        // needs a fourth slot and arrives with T5's column. The button centres follow the note's
-        // stored placement (P3 D2.6: the column follows the side the placement chose).
         _dwellDetector.AddTarget(DwellTargetFor(noteId, ":edit", slot: 0));
         _dwellDetector.AddTarget(DwellTargetFor(noteId, ":move", slot: 1));
-        _dwellDetector.AddTarget(DwellTargetFor(noteId, ":close", slot: 3)); // P4 D3: the gap cell pushes Remove to the bottom row
+        _dwellDetector.AddTarget(DwellTargetFor(noteId, ":close", slot: 3));
         var handle = WindowHandleOrZero(noteId);
         _targetWindows[$"{noteId}:edit"] = handle;
         _targetWindows[$"{noteId}:move"] = handle;
         _targetWindows[$"{noteId}:close"] = handle;
+    }
+
+    /// <summary>
+    /// The at-rest Display note's ONE target (D1/D3): the at-rest card rect enlarged to at least
+    /// one hit cell, growing upward and sideways only, registered in the reveal detector at the
+    /// constant 500 ms. No action target exists at rest, so a look held anywhere on the card can
+    /// only reveal — the row is registered afterwards and latched (D4).
+    /// </summary>
+    private void RegisterRevealTarget(string noteId)
+    {
+        var note = _notes.FirstOrDefault(n => n.Id == noteId);
+        if (note == null || !_placements.TryGetValue(noteId, out var placement))
+            return;
+        var rest = RestCardSizeFor(note);
+        var restCard = NoteLayout.RestCardRect(placement, rest);
+        var target = NoteLayout.RevealTargetRect(restCard);
+        _revealDetector.AddTarget(new DwellTarget(
+            noteId + ":reveal", DipRectToPhysical(target), NoteRevealDwellMs));
+        _revealTargetWindows[noteId + ":reveal"] = WindowHandleOrZero(noteId);
     }
 
     /// <summary>Builds a dwell target over the note's drawn control #<paramref name="slot"/>
@@ -2780,6 +3262,215 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
 
     private NoteWindow? Window(string noteId) => _windows.FirstOrDefault(w => w.NoteId == noteId);
+
+    // ── the reveal (D, sitting 11) ──
+
+    /// <summary>
+    /// The reveal target fired (D3/D4). Only a Display note reveals, and a reveal is NOT an
+    /// action: no <see cref="DwellActivationMessage"/>, no click cue, no sound. The row is
+    /// registered through the normal path and latched under the held gaze, so the gaze that
+    /// revealed it cannot fire a control without leaving first.
+    /// </summary>
+    private void OnRevealTargetActivated(string targetId)
+    {
+        if (_disposed) return;
+        const string suffix = ":reveal";
+        if (!targetId.EndsWith(suffix, StringComparison.Ordinal)) return;
+        var noteId = targetId[..^suffix.Length];
+        if (FindNote(noteId) is not { State: NoteState.Display } note) return;
+        if (_revealedNoteId == noteId) return;
+        RevealNote(note);
+    }
+
+    /// <summary>
+    /// Reveals <paramref name="note"/> (D3/D4): at most one note is revealed, so any other one
+    /// returns to rest at once (why=other); the row is registered through the normal
+    /// registration path and then latched, and <see cref="RaiseTargetsChanged"/> publishes the
+    /// new chrome/census state. The 500 ms reveal dwell is not an action, so it sends no cue.
+    /// </summary>
+    private void RevealNote(NoteData note)
+    {
+        if (_revealedNoteId == note.Id) return;
+        ClearRevealedState("other");
+        _revealedNoteId = note.Id;
+        _revealOutsideMs = 0;
+        _revealLastSampleUs = null;
+        _revealShownAtMs = _clockMs();
+        // Fixup-01 F1: the whole row is born DISARMED. It re-arms only after the gaze has been
+        // continuously outside the at-rest card ∪ the reveal target for 150 ms; until then no
+        // row target is eligible, so a drift on the card (which the geometry keeps above the
+        // cells anyway) can never fire ✎/↕/✕.
+        _revealArming[note.Id] = new RevealArming();
+        Window(note.Id)?.SetRevealed(true);
+        // D4: register the row through the normal path — it clears the reveal target, rebuilds
+        // the row and ends with LatchTargetsUnderTheGaze (the existing 150 ms leave rule).
+        ReRegisterAllTargets();
+        RaiseTargetsChanged();
+        _settleInfo(RevealShownLine(note.Number, NoteRevealDwellMs));
+    }
+
+    /// <summary>
+    /// Returns the revealed note to rest (D5/D6) and re-registers, so the row's targets are
+    /// replaced by the reveal target and everything is latched under the held gaze. The reason
+    /// is one of D8's closed set: away|other|edit|move|close.
+    /// </summary>
+    private void HideRevealedNote(string why)
+    {
+        if (_revealedNoteId is null) return;
+        ClearRevealedState(why);
+        ReRegisterAllTargets();
+        RaiseTargetsChanged();
+    }
+
+    /// <summary>
+    /// Clears the revealed state and the hide clock without touching the detectors: the caller
+    /// is a transition that runs its own registration path (✎/↕/✕, removal, another reveal), so
+    /// re-registering here would only double the work. Logs the hidden line exactly once, with
+    /// the visible time on the injected clock.
+    /// </summary>
+    private void ClearRevealedState(string why)
+    {
+        if (_revealedNoteId is not { } id) return;
+        _revealedNoteId = null;
+        _revealOutsideMs = 0;
+        _revealLastSampleUs = null;
+        // Fixup-01 F1/F2: neither clock outlives the revealed row it armed.
+        _revealArming.Remove(id);
+        _undoCloseCellArming.Remove(id);
+        var note = FindNote(id);
+        Window(id)?.SetRevealed(false);
+        if (note is not null)
+            _settleInfo(RevealHiddenLine(note.Number,
+                Math.Max(0, _clockMs() - _revealShownAtMs), why));
+    }
+
+    /// <summary>
+    /// D5's hide clock: the gaze has been outside the revealed card inflated by
+    /// <see cref="NoteRevealHideMarginDip"/> for <see cref="NoteRevealHideMs"/> of REACHABLE
+    /// time. A sample inside resets the clock; a gated sample is no information and contributes
+    /// nothing (the per-interval cap also keeps a 3 s gaze loss from counting as 3 s away).
+    /// </summary>
+    private void AdvanceRevealHideClock(PhysicalPoint gazePoint, long timestamp, bool noInformation)
+    {
+        if (_revealedNoteId is not { } id) return;
+        if (noInformation)
+        {
+            // Gated sample: no information. Move the stamp (so the next valid sample cannot
+            // credit the gated interval) but neither advance nor reset the clock.
+            _revealLastSampleUs = timestamp;
+            return;
+        }
+        if (!_placements.TryGetValue(id, out var placement)) return;
+
+        // Credit only the interval since the previous VALID sample, capped at the dwell
+        // detector's own 150 ms silence clamp: a gap or a closed gate is "no information", and
+        // the first sample after it must not hand the clock the whole absence.
+        long deltaUs = _revealLastSampleUs is { } last ? Math.Max(0, timestamp - last) : 0;
+        _revealLastSampleUs = timestamp;
+        double creditMs = Math.Min(deltaUs, 150_000L) / (double)MathConstants.MicrosecondsPerMillisecond;
+
+        double x = DpiHelper.PhysicalToLogicalX(gazePoint.X);
+        double y = DpiHelper.PhysicalToLogicalY(gazePoint.Y);
+        double margin = NoteRevealHideMarginDip;
+        var card = placement.Card; // the revealed rect
+        // Fixup-01 F5: the hide rect is union(revealed card, reveal target) + 24 DIP. The target
+        // reaches above/beside the card, so the very spot that revealed the row (inside that
+        // target) must keep it — otherwise a motionless gaze hid it 2 s later and flickered.
+        var note = FindNote(id);
+        var target = note is null
+            ? card
+            : NoteLayout.RevealTargetRect(
+                NoteLayout.RestCardRect(placement, RestCardSizeFor(note)));
+        bool inside = (x >= card.Left - margin && x <= card.Right + margin
+                && y >= card.Top - margin && y <= card.Bottom + margin)
+            || (x >= target.Left - margin && x <= target.Right + margin
+                && y >= target.Top - margin && y <= target.Bottom + margin);
+        if (inside)
+        {
+            _revealOutsideMs = 0;
+            return;
+        }
+
+        _revealOutsideMs += creditMs;
+        if (_revealOutsideMs >= NoteRevealHideMs)
+            HideRevealedNote("away");
+    }
+
+    // ── the reveal log (D8): content-free, invariant culture, note NUMBER only ──
+
+    /// <summary>D8's reveal line: the note's number and the dwell that revealed it. NEVER the
+    /// note's text; the format is a const so the text-literal ratchet records it (category log).</summary>
+    private const string RevealShownLineFormat = "NOTE-REVEAL out=shown note={0} ms={1}";
+
+    /// <summary>D8's hide line: the note's number, the visible time and the closed reason set
+    /// (away|other|edit|move|close). NEVER the note's text.</summary>
+    private const string RevealHiddenLineFormat = "NOTE-REVEAL out=hidden note={0} ms={1} why={2}";
+
+    internal static string RevealShownLine(int number, int dwellMs) =>
+        string.Format(CultureInfo.InvariantCulture, RevealShownLineFormat, number, dwellMs);
+
+    internal static string RevealHiddenLine(int number, long visibleMs, string why) =>
+        string.Format(CultureInfo.InvariantCulture, RevealHiddenLineFormat, number, visibleMs, why);
+
+    // ── the reveal's test seams ──
+
+    /// <summary>The chip's Undo target's centre (D6): the chip placement the removal will use,
+    /// without changing the note. The chip anchors at the reserved card's top-left, so its ↺ is
+    /// read from that geometry — a test can park the gaze where the ↺ will be born.</summary>
+    internal PhysicalPoint ChipUndoCentreForTest(string noteId)
+    {
+        var note = FindNote(noteId) ?? throw new InvalidOperationException($"no note {noteId}");
+        var chip = ChipPlacementFor(note);
+        var (lx, ly) = NoteLayout.ButtonCenter(chip, 0, NoteState.PendingUndo);
+        return new PhysicalPoint(
+            DpiHelper.LogicalToPhysicalX(chip.Window.Left + lx),
+            DpiHelper.LogicalToPhysicalY(chip.Window.Top + ly));
+    }
+
+    /// <summary>The hidden-reveal clock's reachable outside time (D5's test seam), in ms.</summary>
+    internal double RevealOutsideMsForTest => _revealOutsideMs;
+
+    /// <summary>The one revealed note's id, or null (D5: at most one).</summary>
+    internal string? RevealedNoteIdForTest => _revealedNoteId;
+
+    /// <summary>Whether <paramref name="noteId"/> is currently revealed.</summary>
+    internal bool IsRevealedForTest(string noteId) => IsPresentedRevealed(noteId);
+
+    /// <summary>The note's currently DRAWN card rect in screen DIP (D7): the at-rest top part, or
+    /// the revealed/grown rect. The chrome zones and this seam read the same answer.</summary>
+    internal Rect DrawnCardForTest(string noteId)
+    {
+        if (FindNote(noteId) is not { } note || !_placements.TryGetValue(noteId, out var placement))
+            return default;
+        if (note.State is NoteState.Edit or NoteState.Move or NoteState.PendingUndo)
+            return placement.Card;
+        bool expanded = IsPresentedRevealed(noteId);
+        return NoteLayout.DrawnCardRect(placement, RestCardSizeFor(note), expanded);
+    }
+
+    /// <summary>The reveal target's rect in screen DIP, or null when the note has none.</summary>
+    internal Rect? RevealTargetForTest(string noteId)
+    {
+        var target = _revealDetector.Targets.FirstOrDefault(t => t.Id == $"{noteId}:reveal");
+        if (target?.Bounds is not { } bounds)
+            return null;
+        return PhysicalRectToDip(bounds);
+    }
+
+    /// <summary>The reveal target's accumulated dwell progress (0..1): fixup-01 F8's pin reads
+    /// it to prove the gate recovery reset the reveal detector.</summary>
+    internal double RevealProgressForTest(string noteId) =>
+        _revealDetector.GetProgress($"{noteId}:reveal");
+
+    /// <summary>Whether the revealed row's arming clock has released (fixup-02 F3): true once the
+    /// gaze has spent 150 ms of valid time outside the at-rest card ∪ the reveal target, or when
+    /// the note has no pending clock at all. While false, the note's :edit/:move/:close targets
+    /// are filtered out of the detector.</summary>
+    internal bool RowArmedForTest(string noteId) => !_revealArming.ContainsKey(noteId);
+
+    /// <summary>Whether a chip's Undo target has left the fired ✕'s cell belt (fixup-01 F2):
+    /// true when it is not disarmed by the close-cell clock.</summary>
+    internal bool ChipUndoArmedForTest(string noteId) => !_undoCloseCellArming.ContainsKey(noteId);
 
     // Post-effect publish (spec D8): the note action runs first — including the malformed-id
     // early return, whose no-op-cue trade-off is ACCEPTED (spec §Pause) — then the cue fires.
@@ -2861,6 +3552,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             _placeWindow?.UpdateDwellProgress(progress);
             return;
         }
+        // D: the reveal is not a control; it draws no dwell arc.
+        if (suffix == "reveal") return;
         var window = _windows.FirstOrDefault(w => w.NoteId == noteId);
         window?.UpdateDwellProgress(targetId, progress);
     }
@@ -2904,6 +3597,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // injected timer — a chip pending at teardown must not keep ticking into a dead manager.
         _undoDetector.TargetActivated -= OnUndoDetectorTargetActivated;
         _undoDetector.TargetProgress -= OnTargetProgress;
+        // D: the reveal detector's handlers go too; a dying manager must not reveal.
+        _revealDetector.TargetActivated -= OnRevealTargetActivated;
+        _revealDetector.TargetProgress -= OnTargetProgress;
         _undoTimer?.Stop();
         _undoTimer?.Dispose();
         _undoTimer = null;
@@ -2946,8 +3642,18 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _notes.Clear();
         _placements.Clear();
         _dwellDetector.ClearTargets();
+        _targetWindows.Clear();
         _undoDetector.ClearTargets();
         _undoTargetWindows.Clear();
+        // D: the reveal targets and their clock die with the manager.
+        _revealDetector.ClearTargets();
+        _revealTargetWindows.Clear();
+        _revealedNoteId = null;
+        _revealOutsideMs = 0;
+        _revealLastSampleUs = null;
+        _seamRevealedNotes.Clear();
+        _revealArming.Clear();
+        _undoCloseCellArming.Clear();
         _chipReachedMs.Clear();
         _movingNoteId = null;
         _placeShown = false;

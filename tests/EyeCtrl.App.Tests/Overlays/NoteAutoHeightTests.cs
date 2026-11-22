@@ -51,7 +51,7 @@ public class NoteAutoHeightTests
     }
 
     [StaFact]
-    public void CardHeights_TrackTheText_WithTheColumnFloorAndTheCap()
+    public void CardHeights_TrackTheText_WithTheRevealedRowAndTheCap()
     {
         var (manager, id, window, _) = SavedNoteWith("one line");
         try
@@ -59,20 +59,23 @@ public class NoteAutoHeightTests
             double size = NoteSettings.DefaultTextSizeDip;
             double workHeight = NoteTestBench.WorkArea.Height;
 
+            // D2: the RESERVED card is pad + (capped) text + one row cell + pad; the at-rest
+            // card is the same minus the row. The text origin is the same in both states.
             double oneLine = window.MeasureTextHeightDip("one line");
-            double expectedOne = NoteLayout.CardHeightDip(size, oneLine, workHeight);
-            Check.WithCustomMessage($"one-line card height (floor {NoteLayout.ControlsColumnHeightDip})")
+            double expectedOne = NoteLayout.DisplayReservedHeightDip(oneLine);
+            Check.WithCustomMessage($"one-line reserved height (at rest {NoteLayout.DisplayRestHeightDip(oneLine)})")
                 .That(manager.PlacementForTest(id)!.Card.Height).IsEqualTo(expectedOne);
-            Check.That(expectedOne).IsEqualTo(NoteLayout.ControlsColumnHeightDip); // the column is the floor
+            Check.WithCustomMessage("the at-rest card is the reserved rect's top part")
+                .That(manager.DrawnCardForTest(id).Height).IsEqualTo(NoteLayout.DisplayRestHeightDip(oneLine));
 
-            // Ten lines clear the control-column floor (about nine lines) but stay under the cap.
+            // Ten lines grow the text, still under the cap.
             var tenLines = string.Join("\n", Enumerable.Repeat("line", 10));
             manager.StartEdit(id);
             manager.Apply(new NoteAppend(tenLines));
             manager.FinishEdit(id, commit: true);
             double ten = window.MeasureTextHeightDip(tenLines);
-            Check.WithCustomMessage("ten-line card height")
-                .That(manager.PlacementForTest(id)!.Card.Height).IsEqualTo(NoteLayout.CardHeightDip(size, ten, workHeight));
+            Check.WithCustomMessage("ten-line reserved height")
+                .That(manager.PlacementForTest(id)!.Card.Height).IsEqualTo(NoteLayout.DisplayReservedHeightDip(ten));
             Check.That(manager.PlacementForTest(id)!.Card.Height).IsStrictlyGreaterThan(expectedOne);
 
             // Over the cap: 40 lines far exceed min(55% of 1200, 12 lines at 28) = 420 DIP.
@@ -81,8 +84,9 @@ public class NoteAutoHeightTests
             manager.Apply(new NoteAppend(many));
             manager.FinishEdit(id, commit: true);
             double cap = NoteLayout.TextCapHeightDip(workHeight, size);
-            Check.WithCustomMessage("the over-cap card stops at the cap plus padding")
-                .That(manager.PlacementForTest(id)!.Card.Height).IsEqualTo(cap + 2 * LayoutConstants.NoteButtonPadding);
+            Check.WithCustomMessage("the over-cap card stops at the cap plus the row and paddings")
+                .That(manager.PlacementForTest(id)!.Card.Height)
+                .IsEqualTo(NoteLayout.DisplayReservedHeightDip(cap));
         }
         finally { DpiHelper.Initialize(1.0, 1.0); manager.Dispose(); }
     }

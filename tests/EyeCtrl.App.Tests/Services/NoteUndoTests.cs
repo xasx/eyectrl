@@ -71,9 +71,19 @@ public class NoteUndoTests
         manager.Receive(new GazeCursorMovedMessage(new GazeFrame(point, tUs, IsInGap: false)));
 
     /// <summary>Arms a control (200 ms outside its circle, past the 150 ms release) and then
-    /// holds it for 900 ms — enough for a fresh 600 ms dwell to complete.</summary>
+    /// holds it for 900 ms — enough for a fresh 600 ms dwell to complete. D (sitting 11): when
+    /// the point is a Display note's row cell and that note is still at rest, the look that
+    /// reveals the row comes first (the reveal is not an action; the arm then runs on the row).</summary>
     private static void ArmThenHold(NoteManager manager, PhysicalPoint centre, long startUs)
     {
+        var resting = manager.ActiveNotes.FirstOrDefault(n => n.State == NoteState.Display
+            && !manager.IsRevealedForTest(n.Id)
+            && (NoteTestBench.CellCentre(manager, n.Id, 0) == centre
+                || NoteTestBench.CellCentre(manager, n.Id, 1) == centre
+                || NoteTestBench.CellCentre(manager, n.Id, 3) == centre));
+        if (resting is not null)
+            startUs = NoteTestBench.Reveal(manager, resting.Id, startUs);
+
         for (long t = startUs; t <= startUs + 200_000; t += 100_000)
             Sample(manager, new PhysicalPoint(centre.X + 10_000, centre.Y), t);
         for (long t = startUs + 300_000; t <= startUs + 1_200_000; t += 100_000)
@@ -746,8 +756,9 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved", anchor);
-            var undo = UndoCentre(manager, anchor);
             ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
+            // D: the chip's ↺ is at the CHIP's column cell, read after the chip exists.
+            var undo = UndoCentre(manager, anchor);
 
             manager.SetOccluderSources(slotOccupantBounds: () =>
                 new PhysicalRect(undo.X - 300, undo.Y - 300, 600, 600));
@@ -779,8 +790,9 @@ public class NoteUndoTests
         {
             var anchor = new PhysicalPoint(1600, 1000);
             SavedNote(manager, "saved", anchor);
-            var undo = UndoCentre(manager, anchor);
             ArmThenHold(manager, ButtonCentrePhysical(manager, anchor, 3), startUs: 0);
+            // D: the chip's ↺ is at the CHIP's column cell, read after the chip exists.
+            var undo = UndoCentre(manager, anchor);
 
             manager.SetOccluderSources(blockedBannerBounds: () =>
                 new PhysicalRect(undo.X - 300, undo.Y - 300, 600, 600));
@@ -1098,34 +1110,36 @@ public class NoteUndoTests
     // ── m1 (T3 review-01): the chip-entry latch has teeth on the real path ──
 
     [StaFact]
-    public void ACloseWhileTheGazeRestsOnSlotZero_ChipsTheUndoUnderTheHeldGaze_ItDoesNotFireUntilALeave()
+    public void ACloseWhileTheGazeRestsWhereTheChipUndoWillBe_BirthsItLatched_ItDoesNotFireUntilALeave()
     {
-        // The reachable "↺ born under a held gaze" path after K2a: the Edit card's ✓ Done is in
-        // the row under the text, but the CHIP's ↺ keeps the Display column's slot 0 — the ✎
-        // cell. A caretaker ✕ touch while the gaze rests on ✎ creates the chip with its ↺ right
-        // under the eyes. Without the chip-entry latch (mutant U6) ↺ fires 600 ms later and
-        // silently restores the note the caretaker just removed.
+        // D6: the chip anchors at the reserved card's top-left, so its ↺ is born at the chip's
+        // own column cell — NOT under the Display ✎ any more. The reachable hazard is the same:
+        // a caretaker ✕ touch while the gaze already rests where the ↺ will appear. Without the
+        // chip-entry latch (mutant U6) ↺ fires 600 ms later and silently restores the note the
+        // caretaker just removed.
         var (manager, _, _) = MakeManager(out _);
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var anchor = new PhysicalPoint(1600, 1000);
             var id = SavedNote(manager, "original", anchor);
-            var slot0 = ButtonCentrePhysical(manager, anchor, 0); // ✎ in Display; the chip's ↺ keeps it
-            var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y);
+            long t0 = NoteTestBench.Reveal(manager, id, 0); // the close control must be drawn
+            var undoSpot = manager.ChipUndoCentreForTest(id);
+            var away = new PhysicalPoint(undoSpot.X + 10_000, undoSpot.Y);
 
-            // The gaze rests on ✎ while the caretaker removes the note by touch (a touch needs
-            // no pause: NoteInputPolicy accepts it on a drawn, registered control).
-            for (long t = 0; t <= 200_000; t += 100_000) Sample(manager, slot0, t);
+            // The gaze rests where the chip's ↺ will be born while the caretaker removes the
+            // note by touch (a touch needs no pause: NoteInputPolicy accepts it on a drawn,
+            // registered control).
+            for (long t = t0; t <= t0 + 200_000; t += 100_000) Sample(manager, undoSpot, t);
             manager.RunControlInput(id, "close", NoteInputKind.Touch, fromStylus: false);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
-            for (long t = 300_000; t <= 1_800_000; t += 100_000) Sample(manager, slot0, t);
+            for (long t = t0 + 300_000; t <= t0 + 1_800_000; t += 100_000) Sample(manager, undoSpot, t);
             Check.WithCustomMessage("the ↺ born under the held gaze must stay latched")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
-            for (long t = 1_900_000; t <= 2_100_000; t += 100_000) Sample(manager, away, t); // 200 ms leave
-            for (long t = 2_200_000; t <= 3_100_000; t += 100_000) Sample(manager, slot0, t);
+            for (long t = t0 + 1_900_000; t <= t0 + 2_100_000; t += 100_000) Sample(manager, away, t); // 200 ms leave
+            for (long t = t0 + 2_200_000; t <= t0 + 3_100_000; t += 100_000) Sample(manager, undoSpot, t);
             Check.WithCustomMessage("after a ≥150 ms leave and a return, ↺ fires (positive control)")
                 .That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Display);
             Check.That(manager.ActiveNotes[0].Text).IsEqualTo("original");

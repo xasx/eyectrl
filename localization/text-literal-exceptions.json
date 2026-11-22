@@ -6,6 +6,12 @@
   "Entries": [
     {
       "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\":reveal\"",
+      "Category": "id",
+      "Reason": "The reveal target's dwell-target suffix (D3): {noteId}:reveal, split by the same convention as :done/:close; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
       "Literal": "\":undo\"",
       "Category": "id",
       "Reason": "The Undo chip's dwell-target suffix (P2 D5): {noteId}:undo, split by the same convention as :done/:close; never shown."
@@ -15,6 +21,18 @@
       "Literal": "\"note-control fired: control={Control} note={Number} distDip={DistanceDip} dwellMs={DwellMs}\"",
       "Category": "log",
       "Reason": "A4's per-fired-control line (sitting 10): control id, note number, the gaze's distance from the control's centre in whole DIP and the target's dwell in ms. Written to the log only, parsed by the sitting readout; never shown, and never any note text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"NOTE-REVEAL out=shown note={0} ms={1}\"",
+      "Category": "log",
+      "Reason": "D8's reveal line (sitting 11): the note's NUMBER and the reveal dwell in ms. Written to the log only, invariant culture, and never any note text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"NOTE-REVEAL out=hidden note={0} ms={1} why={2}\"",
+      "Category": "log",
+      "Reason": "D8's hide line (sitting 11): the note's number, the visible time in ms and the closed reason set away|other|edit|move|close. Written to the log only, invariant culture, never any note text."
     },
     {
       "Path": "src/EyeCtrl.App/Diagnostics/SubPixel/ProbeRingVisual.cs",

@@ -57,8 +57,15 @@ public class NoteWindow : OverlayWindow
     // full opacity. A window-level Opacity dimmed every child, which made the hint grey.
     private Border? _cardBorder;
     private Polygon? _tail;
+    // Fixup-01 F3: the alpha-1 fill under the at-rest reveal target. It makes the enlarged
+    // band painted and hit-testable, so WindowFromPoint can report this note there; hidden
+    // while the row is revealed (the target is unregistered then).
+    private Rectangle? _revealFill;
     private const double MoveDimOpacity = 0.6;
     private NoteState _state;
+    // D (sitting 11): whether a Display note currently shows its revealed control row. The
+    // manager owns the state and drives this; the at-rest card is the reserved rect's top part.
+    private bool _revealed;
     // T6 fixup-01: the tag elements are tracked so DrawBadge can replace them without a full Draw.
     private Border? _badgeTag;
     private TextBlock? _badgeLabel;
@@ -142,6 +149,125 @@ public class NoteWindow : OverlayWindow
     /// <summary>Test accessor (P4 D1/T8): the text size the window currently renders at.</summary>
     internal double TextSizeForTest => _textSize;
 
+    /// <summary>Test accessor (D): whether the window currently draws the revealed control row.</summary>
+    internal bool RevealedForTest => _revealed;
+
+    /// <summary>
+    /// D (sitting 11): shows or hides the Display control row. The manager calls this exactly on
+    /// a reveal and on a hide; the at-rest card shrinks to the reserved rect's top part and the
+    /// text does not move (its origin is the card's top-left in both states). Rebuilds the drawn
+    /// tree because the card body, the row's cell fills and the buttons all change.
+    /// </summary>
+    internal void SetRevealed(bool revealed)
+    {
+        if (_state != NoteState.Display)
+        {
+            _revealed = false; // a reveal exists only on the Display card
+            return;
+        }
+        if (_revealed == revealed) return;
+        _revealed = revealed;
+        Dispatcher.Invoke(Draw);
+    }
+
+    /// <summary>
+    /// The at-rest Display card's size (D1), measured from the drawn body text and the applied
+    /// placement: the reserved card height fixes the cap the manager derived it with (card height
+    /// minus the row and the paddings), so the window's at-rest rect and the manager's reveal
+    /// target read the same answer. The width is the MEASURED wrapped text plus paddings.
+    /// </summary>
+    internal Size RestCardSizeDip()
+    {
+        if (_placement is not { } placement)
+            return new Size(
+                NoteLayout.DisplayRestWidthDip(0),
+                NoteLayout.DisplayRestHeightDip(0));
+        double cap = Math.Max(0, placement.Card.Height
+            - (2 * LayoutConstants.NoteButtonPadding) - LayoutConstants.NoteCellDip);
+        double textHeight = Math.Min(MeasureTextHeightDip(_text), cap);
+        return NoteLayout.DisplayRestSize(MeasureTextWidthDip(_text), textHeight);
+    }
+
+    /// <summary>The drawn body card rect in WINDOW-relative DIP (D): the reserved (grown Move)
+    /// card while revealed or moving, the at-rest top part otherwise.</summary>
+    private Rect DrawnCardLocal()
+    {
+        var card = _placement is { } p ? NoteLayout.RectLocal(p)
+            : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
+        bool expanded = _state is NoteState.Move or NoteState.Edit or NoteState.PendingUndo
+            || _revealed;
+        if (expanded) return card;
+        var rest = RestCardSizeDip();
+        return new Rect(card.Left, card.Top, rest.Width, rest.Height);
+    }
+
+    /// <summary>
+    /// The body text's area height in DIP (D): the room the manager budgeted for the text, so
+    /// the over-cap fade/ellipsis and the drawn block agree. At rest it is the at-rest card minus
+    /// its paddings; revealed it is the reserved card minus the row and paddings; Move subtracts
+    /// its hint block too (the grown card exists for the hint, not for more text).
+    /// </summary>
+    private double BodyTextAreaHeightDip()
+    {
+        if (_placement is not { } placement)
+            return Math.Max(1, NoteLayout.ControlsColumnHeightDip - (2 * ButtonPadding));
+        var drawn = DrawnCardLocal();
+        if (_state == NoteState.Edit)
+            return NoteLayout.EditTextAreaHeightDip(drawn.Height, _textSize);
+        double subtract = _state == NoteState.Move
+            ? LayoutConstants.NoteCellDip + MoveHintBlockHeightDip(placement.Card.Width)
+            : _revealed ? LayoutConstants.NoteCellDip : 0;
+        return Math.Max(1, drawn.Height - (2 * ButtonPadding) - subtract);
+    }
+
+    /// <summary>
+    /// The wrapped body text's WIDTH in DIP (D1): measured with the real drawn face at the text
+    /// column, so a short note's card is short and a full line's card is exactly as wide as the
+    /// line. The manager reads it on every placement re-derivation and the render pass reads it
+    /// again.
+    /// </summary>
+    internal double MeasureTextWidthDip(string text) => MeasureTextWidthDip(text, _textSize);
+
+    internal double MeasureTextWidthDip(string text, double textSize)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        double column = NoteLayout.TextColumnWidthDip(textSize);
+        var formatted = new FormattedText(
+            text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            NoteLayout.SemiBoldFace, textSize,
+            Tokens.BrushSurfaceMedium, null, TextFormattingMode.Ideal, 1.0)
+        { MaxTextWidth = column };
+        return Math.Min(column, formatted.Width);
+    }
+
+    /// <summary>The Move hint's plate height in DIP for a card width (D6, option C): the hint
+    /// text's measured height at the plate's text column plus its two margins. The manager grows
+    /// the drawn Move card by exactly this, and the window draws the plate with it.</summary>
+    internal double MoveHintBlockHeightDip(double cardWidthDip)
+    {
+        double plate = NoteLayout.MoveHintWidthDip(cardWidthDip, _textSize, NoteLayout.MoveCardInsetDip);
+        return MeasureMoveHintTextHeightDip(NoteLayout.MoveHintTextWidthDip(plate))
+            + (2 * NoteLayout.MoveHintMarginDip);
+    }
+
+    /// <summary>The Move hint text's wrapped height at a text width, with the face it draws.</summary>
+    internal double MeasureMoveHintTextHeightDip(double textWidth)
+    {
+        var block = new TextBlock
+        {
+            Width = Math.Max(1, textWidth),
+            FontSize = NoteLayout.MoveHintFontDip(_textSize),
+            FontFamily = Tokens.FontStandard,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = NoteLayout.TextLineHeightDip(NoteLayout.MoveHintFontDip(_textSize)),
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            Text = StringTable.Current.T("overlays.note.moveHint")
+        };
+        block.Measure(new Size(Math.Max(1, textWidth), double.PositiveInfinity));
+        return block.DesiredSize.Height;
+    }
+
     // T6 fixup-08 R4: set when the manager's show seam skipped the HWND show.
     private bool _displayedWithoutHwnd;
 
@@ -175,6 +301,9 @@ public class NoteWindow : OverlayWindow
     internal System.Collections.Generic.IReadOnlyDictionary<string, TextBlock> LabelsForTest() => _buttonLabels;
     internal double ButtonRadiusForTest => ButtonRadius;
 
+    /// <summary>Test accessor (D): the drawn tail polygon, or null when no tail is drawn.</summary>
+    internal Polygon? TailForTest => _tail;
+
     /// <summary>Test accessor (notes readability, sitting 9): the drawn body text block — the
     /// element whose weight the owner reads, pinned SemiBold against drawn/measured drift.</summary>
     internal TextBlock? BodyTextForTest => _textBlock;
@@ -191,6 +320,10 @@ public class NoteWindow : OverlayWindow
     /// the caretaker input is wired to beside the disc and label — or null when the row never
     /// got one.</summary>
     internal Rectangle? CellFillForTest(int row) => _cellFills.TryGetValue(row, out var fill) ? fill : null;
+
+    /// <summary>Test accessor (fixup-01 F3): the alpha-1 fill under the at-rest reveal target,
+    /// or null while the row is revealed / the note is not at rest.</summary>
+    internal Rectangle? RevealFillForTest => _revealFill;
 
     /// <summary>Test accessor (T6 fixup-02): the drawn dwell arc of a control, for the
     /// non-interactivity pins.</summary>
@@ -216,12 +349,42 @@ public class NoteWindow : OverlayWindow
         _moveHintText = null;
         _cardBorder = null;
         _tail = null;
+        _revealFill = null;
+
+        // Fixup-01 F3: at rest, paint the whole reveal target with the same alpha-1 fill the hit
+        // cells carry, FIRST so it sits under the card/tail. The window was grown to contain the
+        // target (NoteLayout.WithRevealTargetClearance), so those pixels now belong to this
+        // window and WindowFromPoint can report it. The fill is hit-testable by construction
+        // (non-null, alpha > 0 fill); revealing hides it because the target is unregistered then.
+        if (_state == NoteState.Display && !_revealed && _placement is { } revealPlacement)
+        {
+            var rest = RestCardSizeDip();
+            var restCard = NoteLayout.RestCardRect(revealPlacement, rest);
+            var target = NoteLayout.RevealTargetRect(restCard);
+            // The same one-DIP slack the window grew by (NoteLayout.WithRevealTargetClearance):
+            // WPF snaps the HWND to whole device pixels, so a fill exactly on the target's edge
+            // could leave a sub-pixel strip of the registered target unpainted.
+            target.Inflate(1, 1);
+            var revealFill = new Rectangle
+            {
+                Width = target.Width,
+                Height = target.Height,
+                Fill = CellFillBrush
+            };
+            Canvas.SetLeft(revealFill, target.Left - revealPlacement.Window.Left);
+            Canvas.SetTop(revealFill, target.Top - revealPlacement.Window.Top);
+            _canvas.Children.Add(revealFill);
+            _revealFill = revealFill;
+        }
 
         // P3 D2: the card sits inside the window at the placement card origin (the tail zone
         // takes the strip on the anchor side); the pointer tail is drawn INSIDE the window.
-        // P4 D2: no title bar - the card is body text plus the control column.
+        // P4 D2: no title bar. D (sitting 11): the visible body is the at-rest top part of the
+        // reserved card until a look reveals the row; Move/Edit/the chip draw their whole card.
         var cardLocal = _placement is { } p ? NoteLayout.RectLocal(p)
             : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
+        var drawnLocal = DrawnCardLocal();
+        bool rowLayout = (_state == NoteState.Display && _revealed) || _state == NoteState.Move;
         var borderBrush = GetBorderBrush();
 
         if (_placement?.TailVisible == true)
@@ -232,11 +395,14 @@ public class NoteWindow : OverlayWindow
             // 1.4.11 3:1 the card edge owes, against a page of either lightness — and no state
             // brush gives that (SurfaceMedium sits at 1.1-1.5:1, the Accent/MarkerMove marks
             // carry state meaning the tail must not repeat). Constant on purpose, not
-            // borderBrush: UpdateBorder only refreshes the card Border, never this polygon, so
-            // a state-varying stroke here would go stale on every SetState.
+            // borderBrush: every Draw recreates the tail with this stroke while the card border
+            // follows the state, so a state-varying stroke here would be wrong on every flip.
+            // D: the triangle's BASE is clamped into the currently drawn card, so at rest it
+            // stays attached to the short body instead of floating on the reserved edge; the
+            // tip (the anchor relation) is untouched.
             var tail = new Polygon
             {
-                Points = new PointCollection(NoteLayout.TailTriangle(_placement)!),
+                Points = new PointCollection(NoteLayout.TailTriangle(_placement, drawnLocal)!),
                 Fill = Tokens.BrushSurfaceDark,
                 Stroke = Tokens.BrushBorderSubtle,
                 StrokeThickness = 1
@@ -247,7 +413,7 @@ public class NoteWindow : OverlayWindow
 
         var bg = new Border
         {
-            Width = cardLocal.Width, Height = cardLocal.Height,
+            Width = drawnLocal.Width, Height = drawnLocal.Height,
             Background = Tokens.BrushSurfaceDark,
             CornerRadius = Tokens.StandardCornerRadius,
             BorderBrush = borderBrush,
@@ -256,22 +422,26 @@ public class NoteWindow : OverlayWindow
             // from pure black, and it keeps the shadow on the token so a light theme can move it.
             Effect = new DropShadowEffect { Color = Tokens.StrokeHalo, BlurRadius = 8, Opacity = 0.4, ShadowDepth = 2 }
         };
-        Canvas.SetLeft(bg, cardLocal.Left); Canvas.SetTop(bg, cardLocal.Top);
+        Canvas.SetLeft(bg, drawnLocal.Left); Canvas.SetTop(bg, drawnLocal.Top);
         _canvas.Children.Add(bg);
         _cardBorder = bg;
 
         // P4 D3: every hit-cell row gets its alpha-1 fill (P2 D2 layout rule 2 - the hit area
         // sits on alpha-1/255 pixels even where its disc does not reach). K2a: Edit draws its
-        // THREE cells in the row under the text; every other state keeps the four column rows.
-        // Drawn once per state for ALL its rows, like the buttons; UpdateButtonVisibility picks
-        // the state's occupied cells.
+        // THREE cells in its centred row under the text. D: Display (revealed) and Move draw the
+        // four-cell row under the text; the chip keeps the column. Drawn once per state for ALL
+        // its rows, like the buttons; UpdateButtonVisibility picks the state's occupied cells.
         int cellRows = _state == NoteState.Edit ? 3 : 4;
         for (int row = 0; row < cellRows; row++)
         {
             var (cx, cy) = _placement is { } wp
-                ? (_state == NoteState.Edit
-                    ? NoteLayout.EditCellCenter(wp, row)
-                    : NoteLayout.ButtonCenter(wp, row))
+                ? (rowLayout
+                    ? NoteLayout.RowCellCenter(wp, row)
+                    : _state == NoteState.Edit
+                        ? NoteLayout.EditCellCenter(wp, row)
+                        : _state == NoteState.PendingUndo
+                            ? NoteLayout.ChipCellCenter(wp, row)
+                            : NoteLayout.ButtonCenter(wp, row))
                 : NoteLayout.ButtonCenter(_side, row, CardWidthDip);
             var fill = new Rectangle
             {
@@ -286,10 +456,14 @@ public class NoteWindow : OverlayWindow
 
         _contentBorder = new Border
         {
-            Width = cardLocal.Width, Height = cardLocal.Height,
-            Background = Brushes.Transparent
+            Width = drawnLocal.Width, Height = drawnLocal.Height,
+            Background = Brushes.Transparent,
+            // D: the text plate now sits OVER the row's cells (the row is under the text), so a
+            // transparent-but-hit-testable border would swallow every caretaker touch on a cell
+            // corner. The plate is layout only; the discs, glyphs and cell fills take the input.
+            IsHitTestVisible = false
         };
-        Canvas.SetLeft(_contentBorder, cardLocal.Left); Canvas.SetTop(_contentBorder, cardLocal.Top);
+        Canvas.SetLeft(_contentBorder, drawnLocal.Left); Canvas.SetTop(_contentBorder, drawnLocal.Top);
         _canvas.Children.Add(_contentBorder);
 
         DrawButtons();
@@ -421,7 +595,11 @@ public class NoteWindow : OverlayWindow
             {
                 Width = _chipColumnWidth,
                 MaxWidth = _chipColumnWidth,
-                Margin = new Thickness(NoteLayout.ChipTextMarginDip, NoteLayout.ChipTextMarginDip, 0, 0),
+                // Fixup-01 F2: the Undo column is now on the LEFT, so the column itself is the
+                // text's left gap; a further 10 DIP margin would push the measured column 10 DIP
+                // past the card (the column's width is exactly cell + 2 x padding). The top
+                // margin stays.
+                Margin = new Thickness(0, NoteLayout.ChipTextMarginDip, 0, 0),
                 FontSize = NoteLayout.ChipTextFontDip(_chipTextSize),
                 FontFamily = Tokens.FontStandard,
                 // Notes readability (sitting 9): the chip reads SemiBold like the body - stroke
@@ -440,10 +618,16 @@ public class NoteWindow : OverlayWindow
             // B1: beside the column here too.
             var chipCard = _placement is { } cp ? NoteLayout.RectLocal(cp)
                 : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
-            _contentBorder.Width = _chipColumnWidth + ButtonPadding;
-            Canvas.SetLeft(_contentBorder, _side == NoteSide.Left
-                ? chipCard.Left + LayoutConstants.NoteColumnWidthDip
-                : chipCard.Left);
+            _contentBorder.Width = _chipColumnWidth;
+            // Fixup-01 F2: the chip's Undo column is on the LEFT in every side (the chip has no
+            // tail), so the text always starts right of it — at the cell's right edge (the two
+            // paddings plus one cell, 122 DIP from the card's left). Fixup-02 F2: it used to start
+            // at the whole column width (132 DIP), which left the measured column's longest line —
+            // the "discarded" chip in EN and DE — ending 1.1 to 1.8 DIP INSIDE the 2 DIP border.
+            // The 10 DIP between the cell edge and the card's right padding is the text's right
+            // inset; the CARD size does not change, and ↺ stays where it is (336 DIP from ✕).
+            Canvas.SetLeft(_contentBorder,
+                chipCard.Left + LayoutConstants.NoteButtonPadding + LayoutConstants.NoteCellDip);
             Canvas.SetTop(_contentBorder, chipCard.Top);
             return;
         }
@@ -451,7 +635,7 @@ public class NoteWindow : OverlayWindow
         // P4 D2: one primary-colour body for Display and Edit alike (the amber Display accent is
         // gone with the title bar). Over the cap, Display clips from the TOP with a fade and an
         // ellipsis; Edit clips to the TAIL of the draft, where the end marker sits.
-        double avail = TextAreaHeightDip();
+        double avail = BodyTextAreaHeightDip();
         bool overCap = MeasureTextHeightDip(_text) > avail + 0.5;
         string shown = overCap
             ? _state == NoteState.Edit
@@ -461,7 +645,11 @@ public class NoteWindow : OverlayWindow
 
         _textBlock = new TextBlock
         {
-            Width = NoteLayout.TextColumnWidthDip(_textSize),
+            // Width is the text column, capped by the DRAWN card's inner width (D): the reserved
+            // width is at least the measured text, so the wrap it was measured with holds and
+            // the block's box never spills past the card.
+            Width = Math.Min(NoteLayout.TextColumnWidthDip(_textSize),
+                Math.Max(1, DrawnCardLocal().Width - (2 * ButtonPadding))),
             MaxWidth = NoteLayout.TextColumnWidthDip(_textSize),
             Margin = new Thickness(10, 10, 0, 0),
             FontSize = _textSize,
@@ -519,14 +707,14 @@ public class NoteWindow : OverlayWindow
 
         _contentBorder.Child = stack;
 
-        // T5 review-01 B1: the text sits BESIDE the control column, never under it. K2a: Edit has
-        // no column - its controls are a row UNDER the text - so the text block takes the card's
-        // text-side corner alone.
+        // T5 review-01 B1 was the column; D (sitting 11) has no column on any card: the text
+        // always starts at the card's top-left corner (the text corner) in every state, so the
+        // text origin is identical at rest and revealed. Move/Edit/the chip draw their full card;
+        // at rest the top-left is the reserved rect's top-left too.
         var card = _placement is { } p ? NoteLayout.RectLocal(p)
             : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
-        bool columnOnLeft = _state != NoteState.Edit && _side == NoteSide.Left;
         _contentBorder.Width = NoteLayout.TextColumnWidthDip(_textSize) + ButtonPadding;
-        Canvas.SetLeft(_contentBorder, columnOnLeft ? card.Left + LayoutConstants.NoteColumnWidthDip : card.Left);
+        Canvas.SetLeft(_contentBorder, card.Left);
         Canvas.SetTop(_contentBorder, card.Top);
 
         if (_state == NoteState.Move && _placement is { } placement)
@@ -545,19 +733,20 @@ public class NoteWindow : OverlayWindow
     internal Border? ContentBorderForTest => _contentBorder;
 
     /// <summary>
-    /// Draws the Move hint (sitting 9, row c): one message at the note's text size and SemiBold —
-    /// the German instruction "Auf den neuen Platz für die Notiz schauen" — as a footer at the
-    /// bottom of the card's text column, over a card-coloured plate so the note's own text stays
-    /// visible above it. The whole box lives inside the text column (never the control column)
-    /// and inside the card's border, so ⇄/⊘, their hit cells and the card's left/bottom border
-    /// lines are untouched whatever side the card is on. It is NOT part of the Move dim (F1): the
-    /// owner must be able to read it.
+    /// Draws the Move hint (sitting 9, row c; D6 option C): one message at the note's text size
+    /// and SemiBold — the German instruction "Auf den neuen Platz für die Notiz schauen" — as a
+    /// plate directly UNDER the dimmed body text and ABOVE the ⇄/⊘ row. The drawn Move card has
+    /// already grown downward by this plate's height (the manager grows it), so the instruction
+    /// is never clipped and never smaller; the row keeps its own band at the card's bottom. It is
+    /// NOT part of the Move dim (F1): the owner must be able to read it.
     /// </summary>
     private void DrawMoveHint(NotePlacement placement)
     {
         string text = StringTable.Current.T("overlays.note.moveHint");
         double font = NoteLayout.MoveHintFontDip(_textSize);
-        double column = NoteLayout.TextColumnWidthDip(_textSize);
+        double inset = GetBorderThickness().Left;
+        double plateWidth = NoteLayout.MoveHintWidthDip(placement.Card.Width, _textSize, inset);
+        double column = NoteLayout.MoveHintTextWidthDip(plateWidth);
 
         _moveHintText = new TextBlock
         {
@@ -577,7 +766,7 @@ public class NoteWindow : OverlayWindow
         _moveHintText.Measure(new Size(column, double.PositiveInfinity));
         double textHeight = _moveHintText.DesiredSize.Height;
 
-        var rect = NoteLayout.MoveHintRect(placement, _textSize, textHeight, GetBorderThickness().Left);
+        var rect = NoteLayout.MoveHintRect(placement, _textSize, textHeight, inset);
         _moveHint = new Border
         {
             Width = rect.Width,
@@ -585,7 +774,10 @@ public class NoteWindow : OverlayWindow
             Background = Tokens.BrushSurfaceDark,
             Padding = new Thickness(NoteLayout.MoveHintMarginDip, 0, NoteLayout.MoveHintMarginDip, 0),
             Child = _moveHintText,
-            IsHitTestVisible = false
+            IsHitTestVisible = false,
+            // The measured text fits by construction; the clip is the guarantee that a rounding
+            // difference can never paint a line over the row.
+            ClipToBounds = true
         };
         Canvas.SetLeft(_moveHint, rect.Left);
         Canvas.SetTop(_moveHint, rect.Top);
@@ -606,21 +798,6 @@ public class NoteWindow : OverlayWindow
     internal bool OverCapForTest { get; private set; }
 
     internal bool OverCapFadeForTest { get; private set; }
-
-    /// <summary>The text area's available height in DIP: the card inner height minus the
-    /// paddings, and in Edit minus the control row and the end marker's block (K2a) — so a long
-    /// draft clips to the end instead of drawing over the row. The cap itself rode the placement
-    /// — the manager derived the card height from the work area and the text — so the window
-    /// clips to whatever fits it.</summary>
-    private double TextAreaHeightDip()
-    {
-        if (_placement is not { } p)
-            return Math.Max(1, NoteLayout.ControlsColumnHeightDip - (2 * ButtonPadding));
-        var card = NoteLayout.RectLocal(p);
-        if (_state == NoteState.Edit)
-            return NoteLayout.EditTextAreaHeightDip(card.Height, _textSize);
-        return Math.Max(1, card.Height - (2 * ButtonPadding));
-    }
 
     /// <summary>Measures the wrapped text height in DIP the auto-height derives from (P4 D2):
     /// the same style the card body draws, measured at the text column width.</summary>
@@ -679,12 +856,15 @@ public class NoteWindow : OverlayWindow
     }
 
     /// <summary>Pushes a new body text (P1 typing, re-places, restores). The clip point moves
-    /// with the text, so a live block re-renders.</summary>
+    /// with the text, so a live block re-renders. At rest the CARD SIZE is the measured text
+    /// (D1), so a Display text change rebuilds the drawn tree; in Edit a keystroke only re-renders
+    /// the content (the Edit card's size is the manager's placement).</summary>
     public void SetText(string text)
     {
         _text = text;
-        if (_textBlock != null)
-            Dispatcher.Invoke(UpdateContent);
+        if (_textBlock == null)
+            return;
+        Dispatcher.Invoke(_state == NoteState.Display ? Draw : UpdateContent);
     }
 
     /// <summary>Pushes the text size (P4 D1/T8). Every measurement and the drawn font follow.</summary>
@@ -724,34 +904,19 @@ public class NoteWindow : OverlayWindow
             Dispatcher.Invoke(UpdateContent);
     }
 
+    /// <summary>
+    /// Flips the presentation state. D: the drawn CARD BODY changes size between the at-rest
+    /// Display card, the revealed/Move card and the Edit/chip card, so every flip rebuilds the
+    /// whole tree from the applied placement — the manager applies the new placement around this
+    /// call, and the last draw of the UI turn is the visible one (no flash). A reveal exists only
+    /// in Display; every other state is at rest until shown otherwise.
+    /// </summary>
     public void SetState(NoteState state)
     {
-        // K2a: Edit draws a different tree (one row of three cells under the text), so a change
-        // between Edit and any other state must REBUILD from the applied placement — the manager
-        // applies the new card size before this flip, so the placement is already the right one.
-        bool relayout = (state == NoteState.Edit) != (_state == NoteState.Edit);
+        if (state != NoteState.Display)
+            _revealed = false;
         _state = state;
-        Dispatcher.Invoke(() =>
-        {
-            if (relayout)
-            {
-                // Draw() re-runs the content, the border and the visibility passes itself, with
-                // the state already flipped and the new placement already applied.
-                Draw();
-                return;
-            }
-            UpdateContent();
-            UpdateBorder();
-            UpdateButtonVisibility();
-            // P3 D4 / sitting 9 fixup: Move dims the card's OWN content in place — the 0.85 of
-            // the gaze-chasing Move is gone with the follow loop, and the card must visibly
-            // yield while its spot is decided. The window itself is never dimmed: the hint (the
-            // one line the owner must read in Move) and the Move discs stay at full opacity.
-            UpdateMoveDim();
-            // No SetOverlayInteraction call on any path (P1 D3): the base class already pinned
-            // click-through:false + focusable:false in OnSourceInitialized, and the window stays
-            // WS_EX_NOACTIVATE for life.
-        });
+        Dispatcher.Invoke(Draw);
     }
 
     /// <summary>
@@ -780,17 +945,6 @@ public class NoteWindow : OverlayWindow
     {
         Dispatcher.Invoke(() => SetButtonVisible("keyboard", visible));
     }
-
-    private void UpdateBorder() => Dispatcher.Invoke(() =>
-    {
-        // P3 D2: the tail polygon may occupy slot 0, so the card's background border is tracked
-        // as a field (Draw assigns it) rather than found by type among the canvas children.
-        if (_cardBorder is not null)
-        {
-            _cardBorder.BorderBrush = GetBorderBrush();
-            _cardBorder.BorderThickness = GetBorderThickness();
-        }
-    });
 
     private Brush GetBorderBrush()
     {
@@ -957,9 +1111,10 @@ public class NoteWindow : OverlayWindow
         // its table slots, and every other set EXISTs on the canvas (fixup B1) so every branch
         // must set every key explicitly - a fresh Ellipse default Visibility is Visible, and an
         // untouched twin would render on top of the active set. K2a: Edit's slots map to its
-        // row's cells 0, 1 and 2 (the discard control is slot 3 but the third row cell).
+        // row's cells 0, 1 and 2. D: a Display note at rest draws NO control at all - only its
+        // reveal target - and its row appears on reveal.
         var occupiedRows = new HashSet<int>();
-        foreach (var slot in NoteLayout.SlotsFor(_state))
+        foreach (var slot in NoteLayout.DrawnSlotsFor(_state, _revealed))
             occupiedRows.Add(NoteLayout.CellRowFor(_state, slot));
         for (int row = 0; row < 4; row++)
             SetCellVisible(row, occupiedRows.Contains(row));
@@ -996,9 +1151,9 @@ public class NoteWindow : OverlayWindow
         SetButtonVisible("done", false);
         SetButtonVisible("keyboard", false);
         SetButtonVisible("discard", false);
-        SetButtonVisible("close", _state == NoteState.Display);
-        SetButtonVisible("edit", _state == NoteState.Display);
-        SetButtonVisible("move", _state == NoteState.Display);
+        SetButtonVisible("close", _state == NoteState.Display && _revealed);
+        SetButtonVisible("edit", _state == NoteState.Display && _revealed);
+        SetButtonVisible("move", _state == NoteState.Display && _revealed);
         // The Move set (P3 D4): Other side shows only while another side fits - the manager
         // drives that through SetOtherSideAvailable; Cancel is always part of Move.
         SetButtonVisible("otherside", _state == NoteState.Move && _otherSideAvailable);

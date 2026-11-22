@@ -123,12 +123,12 @@ public class NoteSemiBoldReadabilityTests
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = NewWindow($"semibold-height-{(int)size}");
         window.SetTextSize(size);
-        // A placement tall enough for the sample, so UpdateContent does not clip over the cap:
-        // the card is sized from the very measure under test (the production derivation), and
-        // avail == measured keeps both texts fully drawn.
-        var card = new Size(
-            NoteLayout.CardWidthDip(size),
-            NoteLayout.CardHeightDip(size, window.MeasureTextHeightDip(GermanSample, size), NoteTestBench.WorkArea.Height));
+        // A placement sized by the PRODUCTION Display derivation (D2: the reserved card), so
+        // UpdateContent does not clip over the cap: the manager derives the card height from the
+        // very measure under test, and avail == measured keeps both texts fully drawn.
+        var card = NoteLayout.DisplayReservedSize(
+            window.MeasureTextWidthDip(GermanSample, size),
+            window.MeasureTextHeightDip(GermanSample, size));
         window.ApplyPlacement(NoteLayout.Place(
             new PhysicalPoint(1200, 1000), NoteSide.Right, card,
             NoteTestBench.WorkArea, Array.Empty<Rect>(), 2.0)!);

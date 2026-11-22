@@ -41,6 +41,15 @@ public class NoteChipShrinkTests
 
     private static void Hold(NoteManager manager, PhysicalPoint centre, long startUs)
     {
+        // D: a Display note's row cell is live only after a look reveals the row.
+        var resting = manager.ActiveNotes.FirstOrDefault(n => n.State == NoteState.Display
+            && !manager.IsRevealedForTest(n.Id)
+            && (NoteTestBench.CellCentre(manager, n.Id, 0) == centre
+                || NoteTestBench.CellCentre(manager, n.Id, 1) == centre
+                || NoteTestBench.CellCentre(manager, n.Id, 3) == centre));
+        if (resting is not null)
+            startUs = NoteTestBench.Reveal(manager, resting.Id, startUs);
+
         for (long t = startUs; t <= startUs + 200_000; t += 100_000)
             manager.Receive(new GazeCursorMovedMessage(new GazeFrame(new PhysicalPoint(centre.X + 10_000, centre.Y), t, IsInGap: false)));
         for (long t = startUs + 300_000; t <= startUs + 1_200_000; t += 100_000)
@@ -48,7 +57,7 @@ public class NoteChipShrinkTests
     }
 
     [StaFact]
-    public void EnteringPendingUndo_ShrinksTheWindowInPlace_AndTheUndoCellDoesNotMove()
+    public void EnteringPendingUndo_ShrinksTheWindowInPlace_AnchoredAtTheReservedTextCorner()
     {
         var (manager, _) = MakeManager();
         DpiHelper.Initialize(2.0, 2.0);
@@ -58,24 +67,22 @@ public class NoteChipShrinkTests
             var id = SavedNote(manager, "saved text", anchor);
             var window = manager.WindowForTest(id)!;
             var full = manager.PlacementForTest(id)!;
-            var undoBefore = NoteTestBench.CellCentre(manager, id, 0);
+            var closeBefore = NoteTestBench.CellCentre(manager, id, 3);
 
-            Hold(manager, NoteTestBench.CellCentre(manager, id, 3), startUs: 0); // x- claims the chip
+            Hold(manager, NoteTestBench.CellCentre(manager, id, 3), startUs: 0); // ✕ claims the chip
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
 
             var chip = manager.PlacementForTest(id)!;
-            Check.WithCustomMessage($"the chip card {chip.Card} must be smaller than the full card {full.Card}")
+            Check.WithCustomMessage($"the chip card {chip.Card} must be smaller than the reserved card {full.Card}")
                 .That(chip.Card.Width * chip.Card.Height).IsStrictlyLessThan(full.Card.Width * full.Card.Height);
-            // B1: the anchor is the COLUMN edge - the card edge away from the tail. Right keeps
-            // its right edge fixed (and its top), so the Undo cell cannot move.
-            Check.WithCustomMessage("the shrunk window keeps the full window column edge")
-                .That((chip.Window.Right, chip.Window.Top))
-                .IsEqualTo((full.Window.Right, full.Window.Top));
+            // D6: the chip's card is anchored at the RESERVED card's top-left (the text corner).
+            Check.WithCustomMessage("the shrunk card keeps the reserved card's top-left")
+                .That((chip.Card.Left, chip.Card.Top)).IsEqualTo((full.Card.Left, full.Card.Top));
             Check.WithCustomMessage("the real window follows the chip placement")
                 .That((window.Width, window.Height))
                 .IsEqualTo((chip.Window.Width, chip.Window.Height));
-            Check.WithCustomMessage("the Undo cell keeps its centre - the gaze is never displaced")
-                .That(NoteTestBench.CellCentre(manager, id, 0)).IsEqualTo(undoBefore);
+            Check.WithCustomMessage("the ↺ disc must not sit where ✕ was")
+                .That(NoteTestBench.CellCentre(manager, id, 0)).IsNotEqualTo(closeBefore);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); manager.Dispose(); }
     }

@@ -155,24 +155,49 @@ public class NoteEditRowLayoutTests
     }
 
     [Fact]
-    public void K2a_DisplayMoveAndChip_KeepTheFourRowColumn()
+    public void D_DisplayAndMove_UseTheRow_TheChipKeepsTheColumn()
     {
-        var display = Place(NoteSide.Right, 36, new Size(NoteLayout.CardWidthDip(36), NoteLayout.ControlsColumnHeightDip));
+        var reserved = NoteLayout.DisplayReservedSize(0, 0);
+        var display = Place(NoteSide.Right, 36,
+            NoteLayout.DisplayReservedSize(0, 0));
 
-        Check.WithCustomMessage("Display's slot 0 must read the column (the Edit row must not leak)")
+        // D1/D4/D6: Display (revealed) and Move read the four-cell row under the text.
+        Check.WithCustomMessage("Display's slot 0 must read the row")
             .That(NoteLayout.ButtonCenter(display, 0, NoteState.Display))
-            .IsEqualTo(NoteLayout.ButtonCenter(display, 0));
-        Check.WithCustomMessage("Move's slot 1 must read the column")
+            .IsEqualTo(NoteLayout.RowCellCenter(display, 0));
+        Check.WithCustomMessage("Move's slot 1 must read the row")
             .That(NoteLayout.ButtonCenter(display, 1, NoteState.Move))
-            .IsEqualTo(NoteLayout.ButtonCenter(display, 1));
-        Check.WithCustomMessage("a chip's slot 0 must read the column")
+            .IsEqualTo(NoteLayout.RowCellCenter(display, 1));
+        Check.WithCustomMessage("Display's ✎/↕/✕ share one row (D4)")
+            .That(NoteLayout.ButtonCenter(display, 0, NoteState.Display).Y)
+            .IsEqualTo(NoteLayout.ButtonCenter(display, 3, NoteState.Display).Y);
+        // The chip is the one presentation that keeps a COLUMN (its card is not the row card) —
+        // and since fixup-01 F2 that column is on the LEFT in every side, two cells clear of ✕.
+        Check.WithCustomMessage("a chip's slot 0 must read its left-hand column")
             .That(NoteLayout.ButtonCenter(display, 0, NoteState.PendingUndo))
-            .IsEqualTo(NoteLayout.ButtonCenter(display, 0));
+            .IsEqualTo(NoteLayout.ChipCellCenter(display, 0));
 
-        var (rowX, rowY) = NoteLayout.ButtonCenter(display, 0, NoteState.Edit);
+        var (rowX, rowY) = NoteLayout.ButtonCenter(display, 0, NoteState.Display);
         var (colX, colY) = NoteLayout.ButtonCenter(display, 0);
-        Check.WithCustomMessage("Edit's own slot 0 must NOT be the column cell")
+        Check.WithCustomMessage("the row must not be the chip's column cell")
             .That(rowX == colX && rowY == colY).IsFalse();
+
+        // The row's four cells are inside the reserved card at every size.
+        foreach (var size in new[] { 18.0, 28.0, 36.0, 48.0 })
+        {
+            var p = Place(NoteSide.Right, size, NoteLayout.DisplayReservedSize(0, 0));
+            var card = NoteLayout.RectLocal(p);
+            for (int cell = 0; cell < 4; cell++)
+            {
+                var (cx, cy) = NoteLayout.RowCellCenter(p, cell);
+                var cellRect = new Rect(
+                    cx - (LayoutConstants.NoteCellDip / 2), cy - (LayoutConstants.NoteCellDip / 2),
+                    LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
+                Check.WithCustomMessage($"{size}: row cell {cell} must lie inside the reserved card")
+                    .That(card.Contains(cellRect)).IsTrue();
+            }
+        }
+        Check.That(reserved.Width).IsEqualTo(4 * LayoutConstants.NoteCellDip + 2 * LayoutConstants.NoteButtonPadding);
     }
 
     [Fact]

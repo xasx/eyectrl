@@ -902,15 +902,19 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes, PhysicalPoint gazePoint,
         string keyId, long timestampUs)
     {
+        // O3t: a fire ends the look. A pause still open belongs to a look that is over, and with a
+        // cooldown shorter than KeyDwellPauseUs it could otherwise be resumed after the cooldown and
+        // type a second key from one A->B->A->B wobble ("one look, one key"). Fixup 02: each one ends
+        // with the line expiry would have written, not silently — the keys this look crossed still
+        // count as abandons. It runs BEFORE EmitActivation, exactly as an expiry on this sample
+        // would, so the fired key's line carries the same restarts count and the lines keep expiry's
+        // order (the abandons, then the key).
+        EndPausedDwellsAtFire(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs);
         EmitActivation(keyScreenPositions, gazePoint, keyId, timestampUs, keyScreenBoxes);
         NearestKeyProgress = 0;
         NearestKeyId = null;
         _nearestKeyIsRepeatDwell = false;
         _e1PausedExcursions = 0;   // the dwell that fired is over; the count belongs to it
-        // O3t: a fire ends the look. A pause still open belongs to a look that is over, and with a
-        // cooldown shorter than KeyDwellPauseUs it could otherwise be resumed after the cooldown and
-        // type a second key from one A->B->A->B wobble ("one look, one key").
-        ClearPausedDwells();
         _keyCooldownEndTimestamp = timestampUs + (_cooldownMs * MathConstants.MicrosecondsPerMillisecond);
         KeyDwellCompleted?.Invoke(keyId);
     }
@@ -968,12 +972,43 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         }
         if (expired is null) return;
 
-        if (expired.Count > 1)
-            expired.Sort((a, b) => a.LeftTimestampUs != b.LeftTimestampUs
+        AbandonPausedDwells(expired, keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs);
+    }
+
+    /// <summary>
+    /// Fixup 02 (review 02, finding 1): a fire ends the look, so every pause still open on another
+    /// key ends with it — one abandon line each, with exactly the fields an expiry on this sample
+    /// writes (the fill at the key's last ON-KEY sample, its own reason and endms). Dropping them
+    /// silently, as the plain clear did, loses the crossings of the very look that typed: on the
+    /// owner's 20.11 / 21.11 typing that is 7 / 2 lines (4 / 1 above the gate), so post-ship E1
+    /// would count fewer abandons than really happened for a reason that is not the pause rule. The
+    /// fired key has no record to end — a resume removes it, and a repeat-dwell candidate never gets
+    /// one — so its own state and line are untouched.
+    /// </summary>
+    private void EndPausedDwellsAtFire(Dictionary<string, PhysicalPoint> keyScreenPositions,
+        IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes, PhysicalPoint gazePoint, long timestampUs)
+    {
+        if (_pausedDwells.Count == 0) return;
+
+        AbandonPausedDwells(new List<PausedDwell>(_pausedDwells.Values),
+            keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs);
+    }
+
+    /// <summary>
+    /// The shared tail of an expired or fire-ended pause: remove each candidate and write the ONE
+    /// abandon line its switch would have written, oldest leave first so a sample that ends several
+    /// reads the same either way.
+    /// </summary>
+    private void AbandonPausedDwells(List<PausedDwell> ended,
+        Dictionary<string, PhysicalPoint> keyScreenPositions,
+        IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes, PhysicalPoint gazePoint, long timestampUs)
+    {
+        if (ended.Count > 1)
+            ended.Sort((a, b) => a.LeftTimestampUs != b.LeftTimestampUs
                 ? a.LeftTimestampUs.CompareTo(b.LeftTimestampUs)
                 : string.CompareOrdinal(a.KeyId, b.KeyId));
 
-        foreach (var paused in expired)
+        foreach (var paused in ended)
         {
             _pausedDwells.Remove(paused.KeyId);
             _e1Restarts++;

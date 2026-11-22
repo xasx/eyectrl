@@ -169,7 +169,15 @@ public class KeyboardPauseNotResetTests
         // The frozen fill, not a credited pause: a paused-time credit would fire at 530.
         Check.WithCustomMessage("the resumed dwell did not keep its frozen elapsed time")
             .That(rig.LastFireTs).IsEqualTo(710_000L);
-        Check.That(rig.Log.Of("abandon")).IsEmpty();
+        // The RESUMED key is not abandoned. The only line is the neighbour's pause, still open when
+        // the fire ends the look (left at 500, 210 ms before 710): fixup 02 writes it with the
+        // expiry fields — pct at B's last on-key sample (40 %), the switch-to-last-key endms — so a
+        // line for the fired key (which would read 100 %) would fail the size and the pct here.
+        var abandon = Fields(rig.Log.Of("abandon").Single());
+        Check.That(abandon["pct"]).IsEqualTo("40");
+        Check.That(abandon["why"]).IsEqualTo("NearestChanged");
+        Check.That(abandon["endms"]).IsEqualTo("50");
+        Check.That(long.Parse(abandon["ts"])).IsEqualTo(710_000L);
 
         var key = Fields(rig.Log.Of("key").Single());
         Check.That(key["cls"]).IsEqualTo("letter");
@@ -202,7 +210,13 @@ public class KeyboardPauseNotResetTests
             .That(resumed.Fired).ContainsExactly("key_0_0");
         Check.WithCustomMessage("the boundary resume credited the 300 ms pause")
             .That(resumed.LastFireTs).IsEqualTo(780_000L);   // 570 + (450 - 240)
-        Check.That(resumed.Log.Of("abandon")).IsEmpty();
+        // The resumed key is not abandoned; the only line is the neighbour's pause, open when the
+        // fire ends the look, written with its expiry fields.
+        var resumedAbandon = Fields(resumed.Log.Of("abandon").Single());
+        Check.That(resumedAbandon["pct"]).IsEqualTo("60");
+        Check.That(resumedAbandon["why"]).IsEqualTo("NearestChanged");
+        Check.That(resumedAbandon["endms"]).IsEqualTo("30");
+        Check.That(long.Parse(resumedAbandon["ts"])).IsEqualTo(780_000L);
 
         Check.WithCustomMessage("an excursion of 330 ms still resumed the key")
             .That(abandoned.Fired).IsEmpty();
@@ -274,6 +288,85 @@ public class KeyboardPauseNotResetTests
         Check.WithCustomMessage("a glance back at B after A fired typed a second key from one wobble")
             .That(rig.Fired).ContainsExactly("key_0_0");
         Check.That(rig.LastFireTs).IsEqualTo(720_000L);
+    }
+
+    [Fact]
+    public void AFire_EndsTheOpenPauseOfAnotherKey_WithTheExpiryLine_AndNoLineForTheFiredKey()
+    {
+        // B is at 420 of 450 ms when the gaze spends 150 ms on A (33 % at A's last on-key sample);
+        // back on B at 630, B fires at 660 while A's pause (left at 630) is still open. Fixup 02:
+        // the fire writes A's abandon as A's expiry would have — pct at the last ON-KEY sample (33,
+        // not the 40 % the switch sample's gate sees), the switch-to-last-key endms, A's own
+        // reason — stamped at the fire (660), and the pause is gone. Main and b0ad09d3 logged that
+        // crossing; the silent clear dropped it. B, the fired key, gets no abandon line of its own.
+        using var rig = new Rig();
+        for (long t = 0; t <= 420_000; t += StepMs * 1000L)
+            rig.Sample("key_0_1", t);
+        for (var t = 450_000L; t <= 600_000; t += StepMs * 1000L)
+            rig.Sample("key_0_0", t);
+        for (var t = 630_000L; t <= 660_000; t += StepMs * 1000L)
+            rig.Sample("key_0_1", t);
+
+        Check.WithCustomMessage("the resumed key did not fire while the other key's pause was open")
+            .That(rig.Fired).ContainsExactly("key_0_1");
+        Check.That(rig.LastFireTs).IsEqualTo(660_000L);
+
+        var abandons = rig.Log.Of("abandon");
+        Check.That(abandons).HasSize(1);
+        var f = Fields(abandons[0]);
+        Check.That(f["cls"]).IsEqualTo("letter");
+        Check.That(f["why"]).IsEqualTo("NearestChanged");
+        Check.That(f["pct"]).IsEqualTo("33");      // the fill at A's last on-key sample, not the 40 % at the switch
+        Check.That(f["endms"]).IsEqualTo("30");
+        Check.That(long.Parse(f["ts"])).IsEqualTo(660_000L);   // the fire, not A's would-be expiry at 960
+
+        // A's pause is gone: had the fire kept it, A would expire at 960 and write a second line.
+        for (var t = 690_000L; t <= 1_000_000; t += StepMs * 1000L)
+            rig.Sample("key_0_0", t);
+        Check.WithCustomMessage("the fire left A's pause to expire later")
+            .That(rig.Log.Of("abandon")).HasSize(1);
+        Check.That(rig.Fired).ContainsExactly("key_0_1");
+    }
+
+    [Fact]
+    public void AFire_EndsEveryOpenPause_OneLineEach_AndNoneForTheFiredKey()
+    {
+        // A is at 420 of 450 ms (93 %). The look visits B (180 ms, 40 %) and back to A, then C
+        // (180 ms), and back to A, which fires at 990 — with B's pause (left 750) and C's (left 960)
+        // both still open. The fire writes BOTH lines, with expiry's fields: B pct 47 (its 210 ms at
+        // the last on-key sample), C pct 40, both NearestChanged, endms 30, stamped at the fire. A
+        // itself gets no abandon line: it fired, and a resume had already removed its record.
+        using var rig = new Rig();
+        for (long t = 0; t <= 420_000; t += StepMs * 1000L)
+            rig.Sample("key_0_0", t);
+        for (var t = 450_000L; t <= 630_000; t += StepMs * 1000L)
+            rig.Sample("key_0_1", t);
+        rig.Sample("key_0_0", 660_000);                      // resumes A (its 420 ms frozen)
+        for (var t = 690_000L; t <= 720_000; t += StepMs * 1000L)
+            rig.Sample("key_0_1", t);                        // resumes B: 180 + 30 = 210 ms
+        for (var t = 750_000L; t <= 930_000; t += StepMs * 1000L)
+            rig.Sample("key_0_2", t);                        // C: 180 ms
+        rig.Sample("key_0_0", 960_000);                      // resumes A; C paused at 960
+        rig.Sample("key_0_0", 990_000);                      // A fires (420 + 30)
+
+        Check.That(rig.Fired).ContainsExactly("key_0_0");
+        Check.That(rig.LastFireTs).IsEqualTo(990_000L);
+
+        var abandons = rig.Log.Of("abandon");
+        Check.That(abandons).HasSize(2);
+        Check.That(abandons.Select(l => Fields(l)["pct"])).ContainsExactly("47", "40");
+        Check.That(abandons.Select(l => Fields(l)["why"]))
+            .ContainsExactly("NearestChanged", "NearestChanged");
+        Check.That(abandons.Select(l => Fields(l)["endms"])).ContainsExactly("30", "30");
+        Check.That(abandons.Select(l => long.Parse(Fields(l)["ts"]))).ContainsExactly(990_000L, 990_000L);
+        Check.WithCustomMessage("the fired key itself got an abandon line")
+            .That(abandons.Select(l => Fields(l)["pct"]).Contains("100")).IsFalse();
+
+        // The fire's lines keep expiry's order: the crossings, then the key.
+        var lines = rig.Log.Lines;
+        Check.WithCustomMessage("the abandons were not written before the fired key's line")
+            .That(lines.FindIndex(l => l.StartsWith("KB-E1 key ", StringComparison.Ordinal)))
+            .IsStrictlyGreaterThan(lines.FindLastIndex(l => l.StartsWith("KB-E1 abandon ", StringComparison.Ordinal)));
     }
 
     // ---- app-escaping keys are excluded -------------------------------------------------------

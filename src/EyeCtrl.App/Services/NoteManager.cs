@@ -149,6 +149,32 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// <summary>The chip's frozen geometry: the text size it was composed at and the measured
     /// text column its text is drawn in (T6 fixup-06 G1).</summary>
     private readonly record struct ChipGeometry(double TextSizeDip, double ColumnWidthDip);
+
+    /// <summary>
+    /// Fixup-01 F1: one revealed note's arming clock. The revealed row stays disarmed until the
+    /// gaze has spent <see cref="LeaveBeforeArmMs"/> of REACHABLE time continuously outside the
+    /// at-rest card ∪ the reveal target. <see cref="LastSampleUs"/> is null when the previous
+    /// sample carried no information (inside, or gated): the next valid sample then credits
+    /// nothing for the absent interval.
+    /// </summary>
+    private sealed class RevealArming
+    {
+        public double OutsideMs;
+        public long? LastSampleUs;
+    }
+
+    /// <summary>
+    /// Fixup-01 F2 (belt and braces): the fired ✕'s cell, kept with the chip born while the gaze
+    /// was inside it. The chip's ↺ stays disarmed until the gaze has been outside that cell for
+    /// <see cref="LeaveBeforeArmMs"/> of reachable time. The geometry already keeps ↺ two cells
+    /// away; this clock covers a future geometry change.
+    /// </summary>
+    private sealed class CloseCellArming
+    {
+        public Rect CellDip;
+        public double OutsideMs;
+        public long? LastSampleUs;
+    }
     // The injected monotonic clock, in milliseconds. Production: Environment.TickCount64.
     private readonly Func<long> _clockMs;
     // The injected 100 ms UI timer; created lazily so tests and non-UI constructions never pay
@@ -193,6 +219,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     // revealed. Production has at most one revealed note; the seam predates D and its callers
     // dwell several Display notes' rows in one test.
     private readonly HashSet<string> _seamRevealedNotes = new(StringComparer.Ordinal);
+    // Fixup-01 F1: note id → its revealed-row arming clock. Present = every row target of that
+    // note is disarmed right now; removed once the gaze has left the at-rest card ∪ reveal
+    // target for 150 ms of reachable time. Production has at most one entry.
+    private readonly Dictionary<string, RevealArming> _revealArming = new(StringComparer.Ordinal);
+    // Fixup-01 F2's belt: note id → the fired ✕ cell its chip's Undo must stay disarmed under.
+    private readonly Dictionary<string, CloseCellArming> _undoCloseCellArming = new(StringComparer.Ordinal);
 
     /// <summary>Whether the note presents its row: the one production reveal, or a seam note.</summary>
     private bool IsPresentedRevealed(string noteId) =>
@@ -360,7 +392,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _undoDetector.TargetProgress += OnTargetProgress;
         // D (sitting 11): the reveal target's own detector. Deliberately NOT registered with the
         // adaptation registry: NoteRevealDwellMs is a constant, and a reveal is not an action.
-        _revealDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: sink);
+        // Fixup-01 F4: it also gets NO telemetry sink — reading glances and reveals must never
+        // reach the Notes struggle signals the adaptation reads for the row's controls.
+        _revealDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: null);
         _revealDetector.TargetActivated += OnRevealTargetActivated;
         _revealDetector.TargetProgress += OnTargetProgress;
         // P2 D5's injected clock: an absent argument IS the production clock.
@@ -600,6 +634,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             placement = NoteLayout.WithTagClearance(
                 PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit), _noteSettings.TextSizeDip);
         }
+
+        // Fixup-01 F3: a Display note's window must contain its whole reveal target, at rest
+        // and revealed alike, so the enlarged band belongs to this window and its alpha-1 fill
+        // is hit-testable. The CARD never moves; only the window surface grows.
+        if (note.State == NoteState.Display)
+            placement = NoteLayout.WithRevealTargetClearance(placement, RestCardSizeFor(note));
 
         if (_placements.TryGetValue(note.Id, out var current) && current == placement)
             return;
@@ -864,6 +904,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // D6: a removed revealed note leaves the revealed state like ✕ (why=close).
         if (_revealedNoteId == id) ClearRevealedState("close");
         _seamRevealedNotes.Remove(id);
+        _revealArming.Remove(id);
+        _undoCloseCellArming.Remove(id);
         var note = _notes.FirstOrDefault(n => n.Id == id);
         if (note is { State: NoteState.PendingUndo })
         {
@@ -1155,6 +1197,153 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         }
     }
 
+    // ── fixup-01 F1/F2: the revealed row's arming clock and the chip's close-cell belt ──
+
+    /// <summary>
+    /// Whether <paramref name="targetId"/> is one of the freshly revealed note's row cells
+    /// (✎/↕/✕) and its arming clock is still pending. The reveal target itself is never gated
+    /// by this (it is the thing that reveals), and other notes' rows are untouched.
+    /// </summary>
+    private static bool RowDisarmedByReveal(string targetId, Dictionary<string, RevealArming> arming)
+    {
+        if (arming.Count == 0) return false;
+        int colon = targetId.LastIndexOf(':');
+        if (colon < 0) return false;
+        if (targetId[(colon + 1)..] is not ("edit" or "move" or "close")) return false;
+        return arming.ContainsKey(targetId[..colon]);
+    }
+
+    /// <summary>Whether the chip's Undo target is still disarmed because it was born under the
+    /// fired ✕'s cell (fixup-01 F2's belt).</summary>
+    private static bool UndoDisarmedByCloseCell(string targetId, Dictionary<string, CloseCellArming> arming)
+    {
+        if (arming.Count == 0) return false;
+        if (!targetId.EndsWith(":undo", StringComparison.Ordinal)) return false;
+        return arming.ContainsKey(targetId[..^5]);
+    }
+
+    /// <summary>
+    /// Advances the revealed row's arming clock (fixup-01 F1). The region is the at-rest card ∪
+    /// its reveal target (the target contains the card, but both are tested so a future geometry
+    /// change cannot silently shrink the protected area). Inside resets the clock; outside
+    /// accumulates reachable valid-sample time (an interval longer than 150 ms is no information
+    /// and starts the clock over), and the row re-arms at <see cref="LeaveBeforeArmMs"/>. A note
+    /// that stopped being Display (or lost its placement) is dropped.
+    /// </summary>
+    private void AdvanceRevealArming(PhysicalPoint sample, long timestamp)
+    {
+        if (_revealArming.Count == 0) return;
+        double x = DpiHelper.PhysicalToLogicalX(sample.X);
+        double y = DpiHelper.PhysicalToLogicalY(sample.Y);
+        var point = new Point(x, y);
+        List<string>? armed = null;
+        foreach (var id in _revealArming.Keys.ToList())
+        {
+            var note = FindNote(id);
+            if (note is not { State: NoteState.Display }
+                || !_placements.TryGetValue(id, out var placement))
+            {
+                (armed ??= new()).Add(id);
+                continue;
+            }
+            var rest = NoteLayout.RestCardRect(placement, RestCardSizeFor(note));
+            var target = NoteLayout.RevealTargetRect(rest);
+            var state = _revealArming[id];
+            if (rest.Contains(point) || target.Contains(point))
+            {
+                state.OutsideMs = 0;
+                state.LastSampleUs = timestamp;
+                continue;
+            }
+            // Credit only a genuine valid-sample interval. A gap longer than the 150 ms
+            // threshold is no information (a gap sample never reaches OnGazeMoved), and the
+            // clock starts over at this sample instead of crediting the absence.
+            if (state.LastSampleUs is { } last && timestamp > last
+                && timestamp - last <= 150_000L)
+            {
+                state.OutsideMs += (timestamp - last) / 1000.0;
+            }
+            state.LastSampleUs = timestamp;
+            if (state.OutsideMs >= LeaveBeforeArmMs)
+                (armed ??= new()).Add(id);
+        }
+        if (armed is not null)
+        {
+            foreach (var id in armed)
+                _revealArming.Remove(id);
+        }
+    }
+
+    /// <summary>A gated sample is no information for the reveal arming clock: neither advance
+    /// nor reset it, and credit nothing for the interval it covers.</summary>
+    private void PauseRevealArming()
+    {
+        foreach (var state in _revealArming.Values)
+            state.LastSampleUs = null;
+    }
+
+    /// <summary>
+    /// Advances the chip's close-cell belt (fixup-01 F2). A gaze still inside the fired ✕'s cell
+    /// keeps the ↺ disarmed; outside accumulates reachable time and releases it after 150 ms.
+    /// </summary>
+    private void AdvanceCloseCellArming(PhysicalPoint sample, long timestamp)
+    {
+        if (_undoCloseCellArming.Count == 0) return;
+        var point = new Point(
+            DpiHelper.PhysicalToLogicalX(sample.X),
+            DpiHelper.PhysicalToLogicalY(sample.Y));
+        List<string>? armed = null;
+        foreach (var id in _undoCloseCellArming.Keys.ToList())
+        {
+            var state = _undoCloseCellArming[id];
+            if (state.CellDip.Contains(point))
+            {
+                state.OutsideMs = 0;
+                state.LastSampleUs = timestamp;
+                continue;
+            }
+            if (state.LastSampleUs is { } last && timestamp > last
+                && timestamp - last <= 150_000L)
+            {
+                state.OutsideMs += (timestamp - last) / 1000.0;
+            }
+            state.LastSampleUs = timestamp;
+            if (state.OutsideMs >= LeaveBeforeArmMs)
+                (armed ??= new()).Add(id);
+        }
+        if (armed is not null)
+        {
+            foreach (var id in armed)
+                _undoCloseCellArming.Remove(id);
+        }
+    }
+
+    private void PauseCloseCellArming()
+    {
+        foreach (var state in _undoCloseCellArming.Values)
+            state.LastSampleUs = null;
+    }
+
+    /// <summary>The Display row's <paramref name="slot"/> cell in screen DIP, read before a
+    /// state flip (fixup-01 F2's belt). Empty when the note has no placement.</summary>
+    private Rect DisplayCellRectDip(string noteId, int slot)
+    {
+        if (!_placements.TryGetValue(noteId, out var placement))
+            return Rect.Empty;
+        var (lx, ly) = NoteLayout.ButtonCenter(placement, slot, NoteState.Display);
+        double half = LayoutConstants.NoteCellDip / 2;
+        return new Rect(
+            placement.Window.Left + lx - half,
+            placement.Window.Top + ly - half,
+            LayoutConstants.NoteCellDip,
+            LayoutConstants.NoteCellDip);
+    }
+
+    private static bool InsideDipRect(Rect rect, PhysicalPoint physical) =>
+        rect.Contains(new Point(
+            DpiHelper.PhysicalToLogicalX(physical.X),
+            DpiHelper.PhysicalToLogicalY(physical.Y)));
+
     /// <summary>
     /// The keyboard release half of an exit (P1 D5, fixup m1): only a keyboard the EDITING note
     /// summoned is hidden, and only when the keyboard is still up. On a hand-over the release
@@ -1186,10 +1375,22 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// </summary>
     private void EnterPendingUndo(NoteData note, PendingUndoKind kind)
     {
+        // Fixup-01 F2's belt: when the chip is born from a fired ✕ while the gaze still sits in
+        // that ✕'s cell, remember the cell. The ↺ stays disarmed until the gaze has been outside
+        // it for 150 ms — the geometry keeps ↺ two cells away already, so this only matters if a
+        // future change brings them closer. Captured before the state flip (the cell reads the
+        // Display row).
+        bool fromRevealedRow = note.State == NoteState.Display && IsPresentedRevealed(note.Id);
+        Rect? firedCloseCell = fromRevealedRow ? DisplayCellRectDip(note.Id, slot: 3) : null;
+
         // D6: ✕ from the revealed row leaves the revealed state (why=close); the chip's own
         // registration below replaces every target. A DIFFERENT note's chip entry does not
         // touch a revealed note (chips do not suspend notes).
         if (_revealedNoteId == note.Id) ClearRevealedState("close");
+        if (firedCloseCell is { } closeCell && InsideDipRect(closeCell, _lastGazePoint))
+        {
+            _undoCloseCellArming[note.Id] = new CloseCellArming { CellDip = closeCell };
+        }
         note.State = NoteState.PendingUndo;
         note.UndoKind = kind;
         if (kind == PendingUndoKind.Removed)
@@ -1371,6 +1572,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     {
         _chipReachedMs.Remove(note.Id);
         _chipGeometry.Remove(note.Id);
+        _undoCloseCellArming.Remove(note.Id);
         _undoDetector.RemoveTarget($"{note.Id}:undo");
         _undoTargetWindows.Remove($"{note.Id}:undo");
         _targetsAwaitingGazeLeave.Remove($"{note.Id}:undo");
@@ -1553,6 +1755,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // D6: a removed revealed note leaves the revealed state like ✕ (why=close).
         if (_revealedNoteId == note.Id) ClearRevealedState("close");
         _seamRevealedNotes.Remove(note.Id);
+        _revealArming.Remove(note.Id);
+        _undoCloseCellArming.Remove(note.Id);
         var window = Window(note.Id);
         if (window != null) { window.Close(); _windows.Remove(window); }
         _notes.Remove(note);
@@ -1995,12 +2199,37 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (_targetsAwaitingGazeLeave.Count > 0 && !genuineOcclusion && !occluderFailed)
             AdvanceLeaveTimers(gazePoint, timestamp);
 
+        // Fixup-01 F1: the freshly revealed row's own arming clock. Gated samples are no
+        // information: they neither advance nor reset it (the next valid sample credits
+        // nothing for the gated interval).
+        if (_revealArming.Count > 0)
+        {
+            if (genuineOcclusion || occluderFailed)
+                PauseRevealArming();
+            else
+                AdvanceRevealArming(gazePoint, timestamp);
+        }
+
+        // Fixup-01 F2's belt: the same clock for a ↺ born under the fired ✕'s cell.
+        if (_undoCloseCellArming.Count > 0)
+        {
+            if (genuineOcclusion || occluderFailed)
+                PauseCloseCellArming();
+            else
+                AdvanceCloseCellArming(gazePoint, timestamp);
+        }
+
         Func<DwellTarget, bool>? filter = null;
-        if (genuineOcclusion || occluderFailed || _targetsAwaitingGazeLeave.Count > 0 || OwnWindowConjunctActive)
+        if (genuineOcclusion || occluderFailed || _targetsAwaitingGazeLeave.Count > 0
+            || _revealArming.Count > 0 || _undoCloseCellArming.Count > 0 || OwnWindowConjunctActive)
         {
             var disarmed = _targetsAwaitingGazeLeave;
+            var revealArming = _revealArming;
+            var closeCellArming = _undoCloseCellArming;
             filter = t => GateOpenFor(t, genuineOcclusion, occluderFailed)
                 && !disarmed.ContainsKey(t.Id)
+                && !RowDisarmedByReveal(t.Id, revealArming)
+                && !UndoDisarmedByCloseCell(t.Id, closeCellArming)
                 && WindowOwns(t, rootWindow);
         }
         _dwellDetector.Update(gazePoint, timestamp, filter);
@@ -2592,6 +2821,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             _gateClosed = false;
             _dwellDetector.ResetAllState();
             _undoDetector.ResetAllState();
+            // Fixup-01 F8: the reveal detector's clock is timestamp-based too; the latch below
+            // covers the same spot, but the rule is the same as the other two detectors.
+            _revealDetector.ResetAllState();
             _settleTracker.Reset(); // P3 D4: a settle interrupted by the gate starts over, too
             _lastGazePoint = message.Position;
             LatchTargetsUnderTheGaze();
@@ -2738,7 +2970,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     internal string AddNoteTargetsForTest(PhysicalPoint anchor)
     {
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Display };
-        _placements[data.Id] = NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip);
+        _placements[data.Id] = NoteLayout.WithRevealTargetClearance(
+            NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip),
+            RestCardSizeFor(data));
         _notes.Add(data);
         _seamRevealedNotes.Add(data.Id);
         RegisterDwellTargets(data.Id);
@@ -3041,6 +3275,11 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _revealOutsideMs = 0;
         _revealLastSampleUs = null;
         _revealShownAtMs = _clockMs();
+        // Fixup-01 F1: the whole row is born DISARMED. It re-arms only after the gaze has been
+        // continuously outside the at-rest card ∪ the reveal target for 150 ms; until then no
+        // row target is eligible, so a drift on the card (which the geometry keeps above the
+        // cells anyway) can never fire ✎/↕/✕.
+        _revealArming[note.Id] = new RevealArming();
         Window(note.Id)?.SetRevealed(true);
         // D4: register the row through the normal path — it clears the reveal target, rebuilds
         // the row and ends with LatchTargetsUnderTheGaze (the existing 150 ms leave rule).
@@ -3074,6 +3313,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _revealedNoteId = null;
         _revealOutsideMs = 0;
         _revealLastSampleUs = null;
+        // Fixup-01 F1/F2: neither clock outlives the revealed row it armed.
+        _revealArming.Remove(id);
+        _undoCloseCellArming.Remove(id);
         var note = FindNote(id);
         Window(id)?.SetRevealed(false);
         if (note is not null)
@@ -3110,8 +3352,18 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         double y = DpiHelper.PhysicalToLogicalY(gazePoint.Y);
         double margin = NoteRevealHideMarginDip;
         var card = placement.Card; // the revealed rect
-        bool inside = x >= card.Left - margin && x <= card.Right + margin
-            && y >= card.Top - margin && y <= card.Bottom + margin;
+        // Fixup-01 F5: the hide rect is union(revealed card, reveal target) + 24 DIP. The target
+        // reaches above/beside the card, so the very spot that revealed the row (inside that
+        // target) must keep it — otherwise a motionless gaze hid it 2 s later and flickered.
+        var note = FindNote(id);
+        var target = note is null
+            ? card
+            : NoteLayout.RevealTargetRect(
+                NoteLayout.RestCardRect(placement, RestCardSizeFor(note)));
+        bool inside = (x >= card.Left - margin && x <= card.Right + margin
+                && y >= card.Top - margin && y <= card.Bottom + margin)
+            || (x >= target.Left - margin && x <= target.Right + margin
+                && y >= target.Top - margin && y <= target.Bottom + margin);
         if (inside)
         {
             _revealOutsideMs = 0;
@@ -3183,6 +3435,15 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             return null;
         return PhysicalRectToDip(bounds);
     }
+
+    /// <summary>The reveal target's accumulated dwell progress (0..1): fixup-01 F8's pin reads
+    /// it to prove the gate recovery reset the reveal detector.</summary>
+    internal double RevealProgressForTest(string noteId) =>
+        _revealDetector.GetProgress($"{noteId}:reveal");
+
+    /// <summary>Whether a chip's Undo target has left the fired ✕'s cell belt (fixup-01 F2):
+    /// true when it is not disarmed by the close-cell clock.</summary>
+    internal bool ChipUndoArmedForTest(string noteId) => !_undoCloseCellArming.ContainsKey(noteId);
 
     // Post-effect publish (spec D8): the note action runs first — including the malformed-id
     // early return, whose no-op-cue trade-off is ACCEPTED (spec §Pause) — then the cue fires.
@@ -3364,6 +3625,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _revealOutsideMs = 0;
         _revealLastSampleUs = null;
         _seamRevealedNotes.Clear();
+        _revealArming.Clear();
+        _undoCloseCellArming.Clear();
         _chipReachedMs.Clear();
         _movingNoteId = null;
         _placeShown = false;

@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.TestSupport;
 
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Linq;
@@ -204,8 +205,8 @@ public class NoteColumnPlacementTests
             var chip = manager.PlacementForTest(id)!;
             Check.WithCustomMessage("the chip's card must anchor at the reserved card's top-left")
                 .That((chip.Card.Left, chip.Card.Top)).IsEqualTo((reserved.Left, reserved.Top));
-            Check.WithCustomMessage("the ↺ disc must not sit where ✕ was")
-                .That(NoteTestBench.CellCentre(manager, id, 0)).IsNotEqualTo(closeBefore);
+            CheckUndoIsTwoCellsFromTheFiredClose(manager, id, closeBefore,
+                manager.PlacementForTest(id)!.Side.ToString());
         }
         finally { DpiHelper.Initialize(1.0, 1.0); manager.Dispose(); }
     }
@@ -215,6 +216,34 @@ public class NoteColumnPlacementTests
         var messenger = new WeakReferenceMessenger();
         return (new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
             workAreaDip: NoteTestBench.WorkAreaProvider), messenger);
+    }
+
+    /// <summary>
+    /// Fixup-01 F2 (review F2): the chip's ↺ must be at least two cells (224 DIP) from the ✕
+    /// that fired, and the two hit cells must not intersect. This replaces the old
+    /// point-inequality pin, which a 1 px offset satisfied and the measured 74 DIP chip did not.
+    /// </summary>
+    private static void CheckUndoIsTwoCellsFromTheFiredClose(
+        NoteManager manager, string id, PhysicalPoint closeCentre, string side)
+    {
+        var undo = NoteTestBench.CellCentre(manager, id, 0);
+        double dx = DpiHelper.PhysicalToLogicalX(Math.Abs(closeCentre.X - undo.X));
+        double dy = DpiHelper.PhysicalToLogicalY(Math.Abs(closeCentre.Y - undo.Y));
+        double distance = Math.Sqrt((dx * dx) + (dy * dy));
+        double half = LayoutConstants.NoteCellDip / 2;
+        var closeCell = new Rect(
+            DpiHelper.PhysicalToLogicalX(closeCentre.X) - half,
+            DpiHelper.PhysicalToLogicalY(closeCentre.Y) - half,
+            LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
+        var undoCell = new Rect(
+            DpiHelper.PhysicalToLogicalX(undo.X) - half,
+            DpiHelper.PhysicalToLogicalY(undo.Y) - half,
+            LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
+        Check.WithCustomMessage(
+                $"{side}: ↺ is only {distance:F1} DIP from the fired ✕ (dx {dx:F1}, dy {dy:F1})")
+            .That(distance).IsGreaterOrEqualThan(2 * LayoutConstants.NoteCellDip);
+        Check.WithCustomMessage($"{side}: the ↺ and ✕ hit cells must not intersect")
+            .That(closeCell.IntersectsWith(undoCell)).IsFalse();
     }
 
     private static void Hold(NoteManager manager, PhysicalPoint centre, long startUs)
@@ -249,8 +278,8 @@ public class NoteColumnPlacementTests
             var chip = manager.PlacementForTest(id)!;
             Check.WithCustomMessage("the chip's card must anchor at the reserved card's top-left")
                 .That((chip.Card.Left, chip.Card.Top)).IsEqualTo((reserved.Left, reserved.Top));
-            Check.WithCustomMessage("the ↺ disc must not sit where ✕ was")
-                .That(NoteTestBench.CellCentre(manager, id, 0)).IsNotEqualTo(closeBefore);
+            CheckUndoIsTwoCellsFromTheFiredClose(manager, id, closeBefore,
+                manager.PlacementForTest(id)!.Side.ToString());
         }
         finally { DpiHelper.Initialize(1.0, 1.0); manager.Dispose(); }
     }

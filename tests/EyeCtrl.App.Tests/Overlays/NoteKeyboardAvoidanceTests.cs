@@ -207,10 +207,17 @@ public class NoteKeyboardAvoidanceTests
             probe.RaiseChanged();
 
             var display = manager.PlacementForTest(id)!;
-            var expected = NoteLayout.WithTagClearance(
-                NoteLayout.Place(Phys(960, 300), display.Side, display.Card.Size, WorkArea,
-                    Array.Empty<Rect>(), Scale)!,
-                NoteSettings.DefaultTextSizeDip);
+            var displayWindow = manager.WindowForTest(id)!;
+            var expected = NoteLayout.WithRevealTargetClearance(
+                NoteLayout.WithTagClearance(
+                    NoteLayout.Place(Phys(960, 300), display.Side, display.Card.Size, WorkArea,
+                        Array.Empty<Rect>(), Scale)!,
+                    NoteSettings.DefaultTextSizeDip),
+                NoteLayout.DisplayRestSize(
+                    displayWindow.MeasureTextWidthDip("saved text"),
+                    Math.Min(displayWindow.MeasureTextHeightDip("saved text"),
+                        display.Card.Height - (2 * LayoutConstants.NoteButtonPadding)
+                            - LayoutConstants.NoteCellDip)));
             Check.WithCustomMessage("outside Edit the placement must not change")
                 .That(display.Window).IsEqualTo(expected.Window);
         }
@@ -274,11 +281,19 @@ public class NoteKeyboardAvoidanceTests
             Check.WithCustomMessage("Done must move the note back off the displaced spot")
                 .That(after.Window).IsNotEqualTo(displaced.Window);
 
-            // The Display placement next to the anchor: the same derivation with no avoid rects.
-            var display = NoteLayout.WithTagClearance(
-                NoteLayout.Place(Phys(960, 300), after.Side, after.Card.Size, WorkArea,
-                    Array.Empty<Rect>(), Scale)!,
-                NoteSettings.DefaultTextSizeDip);
+            // The Display placement next to the anchor: the same derivation with no avoid rects,
+            // plus the tag strip and (F3) the reveal target's clearance.
+            var afterWindow = manager.WindowForTest(id)!;
+            var display = NoteLayout.WithRevealTargetClearance(
+                NoteLayout.WithTagClearance(
+                    NoteLayout.Place(Phys(960, 300), after.Side, after.Card.Size, WorkArea,
+                        Array.Empty<Rect>(), Scale)!,
+                    NoteSettings.DefaultTextSizeDip),
+                NoteLayout.DisplayRestSize(
+                    afterWindow.MeasureTextWidthDip("typed text"),
+                    Math.Min(afterWindow.MeasureTextHeightDip("typed text"),
+                        after.Card.Height - (2 * LayoutConstants.NoteButtonPadding)
+                            - LayoutConstants.NoteCellDip)));
             Check.WithCustomMessage("Done must leave the note next to its anchor")
                 .That(after.Window).IsEqualTo(display.Window);
         }

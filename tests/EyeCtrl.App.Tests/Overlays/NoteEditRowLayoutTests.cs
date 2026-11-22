@@ -171,10 +171,11 @@ public class NoteEditRowLayoutTests
         Check.WithCustomMessage("Display's ✎/↕/✕ share one row (D4)")
             .That(NoteLayout.ButtonCenter(display, 0, NoteState.Display).Y)
             .IsEqualTo(NoteLayout.ButtonCenter(display, 3, NoteState.Display).Y);
-        // The chip is the one presentation that keeps the column (its card is not the row card).
-        Check.WithCustomMessage("a chip's slot 0 must read the column")
+        // The chip is the one presentation that keeps a COLUMN (its card is not the row card) —
+        // and since fixup-01 F2 that column is on the LEFT in every side, two cells clear of ✕.
+        Check.WithCustomMessage("a chip's slot 0 must read its left-hand column")
             .That(NoteLayout.ButtonCenter(display, 0, NoteState.PendingUndo))
-            .IsEqualTo(NoteLayout.ButtonCenter(display, 0));
+            .IsEqualTo(NoteLayout.ChipCellCenter(display, 0));
 
         var (rowX, rowY) = NoteLayout.ButtonCenter(display, 0, NoteState.Display);
         var (colX, colY) = NoteLayout.ButtonCenter(display, 0);

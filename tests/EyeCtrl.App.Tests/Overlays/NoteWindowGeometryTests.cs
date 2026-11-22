@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Overlays;
 
 using EyeCtrl.App.Tests.TestSupport;
 
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using CommunityToolkit.Mvvm.Messaging;
@@ -72,17 +73,22 @@ public class NoteWindowGeometryTests
         var placement = manager.PlacementForTest(id)!;
         var window = manager.WindowForTest(id)!;
 
-        // The window reports the placement's rect: Width/Height/Left/Top EXACTLY (fixup-05: the
-        // tag's height is a whole DIP again, so the 2× DPI transform has nothing to round and
-        // the half-DIP tolerance fixup-04 needed is gone — it hid exactly this drift).
-        Check.WithCustomMessage("the window's width must come from the placement's window rect")
-            .That(window.Width).IsEqualTo(placement.Window.Width);
+        // The window reports the placement's rect. Since fixup-01 F3 a Display window's rect may
+        // be FRACTIONAL (the reveal target's centred union can widen it by a fraction of a DIP on
+        // the tail-side edge), and WPF snaps the HWND to whole DEVICE pixels — one 0.5 DIP step at
+        // the owner's 2.0 scale. The tolerance is exactly that snap, nothing more.
+        const double snap = 0.5 + 1e-9;
+        Check.WithCustomMessage(
+                $"the window's width {window.Width} must come from the placement's {placement.Window} "
+                + $"(card {placement.Card}, real {window.Left},{window.Top},{window.Width},{window.Height}, "
+                + $"side {placement.Side}, text '{manager.ActiveNotes.FirstOrDefault(n => n.Id == id)?.Text}')")
+            .That(window.Width).IsCloseTo(placement.Window.Width, snap);
         Check.WithCustomMessage("the window's height must come from the placement's window rect")
-            .That(window.Height).IsEqualTo(placement.Window.Height);
+            .That(window.Height).IsCloseTo(placement.Window.Height, snap);
         Check.WithCustomMessage("the window's Left must come from ApplyPlacementToWindow")
-            .That(window.Left).IsEqualTo(placement.Window.Left);
+            .That(window.Left).IsCloseTo(placement.Window.Left, snap);
         Check.WithCustomMessage("the window's Top must come from ApplyPlacementToWindow")
-            .That(window.Top).IsEqualTo(placement.Window.Top);
+            .That(window.Top).IsCloseTo(placement.Window.Top, snap);
 
         // The drawn Display row's buttons (✎ ↕ ✕ are slots 0, 1 and 3 of the four-cell row, D4)
         // must sit on NoteLayout.ButtonCenter for the CURRENT state — per-slot, in the row.

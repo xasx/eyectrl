@@ -57,6 +57,10 @@ public class NoteWindow : OverlayWindow
     // full opacity. A window-level Opacity dimmed every child, which made the hint grey.
     private Border? _cardBorder;
     private Polygon? _tail;
+    // Fixup-01 F3: the alpha-1 fill under the at-rest reveal target. It makes the enlarged
+    // band painted and hit-testable, so WindowFromPoint can report this note there; hidden
+    // while the row is revealed (the target is unregistered then).
+    private Rectangle? _revealFill;
     private const double MoveDimOpacity = 0.6;
     private NoteState _state;
     // D (sitting 11): whether a Display note currently shows its revealed control row. The
@@ -317,6 +321,10 @@ public class NoteWindow : OverlayWindow
     /// got one.</summary>
     internal Rectangle? CellFillForTest(int row) => _cellFills.TryGetValue(row, out var fill) ? fill : null;
 
+    /// <summary>Test accessor (fixup-01 F3): the alpha-1 fill under the at-rest reveal target,
+    /// or null while the row is revealed / the note is not at rest.</summary>
+    internal Rectangle? RevealFillForTest => _revealFill;
+
     /// <summary>Test accessor (T6 fixup-02): the drawn dwell arc of a control, for the
     /// non-interactivity pins.</summary>
     internal Path? ArcForTest(string suffix) =>
@@ -341,6 +349,33 @@ public class NoteWindow : OverlayWindow
         _moveHintText = null;
         _cardBorder = null;
         _tail = null;
+        _revealFill = null;
+
+        // Fixup-01 F3: at rest, paint the whole reveal target with the same alpha-1 fill the hit
+        // cells carry, FIRST so it sits under the card/tail. The window was grown to contain the
+        // target (NoteLayout.WithRevealTargetClearance), so those pixels now belong to this
+        // window and WindowFromPoint can report it. The fill is hit-testable by construction
+        // (non-null, alpha > 0 fill); revealing hides it because the target is unregistered then.
+        if (_state == NoteState.Display && !_revealed && _placement is { } revealPlacement)
+        {
+            var rest = RestCardSizeDip();
+            var restCard = NoteLayout.RestCardRect(revealPlacement, rest);
+            var target = NoteLayout.RevealTargetRect(restCard);
+            // The same one-DIP slack the window grew by (NoteLayout.WithRevealTargetClearance):
+            // WPF snaps the HWND to whole device pixels, so a fill exactly on the target's edge
+            // could leave a sub-pixel strip of the registered target unpainted.
+            target.Inflate(1, 1);
+            var revealFill = new Rectangle
+            {
+                Width = target.Width,
+                Height = target.Height,
+                Fill = CellFillBrush
+            };
+            Canvas.SetLeft(revealFill, target.Left - revealPlacement.Window.Left);
+            Canvas.SetTop(revealFill, target.Top - revealPlacement.Window.Top);
+            _canvas.Children.Add(revealFill);
+            _revealFill = revealFill;
+        }
 
         // P3 D2: the card sits inside the window at the placement card origin (the tail zone
         // takes the strip on the anchor side); the pointer tail is drawn INSIDE the window.
@@ -404,7 +439,9 @@ public class NoteWindow : OverlayWindow
                     ? NoteLayout.RowCellCenter(wp, row)
                     : _state == NoteState.Edit
                         ? NoteLayout.EditCellCenter(wp, row)
-                        : NoteLayout.ButtonCenter(wp, row))
+                        : _state == NoteState.PendingUndo
+                            ? NoteLayout.ChipCellCenter(wp, row)
+                            : NoteLayout.ButtonCenter(wp, row))
                 : NoteLayout.ButtonCenter(_side, row, CardWidthDip);
             var fill = new Rectangle
             {
@@ -558,7 +595,11 @@ public class NoteWindow : OverlayWindow
             {
                 Width = _chipColumnWidth,
                 MaxWidth = _chipColumnWidth,
-                Margin = new Thickness(NoteLayout.ChipTextMarginDip, NoteLayout.ChipTextMarginDip, 0, 0),
+                // Fixup-01 F2: the Undo column is now on the LEFT, so the column itself is the
+                // text's left gap; a further 10 DIP margin would push the measured column 10 DIP
+                // past the card (the column's width is exactly cell + 2 x padding). The top
+                // margin stays.
+                Margin = new Thickness(0, NoteLayout.ChipTextMarginDip, 0, 0),
                 FontSize = NoteLayout.ChipTextFontDip(_chipTextSize),
                 FontFamily = Tokens.FontStandard,
                 // Notes readability (sitting 9): the chip reads SemiBold like the body - stroke
@@ -577,10 +618,12 @@ public class NoteWindow : OverlayWindow
             // B1: beside the column here too.
             var chipCard = _placement is { } cp ? NoteLayout.RectLocal(cp)
                 : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
-            _contentBorder.Width = _chipColumnWidth + ButtonPadding;
-            Canvas.SetLeft(_contentBorder, _side == NoteSide.Left
-                ? chipCard.Left + LayoutConstants.NoteColumnWidthDip
-                : chipCard.Left);
+            _contentBorder.Width = _chipColumnWidth;
+            // Fixup-01 F2: the chip's Undo column is on the LEFT in every side (the chip has no
+            // tail), so the text always starts right of it — exactly at the card's right edge
+            // after the measured column. Anchoring the card at the reserved text corner therefore
+            // puts ↺ two cells clear of the ✕ that fired.
+            Canvas.SetLeft(_contentBorder, chipCard.Left + LayoutConstants.NoteColumnWidthDip);
             Canvas.SetTop(_contentBorder, chipCard.Top);
             return;
         }

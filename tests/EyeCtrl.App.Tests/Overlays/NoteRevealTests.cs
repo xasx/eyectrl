@@ -237,14 +237,23 @@ public class NoteRevealTests
             Check.WithCustomMessage($"{size}: it grows to BOTH sides symmetrically")
                 .That(Math.Abs((rest.Left - reveal.Left) - (reveal.Right - rest.Right))).IsLessOrEqualThan(1e-9);
 
-            // The row band is the reserved strip BELOW the at-rest card (the cell row that a
-            // reveal adds). The target must not reach into it: only the shared edge.
+            // The row band is the reserved strip BELOW the at-rest card: one hit cell plus the
+            // card's bottom padding (fixup-01 F1 — the cells start AT rest.Bottom, so none of
+            // their area overlaps the visible at-rest card). The target must not reach into it:
+            // only the shared edge.
             var rowBand = new Rect(reserved.Left, rest.Bottom, reserved.Width, reserved.Bottom - rest.Bottom);
             Check.WithCustomMessage($"{size}: the reveal target must not reach into the row band")
                 .That(reveal.Bottom <= rowBand.Top + 1e-9).IsTrue();
-            Check.That(rowBand.Height).IsCloseTo(LayoutConstants.NoteCellDip, 1e-9);
-            Check.WithCustomMessage("the reserved card is the at-rest card's top part plus the row")
-                .That(reserved.Bottom - rest.Bottom).IsCloseTo(LayoutConstants.NoteCellDip, 1e-9);
+            Check.That(rowBand.Height)
+                .IsCloseTo(LayoutConstants.NoteCellDip + LayoutConstants.NoteButtonPadding, 1e-9);
+            Check.WithCustomMessage("the reserved card is the at-rest card's top part plus the row and its pad")
+                .That(reserved.Bottom - rest.Bottom)
+                .IsCloseTo(LayoutConstants.NoteCellDip + LayoutConstants.NoteButtonPadding, 1e-9);
+            // The first row cell's top edge is exactly the at-rest card's bottom edge.
+            var cell0 = NoteTestBench.CellCentre(manager, id, 0);
+            Check.WithCustomMessage($"{size}: the row's first hit cell must start at rest.Bottom")
+                .That(DpiHelper.PhysicalToLogicalY(cell0.Y) - (LayoutConstants.NoteCellDip / 2))
+                .IsCloseTo(rest.Bottom, 1e-6);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -380,8 +389,12 @@ public class NoteRevealTests
             // The placement is exactly the pure Place over the reserved size.
             var raw = NoteLayout.Place(new PhysicalPoint(1600, 1000), NoteSide.Right,
                 expectedReserved, NoteTestBench.WorkArea, Array.Empty<Rect>(), 2.0)!;
-            var expected = NoteLayout.WithTagClearance(raw, size);
-            Check.WithCustomMessage($"{size}: the manager's placement is the reserved-size derivation")
+            var expected = NoteLayout.WithRevealTargetClearance(
+                NoteLayout.WithTagClearance(raw, size),
+                NoteLayout.DisplayRestSize(
+                    window.MeasureTextWidthDip("a short note"), textHeight));
+            Check.WithCustomMessage($"{size}: the manager's placement is the reserved-size derivation "
+                    + "plus the tag and reveal-target strips")
                 .That(placement.Window).IsEqualTo(expected.Window);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }

@@ -266,7 +266,8 @@ public class NoteMoveAcceptanceTests
             long present = 0;
             var id = NewMovingNote(manager, new PhysicalPoint(1800, 1000), ref present); // DIP (900, 500)
             Check.That(manager.PlacementForTest(id)!.Side).IsEqualTo(NoteSide.Right);
-            var displayWindow = manager.PlacementForTest(id)!.Window;
+            // The Move card's top IS the reserved Display card's top (the hint grows downward).
+            var cardTopBefore = manager.PlacementForTest(id)!.Card.Top;
 
             // The Other side cell is the move set's slot 0; the dwell applies the side cycle's
             // next fitting side at once and returns to Display there (never the current side -
@@ -282,7 +283,7 @@ public class NoteMoveAcceptanceTests
             Check.WithCustomMessage("the NoteSide cycle's next fitting side must be Left")
                 .That(after.Side).IsEqualTo(NoteSide.Left);
             Check.WithCustomMessage("a side change must not shift the card vertically")
-                .That(after.Window.Top).IsEqualTo(displayWindow.Top);
+                .That(after.Card.Top).IsEqualTo(cardTopBefore);
         }
         finally
         {

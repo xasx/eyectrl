@@ -86,7 +86,7 @@ public class NoteAutoHeightTests
             double cap = NoteLayout.TextCapHeightDip(workHeight, size);
             Check.WithCustomMessage("the over-cap card stops at the cap plus the row and paddings")
                 .That(manager.PlacementForTest(id)!.Card.Height)
-                .IsEqualTo(cap + (2 * LayoutConstants.NoteButtonPadding) + LayoutConstants.NoteCellDip);
+                .IsEqualTo(NoteLayout.DisplayReservedHeightDip(cap));
         }
         finally { DpiHelper.Initialize(1.0, 1.0); manager.Dispose(); }
     }

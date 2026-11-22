@@ -279,16 +279,29 @@ internal static class NoteLayout
 
     /// <summary>Window-relative centre of a control in <paramref name="state"/> (K2a, D): Edit
     /// reads its own centred ROW of three cells under the text (<see cref="EditCellCenter"/>),
-    /// the chip reads the control COLUMN exactly as before, and Display (revealed) and Move read
-    /// the four-cell ROW under the text (<see cref="RowCellCenter"/>) — the column is gone from
-    /// every card presentation.</summary>
+    /// the chip reads its own LEFT-hand column (<see cref="ChipCellCenter"/>), and Display
+    /// (revealed) and Move read the four-cell ROW under the text (<see cref="RowCellCenter"/>) —
+    /// the column is gone from every card presentation.</summary>
     public static (double X, double Y) ButtonCenter(NotePlacement placement, int slot, NoteState state) =>
         state switch
         {
             NoteState.Edit => EditCellCenter(placement, EditCellForSlot(slot)),
-            NoteState.PendingUndo => ButtonCenter(placement, slot),
+            NoteState.PendingUndo => ChipCellCenter(placement, slot),
             _ => RowCellCenter(placement, slot),
         };
+
+    /// <summary>
+    /// Window-relative centre of the chip's Undo cell (fixup-01 F2). The chip's column sits on
+    /// its LEFT edge in EVERY side — the chip has no tail, so no side forces the column away from
+    /// one, and anchoring the column at the reserved card's top-left puts ↺ two cells (336 DIP)
+    /// clear of the ✕ that fired instead of next to it. One function serves the drawn cell, the
+    /// Undo target and the chrome rects.
+    /// </summary>
+    public static (double X, double Y) ChipCellCenter(NotePlacement placement, int slot)
+    {
+        var card = RectLocal(placement);
+        return (card.Left + ColumnCenterXFromLeft, card.Top + RowCenterY(slot));
+    }
 
     /// <summary>The drawn hit-cell row a control's slot maps to in <paramref name="state"/>
     /// (K2a, D): in Edit the three controls occupy the row's cells 0, 1 and 2 (the discard control
@@ -385,11 +398,13 @@ internal static class NoteLayout
         Math.Max(measuredTextWidthDip, 4 * LayoutConstants.NoteCellDip)
         + (2 * LayoutConstants.NoteButtonPadding);
 
-    /// <summary>The RESERVED Display card's height in DIP (D2): padding + (capped) text height +
-    /// one hit cell + padding. Revealing grows the card DOWNWARD by exactly that cell; the text
-    /// and the tag never move.</summary>
+    /// <summary>The RESERVED Display card's height in DIP (D2, fixup-01 F1): the at-rest card
+    /// plus one hit cell and one padding. The row's cells therefore start at
+    /// <c>rest.Bottom</c> — none of them overlaps the visible at-rest card — and the revealed
+    /// card grows DOWNWARD by the cell plus that bottom strip; the text and the tag never
+    /// move.</summary>
     public static double DisplayReservedHeightDip(double measuredTextHeightDip) =>
-        LayoutConstants.NoteButtonPadding + measuredTextHeightDip + LayoutConstants.NoteCellDip
+        DisplayRestHeightDip(measuredTextHeightDip) + LayoutConstants.NoteCellDip
         + LayoutConstants.NoteButtonPadding;
 
     /// <summary>The at-rest Display card's size (D1) for a measured text.</summary>
@@ -449,6 +464,28 @@ internal static class NoteLayout
         double height = Math.Max(restCardDip.Height, min);
         double left = restCardDip.Left - ((width - restCardDip.Width) / 2);
         return new Rect(left, restCardDip.Bottom - height, width, height);
+    }
+
+    /// <summary>
+    /// Grows the placement's WINDOW so it contains the whole reveal target (fixup-01 F3). The
+    /// CARD rect — and therefore every screen position, the text, the row and the tail — is
+    /// untouched; only the transparent surface around it grows by what the target needs above or
+    /// beside the card. The window then paints an alpha-1 fill under that target
+    /// (<see cref="NoteWindow"/>), so <c>WindowFromPoint</c> can report the note on the enlarged
+    /// band and the own-window conjunct admits it. Idempotent: a placement whose window already
+    /// contains the target passes through unchanged.
+    /// </summary>
+    public static NotePlacement WithRevealTargetClearance(NotePlacement placement, Size restSize)
+    {
+        // One DIP of slack on every side: WPF snaps a window's bounds to whole DEVICE pixels, so
+        // a target that touches the placement's window edge could otherwise land half a DIP
+        // outside the HWND's actual top/left (and the top pixel row of the target would not
+        // belong to the note). The slack is invisible and keeps the whole target inside.
+        var target = RevealTargetRect(RestCardRect(placement, restSize));
+        target.Inflate(1, 1);
+        return placement.Window.Contains(target)
+            ? placement
+            : placement with { Window = Rect.Union(placement.Window, target) };
     }
 
     // == the Move card (D6, sitting-11 coordinator's option C): the reserved card plus the

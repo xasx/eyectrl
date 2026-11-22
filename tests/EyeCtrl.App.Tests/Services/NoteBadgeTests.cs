@@ -772,13 +772,21 @@ public class NoteBadgeTests
 
             Check.WithCustomMessage("the card rect must be byte-for-byte the raw derivation's")
                 .That(placement.Card).IsEqualTo(raw.Card);
+            // F3: the Display window also contains the reveal target (and one DIP of device-pixel
+            // slack), so its top strip is the LARGER of the tag protrusion and that clearance.
+            var noteWindow = manager.WindowForTest(a)!;
+            double cap = placement.Card.Height
+                - (2 * LayoutConstants.NoteButtonPadding) - LayoutConstants.NoteCellDip;
+            var rest = NoteLayout.DisplayRestSize(
+                noteWindow.MeasureTextWidthDip("growth"),
+                Math.Min(noteWindow.MeasureTextHeightDip("growth"), cap));
+            var expected = NoteLayout.WithRevealTargetClearance(
+                NoteLayout.WithTagClearance(raw, NoteSettings.DefaultTextSizeDip), rest);
+            Check.WithCustomMessage("the window must grow to the tag strip AND the reveal target")
+                .That(placement.Window).IsEqualTo(expected.Window);
             double protrusion = NoteLayout.TagProtrusionDip(NoteSettings.DefaultTextSizeDip);
-            Check.WithCustomMessage("the window must grow by the protrusion above the raw window")
-                .That((placement.Window.Left, placement.Window.Top, placement.Window.Width, placement.Window.Height))
-                .IsEqualTo((raw.Window.Left, raw.Window.Top - protrusion,
-                    raw.Window.Width, raw.Window.Height + protrusion));
-            Check.WithCustomMessage("the top clearance must ride exactly the protrusion")
-                .That(NoteLayout.ExtraTopClearance(placement)).IsEqualTo(protrusion);
+            Check.WithCustomMessage("the top clearance must ride at least the tag's protrusion")
+                .That(NoteLayout.ExtraTopClearance(placement)).IsGreaterOrEqualThan(protrusion - 1e-6);
             Check.WithCustomMessage("the growth must be idempotent")
                 .That(NoteLayout.WithTagClearance(placement, NoteSettings.DefaultTextSizeDip)).IsEqualTo(placement);
             Check.WithCustomMessage("the grown window must stay inside the work area")
@@ -831,13 +839,22 @@ public class NoteBadgeTests
             SameTagRect("the tag must re-derive at 48 through the manager rail",
                 DrawnTagRect(windowA), NoteLayout.TagRect(afterPlacement, 48));
 
-            Check.WithCustomMessage("the card's drawn top must be exactly one protrusion under "
-                    + "the window's top at the new size (the T8 card may clamp, the STRADDLE may not)")
-                .That(afterPlacement.Card.Top - afterPlacement.Window.Top)
-                .IsCloseTo(NoteLayout.TagProtrusionDip(48), 1e-6);
-            Check.WithCustomMessage("the window's grown strip must equal one protrusion over the card")
-                .That(afterPlacement.Window.Height - afterPlacement.Card.Height)
-                .IsCloseTo(NoteLayout.TagProtrusionDip(48), 1e-6);
+            // The window grows for the tag AND (F3) the reveal target; the CARD is still exactly
+            // the raw derivation's card at the new size, and the window is the tag/reveal union.
+            var rawAfter = NoteLayout.Place(new PhysicalPoint(1600, 1000), afterPlacement.Side,
+                afterPlacement.Card.Size, NoteTestBench.WorkArea, Array.Empty<Rect>(),
+                DpiHelper.ScaleX)!;
+            Check.WithCustomMessage("the card must stay on the raw derivation at the new size")
+                .That(afterPlacement.Card).IsEqualTo(rawAfter.Card);
+            double capAfter = afterPlacement.Card.Height
+                - (2 * LayoutConstants.NoteButtonPadding) - LayoutConstants.NoteCellDip;
+            var restAfter = NoteLayout.DisplayRestSize(
+                windowA.MeasureTextWidthDip("one"),
+                Math.Min(windowA.MeasureTextHeightDip("one"), capAfter));
+            var expectedAfter = NoteLayout.WithRevealTargetClearance(
+                NoteLayout.WithTagClearance(rawAfter, 48), restAfter);
+            Check.WithCustomMessage("the window must be the tag/reveal union at the new size")
+                .That(afterPlacement.Window).IsEqualTo(expectedAfter.Window);
             Check.WithCustomMessage("the tag BEFORE the change must differ from the one after — "
                     + "the pin would be vacuous if the re-size changed nothing")
                 .That(beforeTag.Height != DrawnTagRect(windowA).Height

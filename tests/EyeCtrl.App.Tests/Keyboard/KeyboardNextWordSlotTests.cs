@@ -19,6 +19,7 @@ using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
+using Microsoft.Extensions.Logging;
 using NFluent;
 using Xunit;
 
@@ -55,6 +56,32 @@ public class KeyboardNextWordSlotTests
         public void Save(Dictionary<string, int> w) { }
     }
 
+    /// <summary>Captures the E1 lines the keyboard writes (the wordend read-out needs them).</summary>
+    private sealed class Capture : ILogger<KeyboardViewModel>
+    {
+        private readonly object _gate = new();
+        private readonly List<string> _lines = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            lock (_gate) _lines.Add(formatter(state, exception));
+        }
+
+        public string[] Of(string eventName)
+        {
+            lock (_gate)
+                return _lines.Where(l => l.StartsWith($"KB-E1 {eventName} ", StringComparison.Ordinal)).ToArray();
+        }
+    }
+
+    private static Dictionary<string, string> Fields(string line) =>
+        line.Split(' ').Skip(2).Where(t => t.Contains('='))
+            .Select(t => t.Split('=', 2)).ToDictionary(p => p[0], p => p[1]);
+
     /// <summary>Consume-once next-word predictor: null means "still running", exactly like the real one.</summary>
     private sealed class FakeLm : ILanguageModelPredictor
     {
@@ -86,7 +113,7 @@ public class KeyboardNextWordSlotTests
     private sealed record Probe(
         KeyboardWindow Window, KeyboardViewModel Vm, FrameworkElement Content,
         HwndSource Source, DwellDetector PredictionDetector, FakeLm Lm, PredictionOrchestrator Orchestrator,
-        FakeSensitive Sensitive)
+        FakeSensitive Sensitive, Capture Log)
         : IDisposable
     {
         public void Dispose() { Source.Dispose(); Window.Close(); }
@@ -121,8 +148,9 @@ public class KeyboardNextWordSlotTests
         configure?.Invoke(settings);
 
         var sensitive = new FakeSensitive();
+        var log = new Capture();
         var vm = new KeyboardViewModel(settings, new CommunityToolkit.Mvvm.Messaging.WeakReferenceMessenger(),
-            sensitiveContext: sensitive);
+            logger: log, sensitiveContext: sensitive);
         var lm = new FakeLm();
         var orchestrator = new PredictionOrchestrator(
             new WordPredictor(new InMemoryDictProvider(new Dictionary<string, int>
@@ -162,7 +190,7 @@ public class KeyboardNextWordSlotTests
                 + "assertion here would pass VACUOUSLY.")
             .That(PresentationSource.FromVisual(content)).IsNotNull();
 
-        return new Probe(w, vm, content, source, PredictionDetector(w), lm, orchestrator, sensitive);
+        return new Probe(w, vm, content, source, PredictionDetector(w), lm, orchestrator, sensitive, log);
     }
 
     /// <summary>Brings the view model to a word boundary: "Haus" typed, then Space.</summary>
@@ -376,6 +404,48 @@ public class KeyboardNextWordSlotTests
                     .That(ReferenceEquals(before[i], after[i])).IsTrue();
             Check.WithCustomMessage("the bar re-rendered: the E1 render clock restarted")
                 .That(BarRenderedMs(probe.Window)).IsEqualTo(renderedMs);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    /// <summary>
+    /// F16: the late slot-0 fill is a render of that slot, so a word typed anyway is reported as
+    /// offered from the word boundary (firstprefix=0) — the case the whole measurement exists for.
+    /// </summary>
+    [StaFact]
+    public void ALateNextWordFill_IsAFirstPrefixZeroBarHit_ForTheWordTypedAnyway()
+    {
+        using var probe = Open();
+        try
+        {
+            probe.Orchestrator.LearnPair("Haus", "ist");
+            probe.Orchestrator.LearnPair("Haus", "ist");
+            TypeIntoTheBoundary(probe);
+            probe.Window.UpdatePredictions();
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
+
+            probe.Lm.Complete("leer");
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 30_000);   // fills slot 0
+            probe.Content.UpdateLayout();
+            Check.That(RenderedWords(probe.Window)[0]).IsEqualTo("leer");
+
+            foreach (var letter in "leer")
+            {
+                probe.Vm.ActivateKey(letter.ToString(), null);
+                probe.Window.UpdatePredictions();
+            }
+            probe.Vm.HandleSpace();
+
+            // The first wordend is "Haus" (typed before this test's boundary); the one under test
+            // is the word typed after the fill.
+            var f = Fields(probe.Log.Of("wordend").Last());
+            Check.That(f["how"]).IsEqualTo("typed");
+            Check.That(f["len"]).IsEqualTo("4");
+            Check.That(f["typed"]).IsEqualTo("4");
+            Check.That(f["onbar"]).IsEqualTo("1");
+            Check.That(f["firstprefix"]).IsEqualTo("0");
+            Check.That(f["firstslot"]).IsEqualTo("0");
         }
         finally { probe.Dispose(); }
     }

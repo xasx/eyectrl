@@ -1347,6 +1347,11 @@ public partial class KeyboardWindow : OverlayWindow
                 ? Visibility.Visible
                 : Visibility.Collapsed;
 
+        // F16: only a visible bar shows words; a collapsed one (prediction off, emoji mode) is
+        // not a render of anything a finished word could have been offered on.
+        if (PredictionBar.Visibility == Visibility.Visible)
+            NoteBarRenderedE1();
+
         // Equal slots spanning the key grid exactly: the bar is as wide as the widest row, so
         // no suggestion can ever grow the window, and its height is one key regardless of count.
         var slotWidth = _keyGridWidth > 0 ? _keyGridWidth / slotCount : 0;
@@ -1427,6 +1432,10 @@ public partial class KeyboardWindow : OverlayWindow
         _renderedPredictions[0] = next[0];
         PredictionBar.Children.RemoveAt(0);
         PredictionBar.Children.Insert(0, cell);
+        // F16: the late fill of slot 0 counts as a render of that slot — at a word boundary it is
+        // exactly what puts the next word on the bar.
+        if (PredictionBar.Visibility == Visibility.Visible)
+            _viewModel.NoteNextWordFilled(next[0].Word);
         // The cell is new, so its dwell clock starts now rather than at the render.
         _slotDwellStartMs[0] = long.MinValue;
         _slotLastRunStartMs[0] = long.MinValue;
@@ -1640,6 +1649,27 @@ public partial class KeyboardWindow : OverlayWindow
             UpdatePredictions();
             _soundService?.PlayKeyClick(); // typing family (D1); AFTER UpdatePredictions so a
                                            // sound failure can never leave the bar stale (S1)
+        }
+    }
+
+    /// <summary>
+    /// F16: hands the words this render put on the bar to the view-model, which keeps them in
+    /// memory only so the next wordend line can say whether the finished word was already on
+    /// offer. A logging fault must never break the render.
+    /// </summary>
+    private void NoteBarRenderedE1()
+    {
+        try
+        {
+            if (_viewModel is null) return;
+            var words = new string?[_renderedPredictions.Count];
+            for (var i = 0; i < _renderedPredictions.Count; i++)
+                words[i] = _renderedPredictions[i]?.Word;
+            _viewModel.NoteBarRendered(words);
+        }
+        catch (Exception)
+        {
+            // Logging must never break the bar.
         }
     }
 

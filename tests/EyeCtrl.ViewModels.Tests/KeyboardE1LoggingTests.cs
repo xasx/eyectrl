@@ -1640,4 +1640,209 @@ public class KeyboardE1LoggingTests
         rig.Dispose();                                                       // a second dispose writes nothing more
         Check.That(rig.Log.Of("edgeq")).HasSize(1);
     }
+
+    // ---- F16: wordend — was the finished word already on the bar? -------------------------------
+
+    [Fact]
+    public void AWordEndedBySpace_LogsItsBarHit()
+    {
+        using var rig = new Rig();
+        rig.Vm.NoteBarRendered(["Nein", "Haus"]);                     // the boundary render: not on offer
+        rig.Vm.ActivateKey("h", null);
+        rig.Vm.NoteBarRendered(["Nein", "Haus", "Hallo"]);            // first offer at one typed letter, slot 2
+        rig.Vm.ActivateKey("a", null);
+        rig.Vm.NoteBarRendered(["Nein", "Haus", "Hallo"]);
+        rig.Vm.ActivateKey("l", null);
+        rig.Vm.NoteBarRendered(["Nein", "Haus", "Hallo"]);
+        rig.Vm.ActivateKey("l", null);
+        rig.Vm.NoteBarRendered(["Nein", "Haus", "Hallo"]);
+        rig.Vm.ActivateKey("o", null);
+        rig.Vm.NoteBarRendered(["Nein", "Haus", "Hallo"]);
+        rig.Vm.HandleSpace();
+
+        var f = Fields(rig.Log.Of("wordend").Single());
+        Check.That(f["how"]).IsEqualTo("typed");
+        Check.That(f["len"]).IsEqualTo("5");
+        Check.That(f["typed"]).IsEqualTo("5");
+        Check.That(f["onbar"]).IsEqualTo("1");
+        Check.That(f["firstprefix"]).IsEqualTo("1");
+        Check.That(f["firstslot"]).IsEqualTo("2");
+        Check.That(f["renders"]).IsEqualTo("6");
+    }
+
+    [Fact]
+    public void AWordEndedBySpace_ThatWasNeverOnTheBar_LogsOnBarZero()
+    {
+        using var rig = new Rig();
+        rig.Vm.NoteBarRendered(["Nein"]);
+        rig.Vm.ActivateKey("h", null);
+        rig.Vm.NoteBarRendered(["Nein"]);
+        rig.Vm.HandleSpace();
+
+        var f = Fields(rig.Log.Of("wordend").Single());
+        Check.That(f["onbar"]).IsEqualTo("0");
+        Check.That(f["firstprefix"]).IsEqualTo("-1");
+        Check.That(f["firstslot"]).IsEqualTo("-1");
+        Check.That(f["renders"]).IsEqualTo("2");
+    }
+
+    [Fact]
+    public void ANextWordSuggestionAtTheBoundary_IsFirstPrefixZero()
+    {
+        using var rig = new Rig();
+        rig.Vm.NoteNextWordFilled("Hallo");                           // F7's late slot-0 fill
+        foreach (var letter in "hallo")
+        {
+            rig.Vm.ActivateKey(letter.ToString(), null);
+            rig.Vm.NoteBarRendered(["Hallo"]);
+        }
+        rig.Vm.HandleSpace();
+
+        var f = Fields(rig.Log.Of("wordend").Single());
+        Check.That(f["onbar"]).IsEqualTo("1");
+        Check.That(f["firstprefix"]).IsEqualTo("0");
+        Check.That(f["firstslot"]).IsEqualTo("0");
+    }
+
+    [Fact]
+    public void APick_EndsTheWordWithHowPickAndThePrefixLength()
+    {
+        using var rig = new Rig();
+        rig.Vm.NoteBarRendered(["Nein"]);
+        rig.Vm.ActivateKey("h", null);
+        rig.Vm.NoteBarRendered(["Nein", "Hallo"]);                    // offered from one letter, slot 1
+        rig.Vm.ActivateKey("a", null);
+        rig.Vm.NoteBarRendered(["Nein", "Hallo"]);
+        rig.Vm.HandlePredictionSelected("Hallo");
+
+        // The window's post-pick render is a boundary render for the NEXT word; a chain pick then
+        // ends that one at prefix 0.
+        rig.Vm.NoteBarRendered(["Welt"]);
+        rig.Vm.HandlePredictionSelected("Welt");
+
+        var ends = rig.Log.Of("wordend").Select(Fields).ToList();
+        Check.That(ends).HasSize(2);
+        Check.That(ends[0]["how"]).IsEqualTo("pick");
+        Check.That(ends[0]["len"]).IsEqualTo("5");
+        Check.That(ends[0]["typed"]).IsEqualTo("2");
+        Check.That(ends[0]["onbar"]).IsEqualTo("1");
+        Check.That(ends[0]["firstprefix"]).IsEqualTo("1");
+        Check.That(ends[0]["firstslot"]).IsEqualTo("1");
+        Check.That(ends[1]["how"]).IsEqualTo("pick");
+        Check.That(ends[1]["typed"]).IsEqualTo("0");
+        Check.That(ends[1]["onbar"]).IsEqualTo("1");
+        Check.That(ends[1]["firstprefix"]).IsEqualTo("0");
+        Check.That(ends[1]["firstslot"]).IsEqualTo("0");
+    }
+
+    [Fact]
+    public void APunctuationKey_EndsTheWordBeforeIt()
+    {
+        using var rig = new Rig();
+        rig.Vm.ActivateKey("h", null);
+        rig.Vm.NoteBarRendered(["Hallo"]);
+        rig.Vm.ActivateKey("a", null);
+        rig.Vm.NoteBarRendered(["Hallo"]);
+        rig.Vm.ActivateKey("l", null);
+        rig.Vm.ActivateKey("l", null);
+        rig.Vm.ActivateKey("o", null);
+        rig.Vm.ActivateKey(",", null);                                // the word "hallo" ends here
+        rig.Vm.NoteBarRendered(["Hallo"]);                            // boundary render for the next word
+        rig.Vm.ActivateKey("x", null);
+        rig.Vm.NoteBarRendered(["Xylophon"]);
+        rig.Vm.ActivateKey("y", null);
+        rig.Vm.HandleSpace();
+
+        var ends = rig.Log.Of("wordend").Select(Fields).ToList();
+        Check.That(ends).HasSize(2);
+        Check.That(ends[0]["len"]).IsEqualTo("5");                    // "hallo": the comma is not in the word
+        Check.That(ends[0]["onbar"]).IsEqualTo("1");
+        Check.That(ends[0]["firstprefix"]).IsEqualTo("1");
+        Check.That(ends[1]["len"]).IsEqualTo("2");                    // "xy"
+        Check.That(ends[1]["onbar"]).IsEqualTo("0");
+    }
+
+    [Fact]
+    public void Enter_EndsTheWordToo()
+    {
+        using var rig = new Rig();
+        rig.Vm.ActivateKey("h", null);
+        rig.Vm.ActivateKey("a", null);
+        rig.Vm.HandleEnter();
+
+        var f = Fields(rig.Log.Of("wordend").Single());
+        Check.That(f["how"]).IsEqualTo("typed");
+        Check.That(f["len"]).IsEqualTo("2");
+        Check.That(f["typed"]).IsEqualTo("2");
+    }
+
+    [Fact]
+    public void AWordRemovedByBackspaceOrWortLoeschen_LogsNothing()
+    {
+        using var rig = new Rig();
+        rig.Vm.NoteBarRendered(["Hallo"]);
+        rig.Vm.ActivateKey("h", null);
+        rig.Vm.NoteBarRendered(["Hallo"]);
+        rig.Vm.HandleBackspace();                                     // the word is gone
+        rig.Vm.HandleSpace();
+        Check.That(rig.Log.Of("wordend")).IsEmpty();
+
+        // The removed word's bar copy must be gone too, not waiting to match a later word.
+        rig.Vm.HandlePredictionSelected("Hallo");
+        Check.That(Fields(rig.Log.Of("wordend").Single())["onbar"]).IsEqualTo("0");
+
+        rig.Vm.ActivateKey("h", null);
+        rig.Vm.ActivateKey("a", null);
+        rig.Vm.NoteBarRendered(["Hallo"]);
+        rig.Vm.HandleDeleteWord();                                    // the word is gone
+        rig.Vm.HandleSpace();
+        Check.That(rig.Log.Of("wordend")).HasSize(1);                 // still only the pick above
+        rig.Vm.HandlePredictionSelected("Hallo");
+        Check.That(Fields(rig.Log.Of("wordend")[1])["onbar"]).IsEqualTo("0");
+    }
+
+    [Fact]
+    public void TheBarWords_AreClearedOnHideAndOnAModeOrPageReset()
+    {
+        using var rig = new Rig();
+        rig.Vm.NoteBarRendered(["Hallo"]);
+        rig.Vm.HandlePredictionSelected("Hallo");                     // control: still in memory → a hit
+        rig.Vm.NoteBarRendered(["Hallo"]);                            // ... and again, for the hide case
+        rig.Vm.IsVisible = true;
+        rig.Vm.IsVisible = false;                                     // hide: the session and its words end
+        rig.Vm.HandlePredictionSelected("Hallo");
+        rig.Vm.NoteBarRendered(["Hallo"]);
+        rig.Vm.SwitchSubLayout("numbers");                            // a page reset
+        rig.Vm.HandlePredictionSelected("Hallo");
+        rig.Vm.NoteBarRendered(["Hallo"]);
+        rig.Vm.IsEmojiMode = true;                                    // a mode reset
+        rig.Vm.HandlePredictionSelected("Hallo");
+
+        var ends = rig.Log.Of("wordend").Select(Fields).ToList();
+        Check.That(ends).HasSize(4);
+        Check.WithCustomMessage("a control pick without a reset must match").That(ends[0]["onbar"]).IsEqualTo("1");
+        Check.WithCustomMessage("the hide kept the bar's words").That(ends[1]["onbar"]).IsEqualTo("0");
+        Check.WithCustomMessage("the page reset kept the bar's words").That(ends[2]["onbar"]).IsEqualTo("0");
+        Check.WithCustomMessage("the mode reset kept the bar's words").That(ends[3]["onbar"]).IsEqualTo("0");
+    }
+
+    [Fact]
+    public void InASensitiveContext_AWordTypedWritesNothing_AndNoBarWordIsKept()
+    {
+        using var rig = new Rig();
+        rig.Vm.NoteBarRendered(["Hallo"]);
+
+        rig.Sensitive.IsSensitiveActive = true;
+        rig.Vm.ActivateKey("h", null);                                // entering ends the session: words go
+        rig.Vm.HandleSpace();
+
+        Check.That(rig.Log.Of("wordend")).IsEmpty();
+        Check.That(rig.Log.Lines).ContainsExactly("KB-E1 sensitive");
+
+        // Leaving the field ends the session again; a pick of the word the bar showed BEFORE the
+        // password field must not find it still in memory.
+        rig.Sensitive.IsSensitiveActive = false;
+        rig.Vm.HandlePredictionSelected("Hallo");
+        Check.That(Fields(rig.Log.Of("wordend").Single())["onbar"]).IsEqualTo("0");
+    }
 }

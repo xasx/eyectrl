@@ -1028,7 +1028,143 @@ public class KeyboardE1RecorderTests
     {
         var recorder = new KeyboardE1Recorder(null);
         Fire(recorder, 30, "E");
+        recorder.NoteBarRender(["Hallo"], 1);
+        recorder.RecordWordEnd(1, pick: false, "Hallo", typedLetters: 0);
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);   // no logger: keep no words either
         recorder.FlushEdgeTalliesOnShutdown();
         recorder.RecordHidden("x");                              // must not throw
+    }
+
+    // ---- F16: wordend — was the finished word already on the bar? -------------------------------
+
+    [Fact]
+    public void AWordShownFromLetterTwoInSlotThree_LogsOnBarFirstPrefixAndFirstSlot()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Nein"], typedLetters: 0);
+        recorder.NoteBarRender(["Nein"], typedLetters: 1);
+        recorder.NoteBarRender(["Nein", "Haus", "Hallo", "Ziel"], typedLetters: 2);   // first appearance
+        recorder.NoteBarRender(["Nein", "Haus", "Hallo", "Ziel"], typedLetters: 3);
+        recorder.NoteBarRender(["Nein", "Haus", "Hallo", "Ziel"], typedLetters: 4);
+
+        recorder.RecordWordEnd(7, pick: false, "Ziel", typedLetters: 0);
+
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 wordend seq=7 how=typed len=4 typed=4 onbar=1 firstprefix=2 firstslot=3 renders=5");
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void AWordNeverShown_LogsOnBarZeroAndMinusOne()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Nein", "Haus"], typedLetters: 1);
+        recorder.NoteBarRender(["Nein", "Haus"], typedLetters: 2);
+
+        recorder.RecordWordEnd(3, pick: false, "Ziel", typedLetters: 0);
+
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 wordend seq=3 how=typed len=4 typed=4 onbar=0 firstprefix=-1 firstslot=-1 renders=2");
+    }
+
+    [Fact]
+    public void ANextWordSuggestionAtTheBoundary_CountsAsFirstPrefixZero()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteNextWordFilled("Ziel");                    // F7's late slot-0 fill, at the boundary
+        recorder.NoteBarRender(["Ziel"], typedLetters: 1);
+
+        recorder.RecordWordEnd(9, pick: false, "ziel", typedLetters: 0);
+
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 wordend seq=9 how=typed len=4 typed=4 onbar=1 firstprefix=0 firstslot=0 renders=2");
+    }
+
+    [Fact]
+    public void APick_LogsHowPickAndTheTypedPrefix()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Ziel"], typedLetters: 1);
+        recorder.NoteBarRender(["Ziel"], typedLetters: 2);
+
+        recorder.RecordWordEnd(0, pick: true, "Ziel", typedLetters: 2);
+
+        // A pick has no key of its own: seq 0. typed is the prefix, not the inserted word's length.
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 wordend seq=0 how=pick len=4 typed=2 onbar=1 firstprefix=1 firstslot=0 renders=2");
+    }
+
+    [Fact]
+    public void ACapitalisedBarWord_MatchesALowercaseFinalWord()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Hallo"], typedLetters: 1);
+
+        recorder.RecordWordEnd(1, pick: false, "hallo", typedLetters: 0);
+
+        Check.That(log.Lines[0]).Contains(" onbar=1 firstprefix=1 firstslot=0 ");
+    }
+
+    [Fact]
+    public void AFinishedWordsBarWords_DoNotCountForTheNextWord()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Hallo"], typedLetters: 1);
+        recorder.RecordWordEnd(1, pick: false, "Hallo", typedLetters: 0);
+
+        recorder.RecordWordEnd(2, pick: false, "Hallo", typedLetters: 0);   // no render for this word
+
+        Check.That(log.Lines[1]).Contains(" onbar=0 firstprefix=-1 firstslot=-1 renders=0");
+    }
+
+    [Fact]
+    public void ClearWordTracking_DropsTheWordsOfAModeOrPageReset()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Hallo"], typedLetters: 1);
+        recorder.ClearWordTracking();
+
+        recorder.RecordWordEnd(1, pick: false, "Hallo", typedLetters: 0);
+
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 wordend seq=1 how=typed len=5 typed=5 onbar=0 firstprefix=-1 firstslot=-1 renders=0");
+    }
+
+    [Fact]
+    public void TheBarWords_AreClearedAtWordEndAndOnHide()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Hallo"], typedLetters: 1);
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(1);
+        recorder.RecordWordEnd(1, pick: false, "Hallo", typedLetters: 0);
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
+
+        recorder.NoteBarRender(["Welt"], typedLetters: 1);
+        recorder.NoteBarRender(["Welt"], typedLetters: 2);
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(2);
+        recorder.RecordHidden("test");
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
+        Check.That(log.Lines.Count(l => l.StartsWith("KB-E1 wordend ", StringComparison.Ordinal))).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void InASensitiveContext_NoWordEndIsWritten_AndNoBarWordIsKept()
+    {
+        var sensitive = false;
+        var log = new Capture();
+        var recorder = new KeyboardE1Recorder(log, () => 0) { IsSensitive = () => sensitive };
+
+        recorder.NoteBarRender(["Hallo"], typedLetters: 2);
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(1);
+
+        sensitive = true;
+        recorder.RecordKey(Key(KeyE1.Letter));                   // the one entry marker; clears the store
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
+
+        recorder.NoteBarRender(["Hallo"], typedLetters: 2);      // a password field keeps nothing
+        recorder.RecordWordEnd(1, pick: false, "Hallo", typedLetters: 0);
+
+        Check.That(log.Lines).ContainsExactly("KB-E1 sensitive");
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
     }
 }

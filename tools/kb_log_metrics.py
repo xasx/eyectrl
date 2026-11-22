@@ -28,7 +28,8 @@ before it instead). Every ``seq`` join below (the correction's ``corr``, the ges
 
 Privacy (the owner's rule, "all recommendations"): after a text key (class letter, digit,
 symbol, emoji) the line says only that a text key was typed -- plus timing (``ts``, ``sincekey``),
-the dock edge, ``typing`` (was a word open) and the dwell. It carries NO edge-quarter class either
+the dock edge, ``typing`` (was a word open), the dwell and ``paused`` (how many short excursions
+the dwell forgave, F15/O3t -- a count, never a key id). It carries NO edge-quarter class either
 (older logs had one per line, ``edgeq=N|NE|E|SE|S|SW|W|NW|-``; this script still reads them): the outer
 quarter of the box the gaze rested in is only COUNTED per dock edge, in one ``edgeq`` tally line
 (``KB-E1 edgeq edge=top fires=F c=.. n=.. ne=.. e=.. se=.. s=.. sw=.. w=.. nw=.. aborts=A ac=.. an=.. ...``,
@@ -117,6 +118,10 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      before a Close is the owner's tidy habit after deliberate use. The owner
                      escapes a wrong page with Close, so mode-undos alone read 0; this count
                      sees the strays.
+* forgiven excursions
+                     the ``paused`` counts of the TEXT fires, summed, and the same per text fire
+                     (F15/O3t): each one is a slip off the key shorter than 300 ms that resumed the
+                     key's dwell instead of starting it over. Older logs carry no field and read 0.
 * layouts            the log grouped by the stamped layout version: the ``shown``/``layout``
                      lines carry ``lay=`` (the layout name), ``lv=`` (the first 8 hex of the
                      layout FILE's sha256) and ``ver=`` (the app version), and everything until
@@ -706,10 +711,22 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
     mode_undos = [e for e in events if e["event"] == "modeundo"]
     strays = stray_modes(events)
 
+    # F15 (O3t): the sub-300 ms slips off a key that resumed its dwell instead of starting it over,
+    # summed over the TEXT fires. The `paused` field is a count on a key's own line; an older log
+    # has no field at all (0).
+    text_fires = [k for k in keys if k.get("cls") in TEXT_CLASSES]
+    forgiven = sum(
+        k["paused"] for k in text_fires
+        if isinstance(k.get("paused"), int) and not isinstance(k.get("paused"), bool)
+    )
+
     return {
         "edge": edge or "all",
         "letters": len(letters),
         "activations": len(keys),
+        "text_fires": len(text_fires),
+        "forgiven_excursions": forgiven,
+        "forgiven_excursions_per_text_fire": _share(forgiven, len(text_fires)),
         "slips": len(slipped),
         "slip_rate": _share(len(slipped), len(letters)),
         "word_corrections": len(word_corrections),
@@ -808,6 +825,10 @@ def render(m: dict[str, Any]) -> str:
            else f"{m['stray_modes_per_100_letters']:.2f}")
         + " per 100 letters (undone within 5 s: switched back, Close, or an in-word deletion; "
         "no text kept)")
+    add(f"forgiven excursions       {m['forgiven_excursions']}   = "
+        + ("n/a" if m["forgiven_excursions_per_text_fire"] is None
+           else f"{m['forgiven_excursions_per_text_fire']:.2f}")
+        + " per text fire (sub-300 ms slips off the key that resumed it)")
     add("hold-on (gaze stayed in the box after the fire)")
     for name, h in m["hold_on"].items():
         median = "n/a" if h["median_ms"] is None else f"{h['median_ms']:g} ms"

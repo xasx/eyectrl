@@ -421,6 +421,56 @@ class WordCorrections(unittest.TestCase):
         self.assertIn("letters removed", proc.stdout)
 
 
+class ForgivenExcursions(unittest.TestCase):
+    """F15 (O3t): the sub-300 ms slips off a key that resumed it, read from the key line's ``paused``.
+
+    A count on a TEXT key's own line, summed over the text fires and reported per text fire. The
+    field is optional: an older log has none, and a malformed one must not stop the report."""
+
+    @staticmethod
+    def _letter(seq: int, paused: str | None) -> str:
+        line = stamp_key(1000 * seq, seq, "letter")
+        return line if paused is None else line + f" paused={paused}"
+
+    def test_the_text_fires_sum_the_paused_count(self) -> None:
+        lines = [
+            self._letter(1, "2"),
+            self._letter(2, "0"),
+            self._letter(3, None),            # an older line, no field: 0
+            stamp_key(4000, 4, "space") + " paused=5",   # a non-text fire is not a text fire
+        ]
+        m = kb.metrics(kb.parse(lines))
+        self.assertEqual(m["text_fires"], 3)
+        self.assertEqual(m["forgiven_excursions"], 2)
+        self.assertAlmostEqual(m["forgiven_excursions_per_text_fire"], 2 / 3)
+
+    def test_a_log_without_the_field_reads_zero(self) -> None:
+        m = kb.metrics(kb.parse([self._letter(1, None), self._letter(2, None)]))
+        self.assertEqual(m["forgiven_excursions"], 0)
+        self.assertEqual(m["forgiven_excursions_per_text_fire"], 0.0)
+
+    def test_a_non_numeric_or_boolean_paused_is_not_counted(self) -> None:
+        # `_value` turns "true" into a bool (an int subclass) and leaves text as a string; neither is
+        # a count. The line still parses because the field is optional.
+        m = kb.metrics(kb.parse([self._letter(1, "true"), self._letter(2, "abc"), self._letter(3, "4")]))
+        self.assertEqual(m["text_fires"], 3)
+        self.assertEqual(m["forgiven_excursions"], 4)
+
+    def test_the_text_and_json_reports_carry_it(self) -> None:
+        lines = [self._letter(1, "2"), self._letter(2, "1")]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "paused.log"
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            proc = run_cli(str(path))
+            js = run_cli(str(path), "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("forgiven excursions", proc.stdout)
+        self.assertIn("1.50 per text fire", proc.stdout)
+        self.assertEqual(js.returncode, 0, js.stderr)
+        self.assertEqual(json.loads(js.stdout)["forgiven_excursions"], 3)
+        self.assertAlmostEqual(json.loads(js.stdout)["forgiven_excursions_per_text_fire"], 1.5)
+
+
 class LikelyByGesture(unittest.TestCase):
     """F2: the likely=0 read-out of the COUNTED slipped letters, split by correcting gesture.
 

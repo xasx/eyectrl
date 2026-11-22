@@ -61,11 +61,14 @@ public class KeyboardTelemetryTests
     [Fact]
     public void NearestKeySwitchesAfterEnoughProgress_EmitsAbandoned_NearestChanged()
     {
+        // A 450 ms dwell so the pause's 300 ms expiry lands before B could fire; the switch itself
+        // only PAUSES A (O3t), and the abandon is written once the pause expires.
         var sink = new RecordingSink();
-        var vm = MakeVm(sink);
+        var vm = MakeVm(sink, keyDwellMs: 450);
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 0);        // enter A
-        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(400, 100), true, 150_000);  // switch to B (A at 50%)
+        for (var t = 150_000L; t <= 500_000; t += 50_000)
+            vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(400, 100), true, t);     // switch to B at 150 ms (A at 33 %)
 
         Check.That(sink.Outcomes).HasSize(1);
         Check.That(sink.Outcomes[0].Kind).IsEqualTo(OutcomeKind.Abandoned);
@@ -77,10 +80,11 @@ public class KeyboardTelemetryTests
     public void GazeLeavesKeyAreaAfterEnoughProgress_EmitsAbandoned_GazeLeft()
     {
         var sink = new RecordingSink();
-        var vm = MakeVm(sink);
+        var vm = MakeVm(sink, keyDwellMs: 450);
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 0);          // enter A
-        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), false, 150_000);   // gaze leaves the key area at 50%
+        for (var t = 150_000L; t <= 500_000; t += 50_000)
+            vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), false, t);     // off the key area at 33 %
 
         Check.That(sink.Outcomes).HasSize(1);
         Check.That(sink.Outcomes[0].Kind).IsEqualTo(OutcomeKind.Abandoned);
@@ -92,10 +96,11 @@ public class KeyboardTelemetryTests
     public void SwitchBelowThreshold_EmitsNothing()
     {
         var sink = new RecordingSink();
-        var vm = MakeVm(sink);
+        var vm = MakeVm(sink, keyDwellMs: 450);
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 0);         // enter A
-        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(400, 100), true, 30_000);    // switch at ~10% (< the abandon cut-off)
+        for (var t = 30_000L; t <= 350_000; t += 50_000)
+            vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(400, 100), true, t);     // switch at ~7 % (< the abandon cut-off)
 
         Check.That(sink.Outcomes).IsEmpty();
     }

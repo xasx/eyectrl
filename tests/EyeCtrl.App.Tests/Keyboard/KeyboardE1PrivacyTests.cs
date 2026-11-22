@@ -87,7 +87,7 @@ public class KeyboardE1PrivacyTests
         // shortcuts) instead carries NonTextKeyNames. See NamesAllowedFor. No edge-quarter class on any
         // text line: the quarter is only COUNTED, per dock edge, on the "edgeq" tally line.
         ["key"] = ["Seq", "TsUs", "Class", "Sub", "Edge", "WinX", "WinY", "WinW", "WinH", "SinceMoveMs",
-                   "SinceKeyMs", "DwellMs", "Penalty", "Typing", "Bs"],
+                   "SinceKeyMs", "DwellMs", "Paused", "Penalty", "Typing", "Bs"],
         ["edgeq"] = ["Edge", "Fires", "C", "N", "NE", "E", "SE", "S", "SW", "W", "NW",
                      "Aborts", "AC", "AN", "ANE", "AE", "ASE", "AS", "ASW", "AW", "ANW"],
         ["holdon"] = ["Seq", "Ms", "Capped"],
@@ -383,6 +383,10 @@ public class KeyboardE1PrivacyTests
         for (var t = start; t < start + 300_000; t += 50_000)
             Gaze(p, centres[IdOf(p, "f")], t);
         ts = start + 350_000;
+        Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        // O3t: the look off the key pauses the dwell. Stay off past the 300 ms window so the abandon
+        // is decided (and logged) before the mode changes rebuild the grid.
+        ts = start + 660_000;
         Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
 
         // A mode round trip, a modifier, emoji enter/exit, Enter, a Flip and a hide.
@@ -782,6 +786,11 @@ public class KeyboardE1PrivacyTests
             Gaze(p, glance, t);
         ts += 350_000;
         Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        // O3t: the glance PAUSES the key now instead of resetting it. Stay off the key area past the
+        // 300 ms window so the glance becomes the abandonment these tests compare — the abandon's
+        // fields (pct, endms) are the same ones the old immediate switch wrote.
+        ts += 310_000;
+        Gaze(p, new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
 
         foreach (var letter in word)
             Dwell(p, IdOf(p, letter.ToString()), ref ts, holdAfterUs: 100_000);
@@ -1045,12 +1054,12 @@ public class KeyboardE1PrivacyTests
         var renderedBackspace = Render(formatter, sink.Events[1]);
         Check.That(rendered).IsEqualTo(
             "KB-E1 key seq=1 ts=1234567 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 " +
-            "movems=7000 sincekey=-1 dwell=450 penalty=false typing=true bs=-");
+            "movems=7000 sincekey=-1 dwell=450 paused=0 penalty=false typing=true bs=-");
         // The same line for a NON-text key keeps its position and id.
         Check.That(renderedBackspace).IsEqualTo(
             "KB-E1 key seq=2 ts=1300000 r=3 c=9 cls=backspace act=backspace boxw=210 boxh=210 sub=letters edge=top " +
             "winx=500 winy=0 winw=2800 winh=1000 movems=7000 dx=0 dy=0 mdx=0 mdy=0 restarts=0 saccade=long " +
-            "sincekey=0 dwell=450 penalty=false typing=true bs=word");
+            "sincekey=0 dwell=450 paused=0 penalty=false typing=true bs=word");
     }
 
     private static string Render(Serilog.Formatting.Display.MessageTemplateTextFormatter formatter,

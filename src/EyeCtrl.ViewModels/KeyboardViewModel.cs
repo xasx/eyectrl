@@ -29,6 +29,20 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // abandonment pct is measured to here, or it would read one sample ahead of the fill the key
     // really reached.
     private long _lastOnKeyTimestampUs;
+    // O3t: the state a candidate had when the gaze left it, keyed by key id (one per key visited
+    // inside KeyDwellPauseUs: A -> B -> C -> A can leave more than one live). It is resumable until
+    // the excursion outlasts the window, and independently expires otherwise. The E1 sums and the
+    // dwell-start point ride along, so a resumed dwell keeps its fill and a late abandon still
+    // reports where the gaze rested.
+    private readonly record struct PausedDwell(
+        string KeyId, long EnteredTimestampUs, long LeftTimestampUs, long LastOnKeyTimestampUs,
+        double SumDxPx, double SumDyPx, int Samples, PhysicalPoint DwellStartPoint,
+        int PausedExcursions, AbandonReason Reason);
+    private readonly Dictionary<string, PausedDwell> _pausedDwells = new(StringComparer.Ordinal);
+    // O3t/E1: how many short excursions the CURRENT dwell has forgiven (resumed). Logged as
+    // `paused=<n>` on the key's own line — a count, with no key id or character in it — and reset
+    // when a new dwell starts, when the sample-gap clamp restarts this one, and on a fire.
+    private int _e1PausedExcursions;
     private long _keyCooldownEndTimestamp;
     private long _lastSampleTimestampUs;
     private int _keyDwellMs;
@@ -150,6 +164,24 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// <see cref="MaxContinuousSampleGapUs"/> neither counts toward a leave nor completes one.
     /// </summary>
     internal const long RearmLeaveUs = 120 * MathConstants.MicrosecondsPerMillisecond;
+
+    /// <summary>
+    /// O3t ("pause instead of reset", owner decision 22.11 after the F14 study): how long the gaze may
+    /// leave the current key and come back before its dwell starts over. While the gaze is elsewhere
+    /// the key's dwell is PAUSED — its elapsed time freezes — and a return within this window resumes
+    /// it with the frozen fill. A longer excursion is a real switch: the paused key is abandoned
+    /// (one NearestChanged abandon, with the fill it had reached) and the key the gaze moved to keeps
+    /// its own time since arrival (inheritance — without it the F14 replay loses 5–36 intended
+    /// letters per sitting). App-escaping keys are excluded (see <see cref="SuspendCandidate"/>):
+    /// they keep today's immediate reset, and a paused text key's time never completes one.
+    /// <para>
+    /// 300 ms is the parked value from the study: at 300 ms with app-escaping keys excluded the
+    /// owner's recorded gaze loses no intended letter, adds no neighbour fire, and halves the
+    /// NearestChanged abandons; 400 ms removes more abandons but is not faster on the test days and
+    /// lets a longer glance at a neighbour count for the key left behind.
+    /// </para>
+    /// </summary>
+    internal const long KeyDwellPauseUs = 300 * MathConstants.MicrosecondsPerMillisecond;
 
     private readonly IStruggleTelemetrySink? _sink;
     private readonly EffectiveSettingsProvider? _effectiveSettings;
@@ -452,12 +484,15 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     // E1: emoji enter/exit as mode changes (a hide's own reset is excluded by _e1Resetting).
-    // A rebuild replaces the key grid, so the fired key's leave latch cannot survive it.
+    // A rebuild replaces the key grid, so the fired key's leave latch cannot survive it — and neither
+    // can a paused dwell: the same id may name a DIFFERENT key on the new grid, so resuming it would
+    // credit the old key's fill to the new one (O3t).
     partial void OnActiveSubLayoutIdChanged(string value)
     {
         _e1LayoutToken++;
         ClearRearmLatch();
         E1.ClearWordTracking();   // F16: a page reset drops the open word's in-memory bar words
+        ClearPausedDwells();
     }
 
     partial void OnIsEmojiModeChanged(bool value)
@@ -466,6 +501,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // The emoji surface replaces the key grid: same rebuild rule as a sub-layout swap.
         ClearRearmLatch();
         E1.ClearWordTracking();   // F16: a mode reset drops the open word's in-memory bar words
+        ClearPausedDwells();
         if (_e1Resetting) return;
         E1.RecordMode("emoji", value ? "text" : "emoji", value ? "emoji" : "text");
     }
@@ -554,6 +590,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _landingSuppressionFromShow = false;
         ClearSuppressionAnchor();
         ClearRearmLatch();
+        ClearPausedDwells();
         FinishHoldOn(capped: false);
         _slipCandidate = null;
         _slipArmed = false;
@@ -616,6 +653,12 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             UpdateHoldOn(keyScreenPositions, keyScreenBoxes, gazePoint, isGazeInsideWindow,
                 timestampUs, sinceLastSampleUs);
 
+        // O3t: a paused candidate whose excursion has outlasted KeyDwellPauseUs is a real switch and
+        // is abandoned NOW, before this sample can start anything else. It runs before every branch
+        // below (the cooldown and the second-dwell returns included), so a pause can never leak past
+        // its window or be resumed by the sample that should end it.
+        ExpirePausedDwells(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs);
+
         // A SHOW's landing arm has no gaze timestamp to date its window from (the keyboard appears
         // between samples), so its reaction window starts at the FIRST sample after the show. Only
         // a gaze already on the keys — or arriving within ShowLandingReactionWindowUs, below
@@ -673,19 +716,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             // NearestKeyId is cleared, or a return would credit the off-keyboard interval as
             // on-key time.
             AdvanceRepeatDwell(null, timestampUs, sinceLastSampleUs);
-            if (NearestKeyId != null)
-            {
-                // A repeat-dwell candidate is NOT a normal key candidate: main never had it as
-                // NearestKeyId, so leaving it writes no abandon and no restart (review 01 F1).
-                if (!_nearestKeyIsRepeatDwell)
-                {
-                    _e1Restarts++;
-                    EmitAbandonIfNeeded(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs, AbandonReason.GazeLeft);
-                }
-                NearestKeyProgress = 0;
-                NearestKeyId = null;
-                _nearestKeyIsRepeatDwell = false;
-            }
+            // O3t: the window edge is treated like any other excursion (see SuspendCandidate): a
+            // quick slip out and back resumes the key, and a stay outside past KeyDwellPauseUs
+            // abandons it with the GazeLeft reason, exactly as before — just at the window's end.
+            SuspendCandidate(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs,
+                AbandonReason.GazeLeft);
             _lastGazeInsideWindowPoint = null;
             return;
         }
@@ -783,26 +818,47 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
         if (nearestId != NearestKeyId)
         {
-            if (NearestKeyId != null)
+            // O3t: the gaze left the candidate. Everything except an app-escaping key (and a
+            // repeat-dwell candidate, which owns its own clock) is paused, not reset, so a glance
+            // back within KeyDwellPauseUs continues the fill.
+            SuspendCandidate(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs,
+                AbandonReason.NearestChanged);
+
+            if (nearestId != null && _pausedDwells.Remove(nearestId, out var paused))
             {
-                // A repeat-dwell candidate is silent when left: main never had it as a candidate
-                // (review 01 F1).
-                if (!_nearestKeyIsRepeatDwell)
-                {
-                    _e1Restarts++;
-                    EmitAbandonIfNeeded(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs, AbandonReason.NearestChanged);
-                }
+                // Back within KeyDwellPauseUs: continue from the frozen elapsed. The pause is not
+                // credited, and — like the entering sample — this one adds no time.
+                NearestKeyId = nearestId;
+                _nearestKeyEnteredTimestamp =
+                    timestampUs - (paused.LastOnKeyTimestampUs - paused.EnteredTimestampUs);
+                _lastOnKeyTimestampUs = timestampUs;
+                _e1DwellStartPoint = paused.DwellStartPoint;
+                _e1Samples = paused.Samples;
+                _e1SumDxPx = paused.SumDxPx;
+                _e1SumDyPx = paused.SumDyPx;
+                _e1PausedExcursions = paused.PausedExcursions + 1;
+                AddDwellOffset(keyScreenPositions, gazePoint, nearestId);
+                NearestKeyProgress = Math.Min(1.0,
+                    (double)(_lastOnKeyTimestampUs - _nearestKeyEnteredTimestamp)
+                    / (KeyDwellMsFor(nearestId) * MathConstants.MicrosecondsPerMillisecond));
             }
-            _nearestKeyIsRepeatDwell = false;
-            NearestKeyProgress = 0;
-            NearestKeyId = nearestId;
-            _nearestKeyEnteredTimestamp = timestampUs;
-            _lastOnKeyTimestampUs = timestampUs;
-            // Where this candidate's dwell BEGAN: the saccade is measured from the previous fire point to
-            // here, so it does not depend on how soon after the fire the dwell was allowed to start.
-            _e1DwellStartPoint = gazePoint;
-            if (nearestId != null)
-                StartDwellOffsets(keyScreenPositions, gazePoint, nearestId);
+            else
+            {
+                // A new dwell — or none. The key the gaze moved to starts its OWN clock here, so a
+                // real switch inherits only the time spent on it since arrival, never the paused key's.
+                _nearestKeyIsRepeatDwell = false;
+                NearestKeyProgress = 0;
+                NearestKeyId = nearestId;
+                _nearestKeyEnteredTimestamp = timestampUs;
+                _lastOnKeyTimestampUs = timestampUs;
+                // Where this candidate's dwell BEGAN: the saccade is measured from the previous fire
+                // point to here, so it does not depend on how soon after the fire the dwell was
+                // allowed to start.
+                _e1DwellStartPoint = gazePoint;
+                _e1PausedExcursions = 0;
+                if (nearestId != null)
+                    StartDwellOffsets(keyScreenPositions, gazePoint, nearestId);
+            }
         }
         else if (nearestId != null)
         {
@@ -815,6 +871,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 _nearestKeyEnteredTimestamp = timestampUs;
                 _lastOnKeyTimestampUs = timestampUs;
                 _e1Restarts++;
+                _e1PausedExcursions = 0;   // the restarted attempt starts over, forgiven pauses included
                 StartDwellOffsets(keyScreenPositions, gazePoint, nearestId);
             }
             else
@@ -849,8 +906,84 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         NearestKeyProgress = 0;
         NearestKeyId = null;
         _nearestKeyIsRepeatDwell = false;
+        _e1PausedExcursions = 0;   // the dwell that fired is over; the count belongs to it
         _keyCooldownEndTimestamp = timestampUs + (_cooldownMs * MathConstants.MicrosecondsPerMillisecond);
         KeyDwellCompleted?.Invoke(keyId);
+    }
+
+    /// <summary>
+    /// O3t: clears the current candidate as the gaze leaves it. An app-escaping key keeps today's
+    /// immediate reset (its deliberate-press floor must not be shortened by a glance back, and rule 4
+    /// requires its abandon at the leave); a repeat-dwell candidate is silent and owns its own
+    /// excursion clock (<see cref="AdvanceRepeatDwell"/>, F4/F8 unchanged); every other key's dwell
+    /// is stored frozen and resumable for <see cref="KeyDwellPauseUs"/>.
+    /// </summary>
+    private void SuspendCandidate(Dictionary<string, PhysicalPoint> keyScreenPositions,
+        IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes, PhysicalPoint gazePoint,
+        long timestampUs, AbandonReason reason)
+    {
+        if (NearestKeyId is null) return;
+
+        if (!_nearestKeyIsRepeatDwell)
+        {
+            if (KeyboardSpecialActions.IsAppEscaping(NearestKeyId))
+            {
+                _e1Restarts++;
+                EmitAbandonIfNeeded(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs, reason);
+            }
+            else
+            {
+                _pausedDwells[NearestKeyId] = new PausedDwell(
+                    NearestKeyId, _nearestKeyEnteredTimestamp, timestampUs, _lastOnKeyTimestampUs,
+                    _e1SumDxPx, _e1SumDyPx, _e1Samples, _e1DwellStartPoint, _e1PausedExcursions, reason);
+            }
+        }
+
+        NearestKeyProgress = 0;
+        NearestKeyId = null;
+        _nearestKeyIsRepeatDwell = false;
+    }
+
+    /// <summary>
+    /// O3t: every paused candidate whose excursion has outlasted <see cref="KeyDwellPauseUs"/> is a
+    /// real switch now and is abandoned once. The line reports the fill at the key's last ON-KEY
+    /// sample and the same endms the old immediate switch would have reported (the excursion is not
+    /// a sample-stream hole); the gate and the sink keep the switch sample's progress, so the counts
+    /// stay comparable with the ones the detector produces everywhere else.
+    /// </summary>
+    private void ExpirePausedDwells(Dictionary<string, PhysicalPoint> keyScreenPositions,
+        IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes, PhysicalPoint gazePoint, long timestampUs)
+    {
+        if (_pausedDwells.Count == 0) return;
+
+        List<PausedDwell>? expired = null;
+        foreach (var paused in _pausedDwells.Values)
+        {
+            if (timestampUs - paused.LeftTimestampUs > KeyDwellPauseUs)
+                (expired ??= new()).Add(paused);
+        }
+        if (expired is null) return;
+
+        if (expired.Count > 1)
+            expired.Sort((a, b) => a.LeftTimestampUs != b.LeftTimestampUs
+                ? a.LeftTimestampUs.CompareTo(b.LeftTimestampUs)
+                : string.CompareOrdinal(a.KeyId, b.KeyId));
+
+        foreach (var paused in expired)
+        {
+            _pausedDwells.Remove(paused.KeyId);
+            _e1Restarts++;
+            EmitAbandonCore(paused.KeyId, paused.EnteredTimestampUs, paused.LeftTimestampUs,
+                paused.LastOnKeyTimestampUs, paused.Samples, paused.SumDxPx, paused.SumDyPx,
+                keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs, paused.Reason);
+        }
+    }
+
+    /// <summary>Drops every paused dwell without a line: a grid rebuild may reuse an id for a different key.</summary>
+    private void ClearPausedDwells()
+    {
+        _pausedDwells.Clear();
+        _e1PausedExcursions = 0;
     }
 
     // Reports an abandonment of the CURRENT NearestKeyId (still set at the call point) if it had
@@ -862,32 +995,50 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         PhysicalPoint gazePoint, long timestampUs, AbandonReason reason)
     {
         if (NearestKeyId is null) return;
+        EmitAbandonCore(NearestKeyId, _nearestKeyEnteredTimestamp, timestampUs, _lastOnKeyTimestampUs,
+            _e1Samples, _e1SumDxPx, _e1SumDyPx, keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs,
+            reason);
+    }
+
+    // The abandon itself, from explicit candidate facts: the active path passes its live fields, and
+    // a paused (O3t) candidate passes the state frozen when the gaze left it, so a late abandon
+    // reports the same pct and endms the switch itself would have.
+    private void EmitAbandonCore(string keyId, long enteredTimestampUs, long switchTimestampUs,
+        long lastOnKeyTimestampUs, int samples, double sumDxPx, double sumDyPx,
+        Dictionary<string, PhysicalPoint> keyScreenPositions,
+        IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes,
+        PhysicalPoint gazePoint, long timestampUs, AbandonReason reason)
+    {
         if (_sink is null && !E1.Enabled) return;
-        long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
         // Progress against the abandoned KEY's own dwell (the escaping floor included), so an
         // escaping key's abandonment is not over-reported relative to the letters around it.
-        int dwellMs = KeyDwellMsFor(NearestKeyId);
-        double progress = Math.Min(1.0, (double)elapsed / (dwellMs * MathConstants.MicrosecondsPerMillisecond));
+        int dwellMs = KeyDwellMsFor(keyId);
+        double progress = Math.Min(1.0,
+            (double)(switchTimestampUs - enteredTimestampUs) / (dwellMs * MathConstants.MicrosecondsPerMillisecond));
         // Shared with DwellDetector: cross-context comparability in Phase-1b scoring depends on every
         // surface using the same cut-off.
         if (progress < TelemetryThresholds.AbandonProgress) return;
-        var center = keyScreenPositions.TryGetValue(NearestKeyId, out var c) ? c : gazePoint;
-        // E1 alone reports the fill at the LAST sample CREDITED to the key. `timestampUs` belongs to
-        // the sample that ENDED the dwell, which already sits on the neighbour (NearestChanged) or
-        // outside the window (GazeLeft), so measuring to it logs one step more than the key reached.
-        // `progress` above deliberately keeps the ending sample: the gate must stay the cut-off
-        // DwellDetector applies in every context, and the abandon COUNTS must stay comparable with
-        // the E1 data already collected. The E1 pct may therefore sit below the gate value (e.g. 27).
+        var center = keyScreenPositions.TryGetValue(keyId, out var c) ? c : gazePoint;
+        // E1 alone reports the fill at the LAST sample CREDITED to the key. `switchTimestampUs`
+        // belongs to the sample that ENDED the dwell, which already sits on the neighbour
+        // (NearestChanged) or outside the window (GazeLeft), so measuring to it logs one step more
+        // than the key reached. `progress` above deliberately keeps that sample: the gate must stay
+        // the cut-off DwellDetector applies in every context, and the abandon COUNTS must stay
+        // comparable with the E1 data already collected. The E1 pct may therefore sit below the gate
+        // value (e.g. 27).
         double onKeyProgress = Math.Min(1.0,
-            (double)(_lastOnKeyTimestampUs - _nearestKeyEnteredTimestamp)
+            (double)(lastOnKeyTimestampUs - enteredTimestampUs)
             / (dwellMs * MathConstants.MicrosecondsPerMillisecond));
         // How long the stream was silent — or the gaze elsewhere — between that last credited sample
-        // and the one that ended the dwell: a large value marks a blink or tracker pause before the switch.
-        int endMs = (int)((timestampUs - _lastOnKeyTimestampUs) / MathConstants.MicrosecondsPerMillisecond);
-        RecordAbandonE1(NearestKeyId, keyScreenBoxes, gazePoint, center, timestampUs, onKeyProgress, endMs, reason);
+        // and the one that ended the dwell: a large value marks a blink or tracker pause before the
+        // switch. For a paused candidate the switch is the sample that LEFT the key, so the 300 ms
+        // excursion itself is not reported as a hole.
+        int endMs = (int)((switchTimestampUs - lastOnKeyTimestampUs) / MathConstants.MicrosecondsPerMillisecond);
+        RecordAbandonE1(keyId, keyScreenBoxes, gazePoint, center, samples, sumDxPx, sumDyPx,
+            timestampUs, onKeyProgress, endMs, reason);
         if (_sink is null) return;
         _sink.Report(new DwellOutcome(
-            timestampUs, DwellContext.Keyboard, NearestKeyId,
+            timestampUs, DwellContext.Keyboard, keyId,
             OutcomeKind.Abandoned, reason, progress, gazePoint, center, 0, null));
     }
 
@@ -992,6 +1143,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _slipArmed = false;
         _holdOnActive = false;
         _e1Restarts = 0;
+        _e1PausedExcursions = 0;
         // The next non-text key's saccade would be measured from the last key typed INSIDE the muted
         // field: forget that fire point, and withhold the next line's saccade as after a text key.
         _e1HasLastFire = false;
@@ -1000,8 +1152,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     private void RecordAbandonE1(string keyId, IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes,
-        PhysicalPoint gazePoint, PhysicalPoint center, long timestampUs, double onKeyProgress, int endMs,
-        AbandonReason reason)
+        PhysicalPoint gazePoint, PhysicalPoint center, int samples, double sumDxPx, double sumDyPx,
+        long timestampUs, double onKeyProgress, int endMs, AbandonReason reason)
     {
         try
         {
@@ -1014,8 +1166,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             // The offset is the MEAN over the abandoned dwell (where the gaze rested on the key), not the
             // sample that ended it: on NearestChanged that sample already sits on the NEXT key, and its
             // offset would hand over the direction from one key to the next.
-            var meanDx = _e1Samples > 0 ? _e1SumDxPx / _e1Samples : gazePoint.X - center.X;
-            var meanDy = _e1Samples > 0 ? _e1SumDyPx / _e1Samples : gazePoint.Y - center.Y;
+            var meanDx = samples > 0 ? sumDxPx / samples : gazePoint.X - center.X;
+            var meanDy = samples > 0 ? sumDyPx / samples : gazePoint.Y - center.Y;
             var edgeQuarter = KeyboardE1Slip.None;
             if (IsTextKey(cls) && keyScreenBoxes is not null && keyScreenBoxes.TryGetValue(keyId, out var box))
                 edgeQuarter = KeyboardE1Slip.EdgeQuarter(meanDx, meanDy, box.Width, box.Height);
@@ -1114,7 +1266,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 (int)Math.Round(dx), (int)Math.Round(dy), (int)Math.Round(meanDx), (int)Math.Round(meanDy),
                 edgeQuarter, lineRestarts, lineSaccade,
                 KeyDwellMsFor(keyId), PenaltyApplied: false,
-                CurrentInput.Length > 0, backspaceClass));
+                CurrentInput.Length > 0, backspaceClass, Paused: _e1PausedExcursions));
             _e1PreviousFireWasText = textKey;
 
             var corr = new CorrE1(saccadeClass, _e1Restarts, likely, wordStart, noContinuation);
@@ -1248,9 +1400,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _landingSuppressionFromShow = false;
         ClearSuppressionAnchor();
         // A rebuild replaces the grid: a fired key id may now name a DIFFERENT key, so the
-        // leave-before-re-arm latch cannot survive it (the swap's D13 anchor guards the landing).
+        // leave-before-re-arm latch cannot survive it (the swap's D13 anchor guards the landing),
+        // and neither can a paused dwell (O3t) measured against the old key.
         ClearRearmLatch();
         E1.ClearWordTracking();   // F16: a layout reload drops the open word's in-memory bar words
+        ClearPausedDwells();
 
         // M7 (impl review M2), corrected r2 N1/N4: raised AFTER the assignment above, so a
         // raise landing before it would repaint the OLD grid. On the production reload path
@@ -2114,7 +2268,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             NearestKeyId = keyId;
             _nearestKeyIsRepeatDwell = true;
             // This candidate is silent in E1/sink while it lives (review 01 F1); the stamp only
-            // keeps the ordinary candidate bookkeeping consistent.
+            // keeps the ordinary candidate bookkeeping consistent. A repeat dwell counts its own
+            // excursion tolerance, so the main dwell's forgiven-pause count does not carry into it.
+            _e1PausedExcursions = 0;
             _nearestKeyEnteredTimestamp = timestampUs;
             _lastOnKeyTimestampUs = timestampUs;
             _e1DwellStartPoint = gazePoint;

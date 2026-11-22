@@ -907,6 +907,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         NearestKeyId = null;
         _nearestKeyIsRepeatDwell = false;
         _e1PausedExcursions = 0;   // the dwell that fired is over; the count belongs to it
+        // O3t: a fire ends the look. A pause still open belongs to a look that is over, and with a
+        // cooldown shorter than KeyDwellPauseUs it could otherwise be resumed after the cooldown and
+        // type a second key from one A->B->A->B wobble ("one look, one key").
+        ClearPausedDwells();
         _keyCooldownEndTimestamp = timestampUs + (_cooldownMs * MathConstants.MicrosecondsPerMillisecond);
         KeyDwellCompleted?.Invoke(keyId);
     }
@@ -2252,8 +2256,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// Shows the second-dwell progress on the latched key through the SAME
     /// <see cref="NearestKeyId"/>/<see cref="NearestKeyProgress"/> pair every dwell uses, so the
     /// key's outline fills over <see cref="KeyboardLongLook.RepeatDwellUs"/> rather than the normal dwell. E1 sees
-    /// a normal candidate transition (a restart/abandonment for the key left behind); a repeat
-    /// FIRE is an ordinary `key` line.
+    /// a normal candidate transition: the key left behind is suspended (O3t: paused like any other
+    /// excursion; an app-escaping one still resets with its abandon); a repeat FIRE is an ordinary
+    /// `key` line.
     /// </summary>
     private void ShowRepeatDwell(Dictionary<string, PhysicalPoint> keyScreenPositions,
         IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes, PhysicalPoint gazePoint,
@@ -2261,9 +2266,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         if (!string.Equals(NearestKeyId, keyId, StringComparison.Ordinal))
         {
-            if (NearestKeyId != null)
-                _e1Restarts++;
-            EmitAbandonIfNeeded(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs,
+            // O3t (fixup-01, finding 3): the key left behind pauses like any other excursion — an
+            // app-escaping one still resets at once. A glance back onto the latched key is the
+            // commonest wobble while typing, and restarting the next key's dwell there would spend
+            // the pause's gain exactly where the owner types. The latched key's own second-dwell
+            // clock is untouched: it runs in AdvanceRepeatDwell with its own 400 ms tolerance and
+            // 1000 ms, and a short glance here never fires the latched key again.
+            SuspendCandidate(keyScreenPositions, keyScreenBoxes, gazePoint, timestampUs,
                 AbandonReason.NearestChanged);
             NearestKeyId = keyId;
             _nearestKeyIsRepeatDwell = true;

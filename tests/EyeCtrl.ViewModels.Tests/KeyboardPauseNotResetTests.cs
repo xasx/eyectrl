@@ -98,21 +98,29 @@ public class KeyboardPauseNotResetTests
         public readonly List<string> Fired = new();
         public long Clock;
         public long Ts = 1_000_000;
+        /// <summary>The sample timestamp the most recent fire happened on.</summary>
+        public long LastFireTs { get; private set; }
+        private long _currentTs;
 
-        public Rig()
+        public Rig(int cooldownMs = CooldownMs)
         {
             Vm = new KeyboardViewModel(new EyeCtrlSettings { Keyboard = { SmartCapitalizationEnabled = false } },
                 new WeakReferenceMessenger());
             Vm.UseE1Recorder(new KeyboardE1Recorder(Log, () => Clock, edgeTallyMinFires: 1));
-            Vm.Configure(DwellMs, CooldownMs);
+            Vm.Configure(DwellMs, cooldownMs);
             Vm.SetLayout(Layout());
-            Vm.KeyDwellCompleted += Fired.Add;
+            Vm.KeyDwellCompleted += id =>
+            {
+                Fired.Add(id);
+                LastFireTs = _currentTs;
+            };
         }
 
         /// <summary>One sample at an explicit timestamp; the recorder's fake clock follows it.</summary>
         public void Sample(PhysicalPoint at, long timestampUs, bool inside = true)
         {
             Clock = timestampUs / 1000;
+            _currentTs = timestampUs;
             Vm.ProcessKeyGaze(Positions, at, inside, timestampUs, Boxes);
             Ts = timestampUs + (StepMs * 1000L);
         }
@@ -158,6 +166,9 @@ public class KeyboardPauseNotResetTests
 
         Check.WithCustomMessage("the neighbour fired on a glance that came back").That(rig.Fired)
             .ContainsExactly("key_0_0");
+        // The frozen fill, not a credited pause: a paused-time credit would fire at 530.
+        Check.WithCustomMessage("the resumed dwell did not keep its frozen elapsed time")
+            .That(rig.LastFireTs).IsEqualTo(710_000L);
         Check.That(rig.Log.Of("abandon")).IsEmpty();
 
         var key = Fields(rig.Log.Of("key").Single());
@@ -189,6 +200,8 @@ public class KeyboardPauseNotResetTests
 
         Check.WithCustomMessage("an excursion of exactly 300 ms did not resume")
             .That(resumed.Fired).ContainsExactly("key_0_0");
+        Check.WithCustomMessage("the boundary resume credited the 300 ms pause")
+            .That(resumed.LastFireTs).IsEqualTo(780_000L);   // 570 + (450 - 240)
         Check.That(resumed.Log.Of("abandon")).IsEmpty();
 
         Check.WithCustomMessage("an excursion of 330 ms still resumed the key")
@@ -231,6 +244,36 @@ public class KeyboardPauseNotResetTests
         var lines = rig.Log.Lines;
         Check.That(lines.FindIndex(l => l.StartsWith("KB-E1 abandon ", StringComparison.Ordinal)))
             .IsStrictlyLessThan(lines.FindIndex(l => l.StartsWith("KB-E1 key ", StringComparison.Ordinal)));
+    }
+
+    // ---- a fire ends the look ----------------------------------------------------------------
+
+    [Fact]
+    public void AFire_ClearsPausedDwells_SoAWobbleAcrossTheCooldownTypesOnlyTheFiredKey()
+    {
+        // A is at 300 ms of 450 when the gaze moves to B for 210 ms, back to A, which fires at 720.
+        // The 100 ms cooldown ends at 820 while B's pause (left at 570) is still live; a glance back
+        // to B at 840 would resume its 210 ms and fire it about 240 ms later — two keys from one
+        // wobble, which "one look, one key" must never allow. The fire clears the pause, so B starts
+        // a fresh 450 ms dwell at 840 and does not fire inside the feed.
+        using var rig = new Rig(cooldownMs: 100);
+        for (long t = 0; t <= 300_000; t += StepMs * 1000L)
+            rig.Sample("key_0_0", t);
+        for (var t = 330_000L; t <= 540_000; t += StepMs * 1000L)
+            rig.Sample("key_0_1", t);
+        for (var t = 570_000L; t <= 750_000; t += StepMs * 1000L)
+            rig.Sample("key_0_0", t);
+
+        Check.WithCustomMessage("arrange: A must fire from the resumed dwell")
+            .That(rig.Fired).ContainsExactly("key_0_0");
+        Check.That(rig.LastFireTs).IsEqualTo(720_000L);
+
+        for (var t = 780_000L; t <= 1_150_000; t += StepMs * 1000L)
+            rig.Sample("key_0_1", t);
+
+        Check.WithCustomMessage("a glance back at B after A fired typed a second key from one wobble")
+            .That(rig.Fired).ContainsExactly("key_0_0");
+        Check.That(rig.LastFireTs).IsEqualTo(720_000L);
     }
 
     // ---- app-escaping keys are excluded -------------------------------------------------------
@@ -313,6 +356,59 @@ public class KeyboardPauseNotResetTests
         Check.That(rig.Fired).ContainsExactly("switchSub:numbers", "switchSub:numbers");
     }
 
+    [Fact]
+    public void AGlanceBackOntoTheLatchedKey_PausesTheNextKeysDwell()
+    {
+        // A fires, then B is dwelled for 300 ms after the cooldown; a 60 ms glance back onto the
+        // latched A and back to B. B's dwell is paused, not restarted, so it fires 150 ms after the
+        // return (1_410), not 450 ms later (1_710). A itself does not fire again: 60 ms is far short
+        // of its own second dwell (cooldown + 1000 ms), whose clock is untouched.
+        using var rig = new Rig();
+        for (long t = 0; t <= 450_000; t += StepMs * 1000L)
+            rig.Sample("key_0_0", t);
+        Check.That(rig.Fired).ContainsExactly("key_0_0");
+        Check.That(rig.LastFireTs).IsEqualTo(450_000L);
+
+        for (var t = 510_000L; t <= 1_170_000; t += StepMs * 1000L)   // cooldown to 850, then 300 ms on B
+            rig.Sample("key_0_2", t);
+        for (var t = 1_200_000L; t <= 1_230_000; t += StepMs * 1000L)   // the 60 ms glance at A
+            rig.Sample("key_0_0", t);
+        for (var t = 1_260_000L; t <= 1_500_000; t += StepMs * 1000L)
+            rig.Sample("key_0_2", t);
+
+        Check.WithCustomMessage("B restarted at the glance back instead of pausing")
+            .That(rig.LastFireTs).IsEqualTo(1_410_000L);
+        Check.WithCustomMessage("the glance fired the latched key again or typed a third key")
+            .That(rig.Fired).ContainsExactly("key_0_0", "key_0_2");
+    }
+
+    [Fact]
+    public void AGlanceBackOntoTheLatchedKey_StillResetsAnAppEscapingNextKey()
+    {
+        // Enter holds the 600 ms floor. It reaches 570 ms when the gaze glances 60 ms back onto the
+        // latched letter: an app-escaping key keeps today's immediate reset, so Enter needs a full
+        // 600 ms from the return (2_130) and does not fire 30 ms later as a resumed dwell would.
+        using var rig = new Rig();
+        for (long t = 0; t <= 450_000; t += StepMs * 1000L)
+            rig.Sample("key_0_0", t);
+        Check.That(rig.Fired).ContainsExactly("key_0_0");
+
+        for (var t = 510_000L; t <= 1_440_000; t += StepMs * 1000L)   // cooldown to 850, then 570 ms on Enter
+            rig.Sample("enter", t);
+        Check.That(rig.Fired).ContainsExactly("key_0_0");             // 570 < 600: Enter has not fired
+
+        for (var t = 1_470_000L; t <= 1_500_000; t += StepMs * 1000L)  // the 60 ms glance at A
+            rig.Sample("key_0_0", t);
+        for (var t = 1_530_000L; t <= 2_100_000; t += StepMs * 1000L)  // 570 ms after the return
+            rig.Sample("enter", t);
+        Check.WithCustomMessage("Enter resumed its dwell across the glance instead of resetting")
+            .That(rig.Fired).ContainsExactly("key_0_0");
+
+        rig.Sample("enter", 2_130_000);
+        Check.That(rig.Fired).ContainsExactly("key_0_0", "enter");
+        Check.That(rig.LastFireTs).IsEqualTo(2_130_000L);
+    }
+
     // ---- the unchanged clamps -----------------------------------------------------------------
 
     [Fact]
@@ -350,6 +446,8 @@ public class KeyboardPauseNotResetTests
             rig.Sample("key_0_0", t);
 
         Check.That(rig.Fired).ContainsExactly("key_0_0");
+        Check.WithCustomMessage("the off-window resume credited the pause")
+            .That(rig.LastFireTs).IsEqualTo(780_000L);   // 570 + (450 - 240)
         Check.That(rig.Log.Of("abandon")).IsEmpty();
     }
 
@@ -396,6 +494,28 @@ public class KeyboardPauseNotResetTests
             rig.Sample("key_0_0", t);
 
         Check.WithCustomMessage("a paused dwell was resumed across a grid rebuild").That(rig.Fired).IsEmpty();
+    }
+
+    [Fact]
+    public void APausedDwell_DoesNotSurviveAHide()
+    {
+        // Hiding is the recovery path: a pause left over must not resume into the next show. The
+        // pause is at 240 ms; a leaked record would fire 210 ms after the return (at 510), while the
+        // fresh dwell only gets 420 ms in the feed. The active sub-layout and emoji mode are already
+        // at rest, so only the hide reset itself can drop the pause.
+        using var rig = new Rig();
+        rig.Vm.IsVisible = true;
+        for (long t = 0; t <= 240_000; t += StepMs * 1000L)
+            rig.Sample("key_0_0", t);
+        rig.Sample("key_0_1", 270_000);
+
+        rig.Vm.IsVisible = false;
+        rig.Vm.IsVisible = true;
+
+        for (var t = 300_000L; t <= 720_000; t += StepMs * 1000L)
+            rig.Sample("key_0_0", t);
+
+        Check.WithCustomMessage("a paused dwell was resumed across a hide").That(rig.Fired).IsEmpty();
     }
 
     [Fact]

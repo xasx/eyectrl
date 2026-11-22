@@ -233,9 +233,9 @@ public sealed class KeyboardE1Recorder
             Emit(
                 "KB-E1 key seq={Seq} ts={TsUs} cls={Class} sub={Sub} edge={Edge} winx={WinX} winy={WinY} " +
                 "winw={WinW} winh={WinH} movems={SinceMoveMs} sincekey={SinceKeyMs} " +
-                "dwell={DwellMs} penalty={Penalty} typing={Typing} bs={Bs}",
+                "dwell={DwellMs} paused={Paused} penalty={Penalty} typing={Typing} bs={Bs}",
                 seq, k.TimestampUs, k.Class, k.SubLayout, k.Edge, k.WindowX, k.WindowY, k.WindowWidth,
-                k.WindowHeight, k.SinceWindowMoveMs, sinceKey, k.EffectiveDwellMs,
+                k.WindowHeight, k.SinceWindowMoveMs, sinceKey, k.EffectiveDwellMs, k.Paused,
                 k.PenaltyApplied, k.Typing, k.BackspaceClass);
             return seq;
         }
@@ -244,11 +244,11 @@ public sealed class KeyboardE1Recorder
             "KB-E1 key seq={Seq} ts={TsUs} r={Row} c={Col} cls={Class} act={Act} boxw={BoxW} boxh={BoxH} " +
             "sub={Sub} edge={Edge} winx={WinX} winy={WinY} winw={WinW} winh={WinH} movems={SinceMoveMs} " +
             "dx={Dx} dy={Dy} mdx={MeanDx} mdy={MeanDy} restarts={Restarts} saccade={Saccade} " +
-            "sincekey={SinceKeyMs} dwell={DwellMs} penalty={Penalty} typing={Typing} bs={Bs}",
+            "sincekey={SinceKeyMs} dwell={DwellMs} paused={Paused} penalty={Penalty} typing={Typing} bs={Bs}",
             seq, k.TimestampUs, k.Row, k.Col, k.Class, k.Action, k.BoxWidthPx, k.BoxHeightPx,
             k.SubLayout, k.Edge, k.WindowX, k.WindowY, k.WindowWidth, k.WindowHeight, k.SinceWindowMoveMs,
             k.DxPx, k.DyPx, k.MeanDxPx, k.MeanDyPx, k.Restarts, k.Saccade,
-            sinceKey, k.EffectiveDwellMs, k.PenaltyApplied, k.Typing, k.BackspaceClass);
+            sinceKey, k.EffectiveDwellMs, k.Paused, k.PenaltyApplied, k.Typing, k.BackspaceClass);
         return seq;
     }
 
@@ -662,6 +662,8 @@ public sealed class KeyboardE1Recorder
 /// Everything E1 logs for one key activation. Ints, bools and closed ids only. For a text key the
 /// recorder logs only <see cref="EdgeQuarter"/> of the gaze fields (see the recorder's remarks);
 /// the pixel offsets, box size, saccade and restarts are kept here for NON-text keys alone.
+/// <see cref="Paused"/> is a COUNT of the short excursions this dwell forgave (O3t resumes): it
+/// names no key, like the restart count, and is 0 on every dwell that was never left.
 /// </summary>
 public readonly record struct KeyE1(
     long TimestampUs,
@@ -674,7 +676,8 @@ public readonly record struct KeyE1(
     int DxPx, int DyPx, int MeanDxPx, int MeanDyPx, string EdgeQuarter,
     int Restarts, string Saccade,
     int EffectiveDwellMs, bool PenaltyApplied,
-    bool Typing, string BackspaceClass)
+    bool Typing, string BackspaceClass,
+    int Paused = 0)
 {
     /// <summary>Class: a letter key.</summary>
     public const string Letter = "letter";

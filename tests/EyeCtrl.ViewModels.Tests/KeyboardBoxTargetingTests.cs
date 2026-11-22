@@ -126,7 +126,9 @@ public class KeyboardBoxTargetingTests
 
     /// <summary>
     /// Leaving the wide key's box for <c>a</c>'s box changes the target and reports the abandon
-    /// against the key that was being dwelled — the abandon path is unchanged.
+    /// against the key that was being dwelled. O3t: the switch only PAUSES the wide key; the abandon
+    /// is written once the 300 ms pause expires (one 50 ms sample past it), and reports the wide key
+    /// and its centre as before.
     /// </summary>
     [Fact]
     public void MovingFromTheWideBoxIntoTheNeighbourBox_EmitsNearestChangedForTheWideKey()
@@ -137,7 +139,8 @@ public class KeyboardBoxTargetingTests
         long t = 0;
         for (; t <= 300_000; t += 50_000)
             vm.ProcessKeyGaze(Centres, new PhysicalPoint(230, 50), true, t, Boxes);
-        vm.ProcessKeyGaze(Centres, new PhysicalPoint(250, 50), true, t, Boxes);
+        for (; t <= 700_000; t += 50_000)
+            vm.ProcessKeyGaze(Centres, new PhysicalPoint(250, 50), true, t, Boxes);
 
         Check.That(vm.NearestKeyId).IsEqualTo("a");
         Check.That(sink.Outcomes).HasSize(1);

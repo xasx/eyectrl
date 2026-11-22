@@ -22,6 +22,13 @@ public class KeyboardE1LoggingTests
     private const int CooldownMs = 400;
     private const int StepMs = 30;
 
+    /// <summary>
+    /// How long the gaze must stay off the candidate before O3t turns the pause into a real switch
+    /// (the first 30 ms sample past the 300 ms window). The abandon is then written once, with the
+    /// fill the key had reached.
+    /// </summary>
+    private const int PauseExpiryMs = (int)(KeyboardViewModel.KeyDwellPauseUs / 1000) + StepMs;
+
     // Row 0: h, a, x, backspace(special), space(special), switchSub:numbers(special) — the last two
     // are in the layout but positioned by the rig (see its constructor), so the single-row geometry
     // the other tests pin does not move. Centres 220 px apart, boxes 200 px.
@@ -253,12 +260,16 @@ public class KeyboardE1LoggingTests
     [Fact]
     public void RestartsSinceTheLastActivation_CountDiscardedDwells_OnANonTextKeyLine()
     {
+        // O3t: a SHORT excursion is forgiven (see KeyboardPauseNotResetTests), so a discarded dwell
+        // now means a real switch — the gaze stayed off the key past the 300 ms pause. Each such
+        // switch is one restart.
         using var rig = new Rig();
         var space = rig.Positions["space"];
-        var backspace = rig.Positions["backspace"];
+        var offTheKeys = new PhysicalPoint(100, -80);   // inside the window, on no key
         rig.Hold(space, 120);        // start on Space ...
-        rig.Hold(backspace, 120);    // ... drift to Backspace (restart 1)
-        rig.Hold(space, 60);         // ... back to Space (restart 2)
+        rig.Hold(offTheKeys, PauseExpiryMs);   // ... look off it (restart 1)
+        rig.Hold(space, 120);        // a fresh dwell ...
+        rig.Hold(offTheKeys, PauseExpiryMs);   // ... discarded again (restart 2)
         rig.Hold(space, DwellMs);    // and finally dwell it
 
         var f = Fields(rig.Log.Of("key").Single());
@@ -516,7 +527,7 @@ public class KeyboardE1LoggingTests
         rig.Type("key_0_2");
 
         rig.Hold(new PhysicalPoint(c.X + 80, c.Y), 240);                       // > 30 % of 450 ms, 40 % east
-        rig.Hold(rig.Positions["key_0_2"], 30);                                // moves on: NearestChanged
+        rig.Hold(rig.Positions["key_0_2"], PauseExpiryMs);                     // moves on: the pause expires, one NearestChanged
 
         var f = Fields(rig.Log.Of("abandon").Single());
         Check.That(f["cls"]).IsEqualTo("letter");
@@ -539,7 +550,7 @@ public class KeyboardE1LoggingTests
     {
         using var rig = new Rig();
         rig.Hold(rig.Positions["key_0_1"], 60);
-        rig.Hold(rig.Positions["key_0_2"], 30);
+        rig.Hold(rig.Positions["key_0_2"], PauseExpiryMs);
 
         Check.That(rig.Log.Of("abandon")).IsEmpty();
     }
@@ -549,7 +560,7 @@ public class KeyboardE1LoggingTests
     {
         using var rig = new Rig();
         rig.Hold(rig.Positions["key_0_1"], 240);
-        rig.Hold(new PhysicalPoint(5000, 5000), 30, inside: false);
+        rig.Hold(new PhysicalPoint(5000, 5000), PauseExpiryMs, inside: false);
 
         Check.That(Fields(rig.Log.Of("abandon").Single())["why"]).IsEqualTo("GazeLeft");
     }
@@ -558,10 +569,11 @@ public class KeyboardE1LoggingTests
     public void TheAbandonmentPct_IsTheProgressAtTheLastOnKeySample_NotAtTheSwitch()
     {
         // 420 ms of a 450 ms dwell: the key was at 93 %. The sample that switches already sits on the
-        // neighbour and would read 100 %; endms says the step (30 ms) between the two.
+        // neighbour and would read 100 %; endms says the step (30 ms) between the two, even though the
+        // abandon itself is only written when the 300 ms pause expires.
         using var rig = new Rig();
         rig.Hold(rig.Positions["key_0_1"], DwellMs - StepMs);
-        rig.Hold(rig.Positions["key_0_2"], StepMs);
+        rig.Hold(rig.Positions["key_0_2"], PauseExpiryMs);
 
         var f = Fields(rig.Log.Of("abandon").Single());
         Check.That(f["why"]).IsEqualTo("NearestChanged");
@@ -574,7 +586,7 @@ public class KeyboardE1LoggingTests
     {
         using var rig = new Rig();
         rig.Hold(rig.Positions["key_0_1"], DwellMs - StepMs);
-        rig.Hold(new PhysicalPoint(5000, 5000), StepMs, inside: false);
+        rig.Hold(new PhysicalPoint(5000, 5000), PauseExpiryMs, inside: false);
 
         var f = Fields(rig.Log.Of("abandon").Single());
         Check.That(f["why"]).IsEqualTo("GazeLeft");
@@ -590,7 +602,7 @@ public class KeyboardE1LoggingTests
         using var rig = new Rig();
         rig.Hold(rig.Positions["key_0_1"], 240);
         rig.Ts += 370_000;
-        rig.Hold(rig.Positions["key_0_2"], StepMs);
+        rig.Hold(rig.Positions["key_0_2"], PauseExpiryMs);
 
         var f = Fields(rig.Log.Of("abandon").Single());
         Check.That(f["why"]).IsEqualTo("NearestChanged");
@@ -607,7 +619,7 @@ public class KeyboardE1LoggingTests
         using var rig = new Rig();
         rig.Hold(rig.Positions["key_0_1"], 0);      // one sample: the entry
         rig.Ts += 370_000;                          // 400 ms hole (Ts already one step past the entry)
-        rig.Hold(rig.Positions["key_0_2"], 0);      // the neighbour ends it: 89 % at the gate, 0 % credited
+        rig.Hold(rig.Positions["key_0_2"], PauseExpiryMs);   // the neighbour, until the pause expires
 
         var f = Fields(rig.Log.Of("abandon").Single());
         Check.That(f["pct"]).IsEqualTo("0");
@@ -624,7 +636,7 @@ public class KeyboardE1LoggingTests
         rig.Ts += 170_000;                          // 200 ms hole > 150 ms: the next on-key sample restarts
         rig.Hold(rig.Positions["key_0_1"], 0);
         rig.Ts += 170_000;                          // 200 ms again: 44 % since the restart, above the gate
-        rig.Hold(rig.Positions["key_0_2"], 0);
+        rig.Hold(rig.Positions["key_0_2"], PauseExpiryMs);
 
         var f = Fields(rig.Log.Of("abandon").Single());
         Check.That(f["pct"]).IsEqualTo("0");
@@ -640,7 +652,7 @@ public class KeyboardE1LoggingTests
         var sink = new FakeSink();
         using var rig = new Rig(sink: sink);
         rig.Hold(rig.Positions["key_0_1"], 120);
-        rig.Hold(rig.Positions["key_0_2"], StepMs);
+        rig.Hold(rig.Positions["key_0_2"], PauseExpiryMs);
 
         var f = Fields(rig.Log.Of("abandon").Single());
         Check.That(f["pct"]).IsEqualTo("27");
@@ -823,7 +835,9 @@ public class KeyboardE1LoggingTests
         using (var baseline = new Rig(sink: baselineSink))
         {
             baseline.Hold(baseline.Positions["key_0_0"], 270);        // 60 % of the 450 ms dwell
-            baseline.Hold(baseline.Positions["key_0_1"], StepMs);     // key change: the normal abandon
+            // Look off the keys until the O3t pause expires: the one normal abandon (the look has no
+            // key of its own, so it adds no second candidate to expire later).
+            baseline.Hold(new PhysicalPoint(100, -80), PauseExpiryMs);
             baselineAbandons = baseline.Log.Of("abandon");
             Check.WithCustomMessage("arrange: the normal abandon must be logged")
                 .That(baselineAbandons).HasSize(1);
@@ -835,7 +849,7 @@ public class KeyboardE1LoggingTests
         using (var withRepeat = new Rig(sink: repeatSink))
         {
             withRepeat.Hold(withRepeat.Positions["key_0_0"], 270);
-            withRepeat.Hold(withRepeat.Positions["key_0_1"], StepMs);
+            withRepeat.Hold(new PhysicalPoint(100, -80), PauseExpiryMs);
 
             // Fire a letter, rest 600 ms after its cooldown, then move on: this is a second-dwell
             // candidate that does not complete. Main never made the just-fired key a candidate,

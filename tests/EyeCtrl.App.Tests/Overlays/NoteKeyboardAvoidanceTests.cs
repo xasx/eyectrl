@@ -217,7 +217,8 @@ public class NoteKeyboardAvoidanceTests
                     displayWindow.MeasureTextWidthDip("saved text"),
                     Math.Min(displayWindow.MeasureTextHeightDip("saved text"),
                         display.Card.Height - (2 * LayoutConstants.NoteButtonPadding)
-                            - LayoutConstants.NoteCellDip)));
+                            - LayoutConstants.NoteCellDip)),
+                Scale);
             Check.WithCustomMessage("outside Edit the placement must not change")
                 .That(display.Window).IsEqualTo(expected.Window);
         }
@@ -293,7 +294,8 @@ public class NoteKeyboardAvoidanceTests
                     afterWindow.MeasureTextWidthDip("typed text"),
                     Math.Min(afterWindow.MeasureTextHeightDip("typed text"),
                         after.Card.Height - (2 * LayoutConstants.NoteButtonPadding)
-                            - LayoutConstants.NoteCellDip)));
+                            - LayoutConstants.NoteCellDip)),
+                Scale);
             Check.WithCustomMessage("Done must leave the note next to its anchor")
                 .That(after.Window).IsEqualTo(display.Window);
         }

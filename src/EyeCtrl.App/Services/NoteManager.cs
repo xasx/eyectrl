@@ -635,11 +635,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
                 PlaceFor(note, avoidKeyboard: note.State == NoteState.Edit), _noteSettings.TextSizeDip);
         }
 
-        // Fixup-01 F3: a Display note's window must contain its whole reveal target, at rest
-        // and revealed alike, so the enlarged band belongs to this window and its alpha-1 fill
-        // is hit-testable. The CARD never moves; only the window surface grows.
-        if (note.State == NoteState.Display)
-            placement = NoteLayout.WithRevealTargetClearance(placement, RestCardSizeFor(note));
+        // Fixup-02 F1: the ONE final step every path that ends a Display note at rest runs — a
+        // Display window must contain its whole reveal target, at rest and revealed alike, so the
+        // enlarged band belongs to this window and its alpha-1 fill is hit-testable. The CARD
+        // never moves; only the window surface grows. FinishMove builds its own placement (the one
+        // the move preview showed) and runs this same helper, so a path that adds its own Place
+        // cannot miss the clearance again.
+        placement = WithDisplayRevealClearance(note, placement);
 
         if (_placements.TryGetValue(note.Id, out var current) && current == placement)
             return;
@@ -662,6 +664,19 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             LatchTargetsUnderTheGaze();
         }
     }
+
+    /// <summary>
+    /// Fixup-02 F1: the single final step every path that ends a Display note at rest runs, so the
+    /// reveal target's window clearance cannot be missed by a path that derives its own placement.
+    /// <see cref="ApplyPlacementToWindow"/> applies it after its state-specific derivation, and
+    /// <see cref="FinishMove"/> keeps its own (preview-matching) <see cref="NoteLayout.Place"/>
+    /// call and then runs this same helper. Non-Display states are untouched: their windows carry
+    /// their own card geometry and no reveal target.
+    /// </summary>
+    private NotePlacement WithDisplayRevealClearance(NoteData note, NotePlacement placement) =>
+        note.State == NoteState.Display
+            ? NoteLayout.WithRevealTargetClearance(placement, RestCardSizeFor(note), DpiHelper.ScaleX)
+            : placement;
 
     /// <summary>
     /// The DRAWN Move placement (D6, option C): the reserved card plus the Move hint's block
@@ -2065,8 +2080,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         _judgedOtherSideForMoving = null;
         _settleTracker.Reset();
         note.State = NoteState.Display;
-        var placement = NoteLayout.WithTagClearance(NoteLayout.Place(note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(),
-            new List<Rect>(), DpiHelper.ScaleX)!, _noteSettings.TextSizeDip);
+        // Fixup-02 F1: keep this path's OWN Place call — the placement is exactly the one the
+        // move preview showed — but run the shared final Display step, so the reveal target's
+        // window clearance (fixup-01 F3) survives every Place-here move.
+        var placement = WithDisplayRevealClearance(note, NoteLayout.WithTagClearance(
+            NoteLayout.Place(note.Anchor, note.Side, CardSizeFor(note), WorkAreaDip(),
+                new List<Rect>(), DpiHelper.ScaleX)!,
+            _noteSettings.TextSizeDip));
         _placements[id] = placement;
         window.ApplyPlacement(placement);
         window.Left = placement.Window.Left;
@@ -2553,7 +2573,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// The landing preview's placement: EXACTLY the derivation <see cref="FinishMove"/> applies
     /// when the note re-anchors — <see cref="NoteLayout.Place"/> over the same anchor, saved side,
     /// card size, work area and (no avoid rects, no displacement), plus the tag clearance — so
-    /// the dashed outline and the real result cannot disagree.
+    /// the dashed outline and the real result cannot disagree. Fixup-02 F1: the final Display step
+    /// (<see cref="WithDisplayRevealClearance"/>) only grows the WINDOW around that card, so the
+    /// outline's card is still the one that lands.
     /// </summary>
     private NotePlacement PreviewPlacementFor(NoteData note, PhysicalPoint anchorDip) =>
         NoteLayout.WithTagClearance(
@@ -2970,9 +2992,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     internal string AddNoteTargetsForTest(PhysicalPoint anchor)
     {
         var data = new NoteData { Anchor = anchor, Side = NoteSide.Right, State = NoteState.Display };
-        _placements[data.Id] = NoteLayout.WithRevealTargetClearance(
-            NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip),
-            RestCardSizeFor(data));
+        _placements[data.Id] = WithDisplayRevealClearance(data,
+            NoteLayout.WithTagClearance(PlaceFor(data, avoidKeyboard: false), _noteSettings.TextSizeDip));
         _notes.Add(data);
         _seamRevealedNotes.Add(data.Id);
         RegisterDwellTargets(data.Id);
@@ -3440,6 +3461,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// it to prove the gate recovery reset the reveal detector.</summary>
     internal double RevealProgressForTest(string noteId) =>
         _revealDetector.GetProgress($"{noteId}:reveal");
+
+    /// <summary>Whether the revealed row's arming clock has released (fixup-02 F3): true once the
+    /// gaze has spent 150 ms of valid time outside the at-rest card ∪ the reveal target, or when
+    /// the note has no pending clock at all. While false, the note's :edit/:move/:close targets
+    /// are filtered out of the detector.</summary>
+    internal bool RowArmedForTest(string noteId) => !_revealArming.ContainsKey(noteId);
 
     /// <summary>Whether a chip's Undo target has left the fired ✕'s cell belt (fixup-01 F2):
     /// true when it is not disarmed by the close-cell clock.</summary>

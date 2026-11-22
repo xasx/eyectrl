@@ -115,7 +115,7 @@ public class NoteMoveExclusivityTests
                 .That(manager.PlacementForTest(id)!.Window)
                 .IsEqualTo(NoteLayout.WithRevealTargetClearance(
                     NoteLayout.WithTagClearance(judged!, NoteSettings.DefaultTextSizeDip),
-                    NoteLayout.DisplayRestSize(0, 0)).Window);
+                    NoteLayout.DisplayRestSize(0, 0), DpiHelper.ScaleX).Window);
             Check.That(manager.ActiveNotes[0].Side).IsEqualTo(NoteSide.Above);
             Check.WithCustomMessage("the dwell ends the move")
                 .That(manager.IsMoving).IsFalse();

@@ -392,7 +392,8 @@ public class NoteRevealTests
             var expected = NoteLayout.WithRevealTargetClearance(
                 NoteLayout.WithTagClearance(raw, size),
                 NoteLayout.DisplayRestSize(
-                    window.MeasureTextWidthDip("a short note"), textHeight));
+                    window.MeasureTextWidthDip("a short note"), textHeight),
+                DpiHelper.ScaleX);
             Check.WithCustomMessage($"{size}: the manager's placement is the reserved-size derivation "
                     + "plus the tag and reveal-target strips")
                 .That(placement.Window).IsEqualTo(expected.Window);

@@ -781,7 +781,7 @@ public class NoteBadgeTests
                 noteWindow.MeasureTextWidthDip("growth"),
                 Math.Min(noteWindow.MeasureTextHeightDip("growth"), cap));
             var expected = NoteLayout.WithRevealTargetClearance(
-                NoteLayout.WithTagClearance(raw, NoteSettings.DefaultTextSizeDip), rest);
+                NoteLayout.WithTagClearance(raw, NoteSettings.DefaultTextSizeDip), rest, DpiHelper.ScaleX);
             Check.WithCustomMessage("the window must grow to the tag strip AND the reveal target")
                 .That(placement.Window).IsEqualTo(expected.Window);
             double protrusion = NoteLayout.TagProtrusionDip(NoteSettings.DefaultTextSizeDip);
@@ -852,7 +852,7 @@ public class NoteBadgeTests
                 windowA.MeasureTextWidthDip("one"),
                 Math.Min(windowA.MeasureTextHeightDip("one"), capAfter));
             var expectedAfter = NoteLayout.WithRevealTargetClearance(
-                NoteLayout.WithTagClearance(rawAfter, 48), restAfter);
+                NoteLayout.WithTagClearance(rawAfter, 48), restAfter, DpiHelper.ScaleX);
             Check.WithCustomMessage("the window must be the tag/reveal union at the new size")
                 .That(afterPlacement.Window).IsEqualTo(expectedAfter.Window);
             Check.WithCustomMessage("the tag BEFORE the change must differ from the one after — "

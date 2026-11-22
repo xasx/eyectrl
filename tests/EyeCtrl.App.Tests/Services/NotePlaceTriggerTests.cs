@@ -86,7 +86,7 @@ public class NotePlaceTriggerTests
                     NoteLayout.Place(new PhysicalPoint(1800, 1000), restored.Side, restored.Card.Size,
                         NoteTestBench.WorkArea, Array.Empty<Rect>(), 2.0)!,
                     NoteSettings.DefaultTextSizeDip),
-                NoteLayout.DisplayRestSize(0, 0)); // the seam note is windowless: zero-text rest card
+                NoteLayout.DisplayRestSize(0, 0), 2.0); // the seam note is windowless: zero-text rest card
             Check.That(restored.Window).IsEqualTo(display.Window);
             Check.WithCustomMessage("the restored Display card must not be the compact Edit card")
                 .That(restored.Card.Height).IsEqualTo(NoteLayout.DisplayReservedHeightDip(0));

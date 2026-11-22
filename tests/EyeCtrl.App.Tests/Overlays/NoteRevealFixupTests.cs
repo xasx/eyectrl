@@ -322,6 +322,14 @@ public class NoteRevealFixupTests
 
     // ── F2: the close-cell belt (the distance itself is probe C) ──
 
+    /// <summary>
+    /// Fixup-02 F3: this is a CAPTURE pin, not a behavioural one. The geometry keeps ↺ two cells
+    /// (336 DIP) from the fired ✕, so the belt's release rule cannot be reached by a real look:
+    /// mutants M24 (the filter conjunct dropped) and M26 (the belt releases on the first outside
+    /// sample) change nothing a gaze can observe. What this test does pin is the capture itself —
+    /// a chip born under a still-held ✕ cell starts DISARMED and the seam reports that state —
+    /// which is the part M23 (belt never captured) still turns red for.
+    /// </summary>
     [StaFact]
     public void F2_TheUndoBornUnderTheFiredCloseCell_StaysDisarmedUntilTheGazeLeavesIt()
     {
@@ -365,9 +373,13 @@ public class NoteRevealFixupTests
             var content = window.ContentBorderForTest!;
             double left = Canvas.GetLeft(content);
             Check.WithCustomMessage(
-                    $"{size}: the chip text border {left}+{content.Width} must sit inside the card {cardLocal}")
-                .That(left >= cardLocal.Left + LayoutConstants.NoteColumnWidthDip - 1e-6
-                    && left + content.Width <= cardLocal.Right + 1e-6).IsTrue();
+                    $"{size}: the chip text border {left}+{content.Width} must start at the cell edge "
+                    + $"and end {LayoutConstants.NoteButtonPadding} DIP inside the card {cardLocal}")
+                .That(left).IsCloseTo(
+                    cardLocal.Left + LayoutConstants.NoteButtonPadding + LayoutConstants.NoteCellDip, 1e-6);
+            Check.WithCustomMessage($"{size}: the chip text column must keep its 10 DIP right inset")
+                .That(left + content.Width).IsLessOrEqualThan(
+                    cardLocal.Right - LayoutConstants.NoteButtonPadding + 1e-6);
             Check.That(window.ChipTextForTest).IsNotNull();
             Check.WithCustomMessage("the Undo column supplies the chip text's left gap")
                 .That(window.ChipTextForTest!.Margin.Left).IsEqualTo(0);
@@ -561,10 +573,24 @@ public class NoteRevealFixupTests
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
 
-    // ── F8: gate recovery resets the reveal detector ──
+    // ── F8: gate recovery with the gaze OFF the reveal target ──
 
+    /// <summary>
+    /// Fixup-02 F3's F8 rebuild. The old pin held the gaze ON the card across the pause; the
+    /// recovery's latch then covered the same spot, so it could not tell whether the reveal
+    /// detector was reset. This one recovers with the gaze OFF the target, where the clock's
+    /// external effect is observable: the pre-pause progress is gone, and the target needs a
+    /// fresh 500 ms look.
+    /// <para>
+    /// HONEST LIMIT (measured): removing the reset (mutant M32) still leaves this green. The
+    /// recovery sample itself is outside the target, and <c>DwellDetector.Update</c>
+    /// clears any target's clock when the gaze is not on it, so the reset has no externally
+    /// distinguishable effect on this path. The reset stays for consistency with the card and
+    /// chip detectors (fixup-01 F8); it is NOT claimed to be behaviourally pinned by this test.
+    /// </para>
+    /// </summary>
     [StaFact]
-    public void F8_GateRecoveryResetsTheRevealDwell()
+    public void F8_GateRecoveryOffTheTarget_LeavesNoRevealProgress()
     {
         using var manager = NewManager(36, new WeakReferenceMessenger());
         DpiHelper.Initialize(2.0, 2.0);
@@ -581,11 +607,20 @@ public class NoteRevealFixupTests
             for (int i = 0; i < 3; i++, t += 33_000)
                 manager.Receive(new GazeCursorMovedMessage(new GazeFrame(c, t, IsInGap: false))
                 { IsPaused = true });
-            Sample(manager, c, t);
-            Check.WithCustomMessage("the gate recovery must reset the reveal detector's clock")
+            // Recovery sample OFF the target: no latch, and the pre-pause 400 ms must be gone.
+            Sample(manager, new PhysicalPoint(3000, 3000), t);
+            Check.WithCustomMessage("the gate recovery must not carry the pre-pause reveal progress")
                 .That(manager.RevealProgressForTest(id)).IsEqualTo(0);
             Check.WithCustomMessage("no reveal may complete on the first clear sample after a pause")
                 .That(manager.IsRevealedForTest(id)).IsFalse();
+
+            // A fresh 400 ms look must still fall short of the 500 ms reveal: the old progress
+            // does not resume.
+            t = Hold(manager, c, t + 33_000, 400);
+            Check.WithCustomMessage("a fresh 400 ms look must not complete the reveal")
+                .That(manager.IsRevealedForTest(id)).IsFalse();
+            t = Hold(manager, c, t, 200);
+            Check.WithCustomMessage("the fresh 500 ms look then reveals").That(manager.IsRevealedForTest(id)).IsTrue();
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }

@@ -620,10 +620,14 @@ public class NoteWindow : OverlayWindow
                 : new Rect(0, 0, NoteLayout.CardWidthDip(_textSize), NoteLayout.ControlsColumnHeightDip);
             _contentBorder.Width = _chipColumnWidth;
             // Fixup-01 F2: the chip's Undo column is on the LEFT in every side (the chip has no
-            // tail), so the text always starts right of it — exactly at the card's right edge
-            // after the measured column. Anchoring the card at the reserved text corner therefore
-            // puts ↺ two cells clear of the ✕ that fired.
-            Canvas.SetLeft(_contentBorder, chipCard.Left + LayoutConstants.NoteColumnWidthDip);
+            // tail), so the text always starts right of it — at the cell's right edge (the two
+            // paddings plus one cell, 122 DIP from the card's left). Fixup-02 F2: it used to start
+            // at the whole column width (132 DIP), which left the measured column's longest line —
+            // the "discarded" chip in EN and DE — ending 1.1 to 1.8 DIP INSIDE the 2 DIP border.
+            // The 10 DIP between the cell edge and the card's right padding is the text's right
+            // inset; the CARD size does not change, and ↺ stays where it is (336 DIP from ✕).
+            Canvas.SetLeft(_contentBorder,
+                chipCard.Left + LayoutConstants.NoteButtonPadding + LayoutConstants.NoteCellDip);
             Canvas.SetTop(_contentBorder, chipCard.Top);
             return;
         }

@@ -475,7 +475,12 @@ internal static class NoteLayout
     /// band and the own-window conjunct admits it. Idempotent: a placement whose window already
     /// contains the target passes through unchanged.
     /// </summary>
-    public static NotePlacement WithRevealTargetClearance(NotePlacement placement, Size restSize)
+    /// <param name="placement">The raw derivation's placement (tag clearance already applied).</param>
+    /// <param name="restSize">The note's at-rest card size, from which the reveal target derives.</param>
+    /// <param name="deviceScale">Device pixels per DIP (WPF's <c>DpiHelper.ScaleX</c>): the union
+    /// snaps outward to this grid, the one WPF snaps the HWND to.</param>
+    public static NotePlacement WithRevealTargetClearance(NotePlacement placement, Size restSize,
+        double deviceScale)
     {
         // One DIP of slack on every side: WPF snaps a window's bounds to whole DEVICE pixels, so
         // a target that touches the placement's window edge could otherwise land half a DIP
@@ -483,9 +488,26 @@ internal static class NoteLayout
         // belong to the note). The slack is invisible and keeps the whole target inside.
         var target = RevealTargetRect(RestCardRect(placement, restSize));
         target.Inflate(1, 1);
-        return placement.Window.Contains(target)
-            ? placement
-            : placement with { Window = Rect.Union(placement.Window, target) };
+        if (placement.Window.Contains(target))
+            return placement;
+        // Fixup-02 F4: the union can land on a fractional DIP (the target is centred on the card),
+        // while the HWND snaps to whole DEVICE pixels. Snap the union OUTWARD by the same scale
+        // WPF uses, so the placement the tests read is the window Windows actually creates — and
+        // the union can only ever grow, never expose a sliver of the target outside the HWND.
+        var union = Rect.Union(placement.Window, target);
+        return placement with { Window = SnapOutwardToDevicePixels(union, deviceScale) };
+    }
+
+    /// <summary>The smallest rect on the <paramref name="deviceScale"/> pixel grid that contains
+    /// <paramref name="rect"/> (device pixels per DIP; 1.0 at 100%, 2.0 at 200%).</summary>
+    private static Rect SnapOutwardToDevicePixels(Rect rect, double deviceScale)
+    {
+        if (deviceScale <= 0) return rect;
+        double left = Math.Floor(rect.Left * deviceScale) / deviceScale;
+        double top = Math.Floor(rect.Top * deviceScale) / deviceScale;
+        double right = Math.Ceiling(rect.Right * deviceScale) / deviceScale;
+        double bottom = Math.Ceiling(rect.Bottom * deviceScale) / deviceScale;
+        return new Rect(left, top, right - left, bottom - top);
     }
 
     // == the Move card (D6, sitting-11 coordinator's option C): the reserved card plus the

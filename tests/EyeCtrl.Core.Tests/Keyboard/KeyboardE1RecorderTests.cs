@@ -71,7 +71,7 @@ public class KeyboardE1RecorderTests
         // It says a text key was typed, plus timing and the dock edge.
         Check.That(log.Lines[0]).IsEqualTo(
             "KB-E1 key seq=1 ts=1000 cls=letter sub=letters edge=top winx=500 winy=0 winw=2800 winh=1000 " +
-            "movems=7000 sincekey=-1 dwell=450 penalty=False typing=True bs=-");
+            "movems=7000 sincekey=-1 dwell=450 paused=0 penalty=False typing=True bs=-");
     }
 
     [Theory]
@@ -89,7 +89,7 @@ public class KeyboardE1RecorderTests
                      " restarts=", " likely=", " start=", " nocont=", " edgeq=" })
             Check.That(log.Lines[0]).Not.Contains(banned);
         Check.That(log.Props[0].Select(p => p.Key).Where(k => k != "{OriginalFormat}").OrderBy(k => k, StringComparer.Ordinal))
-            .ContainsExactly("Bs", "Class", "DwellMs", "Edge", "Penalty", "Seq", "SinceKeyMs",
+            .ContainsExactly("Bs", "Class", "DwellMs", "Edge", "Paused", "Penalty", "Seq", "SinceKeyMs",
                 "SinceMoveMs", "Sub", "TsUs", "Typing", "WinH", "WinW", "WinX", "WinY");
     }
 

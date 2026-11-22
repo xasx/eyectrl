@@ -51,6 +51,20 @@ public class KeyboardE1WiringTests
             .That(Field(vm.E1, "_logger")).IsNotNull();
         Check.That(Field(vm.E1, "_logger")!.GetType().FullName)
             .Contains("KeyboardViewModel");   // the category lines are attributed to
+
+        // F1 (fixup-01): the D4 poll is the ONLY source of the sitting's `Sensitive check at …` lines, and
+        // KeyboardSensitiveCheck.Begin returns silently when its poll is null — a lost registration means the
+        // log reads "keyboard never shown" rather than "diagnostics unwired". Pin it by reference.
+        var poll = provider.GetRequiredService<IFocusedPasswordPoll>();
+        Check.That(poll).IsInstanceOf<UiaFocusedPasswordPoll>();
+        var sensitiveCheck = Field(vm, "_sensitiveCheck");
+        Check.That(sensitiveCheck).IsNotNull();
+        Check.WithCustomMessage("The keyboard's D4 check must receive the container's IsPassword poll by "
+                + "reference, or every sitting shows no 'Sensitive check at …' line at all.")
+            .That(Field(sensitiveCheck!, "_poll")).IsSameReferenceAs(poll);
+        Check.WithCustomMessage("The production detector must expose its live focus-event counters, or the "
+                + "show/hide line's events/password/failures/own fields silently say '-'.")
+            .That(provider.GetRequiredService<ISensitiveContextDetector>() is IFocusEventDiagnostics).IsTrue();
     }
 
     [Fact]

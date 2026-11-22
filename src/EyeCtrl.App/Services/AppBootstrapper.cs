@@ -749,6 +749,10 @@ public class AppBootstrapper
         // E1 keyboard log: the foreground PROCESS name and the focused control's text tail (compared
         // in memory, never logged). Resolved into KeyboardViewModel as an optional ctor parameter.
         services.AddSingleton<IKeyboardContextProbe, Win32KeyboardContextProbe>();
+        // D4 (password-detector diagnostics): the read-only IsPassword side poll at the keyboard's
+        // show/hide moment. Evidence only — the ISensitiveContextDetector verdict stays the sole
+        // authority, so this registration cannot change any gate.
+        services.AddSingleton<IFocusedPasswordPoll, UiaFocusedPasswordPoll>();
         services.AddSingleton<IFeedbackGate>(sp => new SensitiveContextFeedbackGate(
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation,
             sp.GetRequiredService<ISensitiveContextDetector>()));

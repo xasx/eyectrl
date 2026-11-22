@@ -28,7 +28,7 @@ internal static class SafetySetupStartup
     internal static bool ShouldPrompt(bool safetySetupDone, bool isPausedLaunch, bool isTestMode) =>
         !safetySetupDone && !isPausedLaunch && !isTestMode;
 
-    /// <summary>The startup hook: sends <see cref="SafetySetupRequestedMessage"/> exactly when
+    /// <summary>The startup hook: sends <see cref="FirstRunGuideRequestedMessage"/> exactly when
     /// <see cref="ShouldPrompt"/> says so. One call at the App's call site, so the decision cannot
     /// be inverted there without a test seeing it.</summary>
     /// <returns>Whether the request was sent.</returns>
@@ -36,83 +36,8 @@ internal static class SafetySetupStartup
         bool safetySetupDone, bool isPausedLaunch, bool isTestMode, IMessenger messenger)
     {
         if (!ShouldPrompt(safetySetupDone, isPausedLaunch, isTestMode)) return false;
-        messenger.Send(new SafetySetupRequestedMessage());
+        messenger.Send(new FirstRunGuideRequestedMessage());
         return true;
-    }
-}
-
-/// <summary>
-/// The coordinator's handling of <see cref="SafetySetupRequestedMessage"/>, without the coordinator:
-/// open the Settings window when none is open, then start the chain on it. A chain whose window the
-/// request opened closes that window when it ends, so the owner gets normal use back (A2 fixup-01
-/// M3); a window that was already open stays open.
-/// </summary>
-internal static class SafetySetupLaunch
-{
-    /// <param name="windowOpen">Whether a Settings window is already open.</param>
-    /// <param name="openWindow">Opens a fresh Settings window.</param>
-    /// <param name="start">Starts the chain on the (now open) window; the argument is
-    /// <c>closeWhenDone</c>.</param>
-    internal static void Run(bool windowOpen, Action openWindow, Action<bool> start)
-    {
-        if (!windowOpen) openWindow();
-        start(!windowOpen);
-    }
-}
-
-/// <summary>
-/// The Settings window's side of the chain, WPF-free so it is headlessly testable: one flow at a
-/// time, never started over a modal that is already up (that modal is never replaced; a first-run
-/// request then asks again at the next start because the flag is still false), abandoned when the
-/// window closes, and — when the chain's start opened the window — closing the window when the
-/// chain ends, by its last answer or by "Later".
-/// </summary>
-internal sealed class SafetySetupHost
-{
-    private readonly Func<bool> _isModalVisible;
-    private readonly Func<Action<bool>, SafetySetupFlow> _createFlow;
-    private readonly Action _closeWindow;
-
-    private SafetySetupFlow? _flow;
-    private bool _closeWhenDone;
-
-    /// <param name="isModalVisible">Whether the window's modal is up right now.</param>
-    /// <param name="createFlow">Builds a flow that reports its end (true = answered to the end,
-    /// false = "Later") to the given callback.</param>
-    /// <param name="closeWindow">Closes the window (deferred: the end is reported from inside a
-    /// modal choice's dispatch).</param>
-    internal SafetySetupHost(
-        Func<bool> isModalVisible, Func<Action<bool>, SafetySetupFlow> createFlow, Action closeWindow)
-    {
-        _isModalVisible = isModalVisible;
-        _createFlow = createFlow;
-        _closeWindow = closeWindow;
-    }
-
-    /// <summary>Starts the chain, unless a modal is up.</summary>
-    /// <param name="closeWhenDone">Close the window when the chain ends (the request opened it).</param>
-    /// <returns>Whether the chain started.</returns>
-    internal bool Start(bool closeWhenDone)
-    {
-        if (_isModalVisible()) return false;
-
-        _flow?.Abandon();
-        _closeWhenDone = closeWhenDone;
-        _flow = _createFlow(OnEnded);
-        _flow.Start();
-        return true;
-    }
-
-    /// <summary>The window closed: a pending crash-recovery result must not reach its view model.</summary>
-    internal void OnWindowClosed()
-    {
-        _flow?.Abandon();
-        _flow = null;
-    }
-
-    private void OnEnded(bool completed)
-    {
-        if (_closeWhenDone) _closeWindow();
     }
 }
 
@@ -215,6 +140,18 @@ internal sealed class SafetySetupFlow
             new ModalChoice(StartId, T("settings.safety.start"), ModalChoiceKind.Affirmative, () => Advance(0)),
             new ModalChoice(LaterId, T("settings.safety.later"), ModalChoiceKind.Negative, () => End(false)),
         ]);
+    }
+
+    /// <summary>Runs the question chain WITHOUT the intro card — the first-run guide shows its own
+    /// transition card and then drives the questions (spec §7 step 7). Same initialization as
+    /// <see cref="Start"/> minus the intro modal: the chain begins at question 0 and ends with the
+    /// same onEnded semantics. Accepted residual (r1 S3): a "Yes" while a Disabling flight is in
+    /// flight does not attach and leaves supervision off — the Settings row remains the remedy.</summary>
+    internal void StartQuestions()
+    {
+        _active = true;
+        _pendingFailure = null;
+        Advance(0);
     }
 
     /// <summary>Stops listening for a pending crash-recovery result (the window closed, or the chain
@@ -354,8 +291,12 @@ internal sealed class SafetySetupFlow
     {
         if (_supervision is null) return;
 
+        // r1 F9 / r3 F5: an unrelated flight (the startup ensure, a disable) must never be
+        // mistaken for this answer's enable. Already-on is a no-op success; only an in-flight
+        // ENABLE is awaited. (RequestEnable itself no-ops on _inFlight || Enabled.)
+        if (_supervision.Enabled && !_supervision.InFlight) return;
         _supervision.RequestEnable();
-        if (_supervision.InFlight)
+        if (_supervision.IsEnablingInFlight)
         {
             _waitingForSupervision = true;
             _supervision.StateChanged += OnSupervisionStateChanged;

@@ -105,6 +105,11 @@ public interface ICursorCircleOverlay
     /// not the banner: a dismissed banner keeps the dashed cue. False restores the settings-driven
     /// appearance.</param>
     void SetBlocked(bool blocked) { }
+
+    /// <summary>Raises this window above any later-created fullscreen topmost overlay (the
+    /// guide). Default no-op so the test fakes need no member; the real OverlayWindow's
+    /// implementation (:377) overrides it.</summary>
+    void RaiseToTop() { }
 }
 
 /// <summary>The activation button's dwell feedback, drawn where the dwell is counted.</summary>
@@ -246,6 +251,11 @@ public interface IToolbarOverlay
     /// the user's gaze.
     /// </remarks>
     PhysicalRect GetPhysicalBounds();
+
+    /// <summary>Raises this window above any later-created fullscreen topmost overlay (the
+    /// guide). Default no-op so the test fakes need no member; the real OverlayWindow's
+    /// implementation (:377) overrides it.</summary>
+    void RaiseToTop() { }
 }
 
 /// <summary>The paused-state edge strip, with its Resume target while the toolbar is hidden (B2a).</summary>
@@ -255,8 +265,9 @@ public interface IPauseIndicatorOverlay
     void Hide();
     void SetEdge(string edge);
 
-    /// <summary>Re-asserts this window above sibling topmost overlays shown after it
-    /// (OverlayWindow.RaiseToTop: SetWindowPos HWND_TOPMOST | SWP_NOACTIVATE).</summary>
+    /// <summary>Raises this window above any later-created fullscreen topmost overlay (the
+    /// guide). The real implementation lives on OverlayWindow (:377); the adapter calls it on
+    /// every band raise, so fakes implement it explicitly rather than inheriting a no-op.</summary>
     void RaiseToTop();
 
     /// <summary>The toolbar band became visible or hidden: the Resume target hides while the band

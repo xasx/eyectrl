@@ -34,6 +34,7 @@ internal static class ShippedGerman
         "caregiver-alert",
         "drift-notice",
         "eye-care",
+        "guide",
         "language-recovery",
         "overlays",
         "rollback",

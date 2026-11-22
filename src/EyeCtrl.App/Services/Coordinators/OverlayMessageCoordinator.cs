@@ -308,7 +308,7 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                         // auto-hide is disabled (_enabled == false) the else-branch activates.
                         _toolbar.ReassertVisibility();
                         // Restore the cursor circle so the user can aim at Retry/Accept.
-                        if (Context.CursorVM.IsVisible) cursorCircle.Show();
+                        if (Context.CursorVM.IsVisible && _vmBinding.RingMayReshow) cursorCircle.Show();
                         calWindow.UpdateVisualState(msg.State, msg.ProgressPercent);
                         calWindow.Show();
                         break;
@@ -318,7 +318,7 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                         // hasn't since auto-hidden (same state-aware path as the Active/Failed case).
                         Context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Calibration);
                         _toolbar.ReassertVisibility();
-                        if (Context.CursorVM.IsVisible) cursorCircle.Show();
+                        if (Context.CursorVM.IsVisible && _vmBinding.RingMayReshow) cursorCircle.Show();
                         calWindow.DismissCalibration();
                         break;
                 }

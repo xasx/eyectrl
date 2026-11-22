@@ -59,6 +59,8 @@ public sealed class RestartNoticeHost : IDisposable
     private readonly Func<bool> _isProbeOpen;
     private readonly Func<UiLanguage> _targetLanguage;
     private readonly Action<Action> _postToUi;
+    private readonly Func<bool>? _isGuideOpen;
+    private Action? _pendingOnGuideClosed;
 
     /// <summary>Registers the host on the messenger.</summary>
     /// <param name="messenger">The application messenger the restart coordinator sends on.</param>
@@ -69,13 +71,16 @@ public sealed class RestartNoticeHost : IDisposable
     /// <param name="targetLanguage">The language the restart flow speaks (the saved selection resolved
     /// against the machine culture, the language the replacement will run).</param>
     /// <param name="postToUi">Runs work on the UI thread.</param>
+    /// <param name="isGuideOpen">Whether the first-run guide holds the screen; while it does, a
+    /// show is deferred and replayed when the guide closes (the newest wins — r3 F4).</param>
     public RestartNoticeHost(
         IMessenger messenger,
         IRestartNoticePresenter presenter,
         Func<bool> isSettingsOpen,
         Func<bool> isProbeOpen,
         Func<UiLanguage> targetLanguage,
-        Action<Action> postToUi)
+        Action<Action> postToUi,
+        Func<bool>? isGuideOpen = null)
     {
         _messenger = messenger;
         _presenter = presenter;
@@ -83,6 +88,7 @@ public sealed class RestartNoticeHost : IDisposable
         _isProbeOpen = isProbeOpen;
         _targetLanguage = targetLanguage;
         _postToUi = postToUi;
+        _isGuideOpen = isGuideOpen;
 
         messenger.Register<RestartInProgressMessage>(this, (_, _) => _postToUi(ShowInProgress));
         messenger.Register<RestartUnavailableMessage>(this, (_, m) => _postToUi(() => ShowRefused(m.Reason)));
@@ -103,6 +109,11 @@ public sealed class RestartNoticeHost : IDisposable
     private void ShowInProgress()
     {
         if (_isSettingsOpen() || _isProbeOpen()) return; // the open surface owns the screen
+        if (_isGuideOpen?.Invoke() == true)
+        {
+            _pendingOnGuideClosed = () => ShowInProgress(); // defer-newest replay (r3 F4)
+            return;
+        }
 
         var target = _targetLanguage();
         Log.Information("Restart notice: showing 'restarting' (no Settings window is open)");
@@ -115,6 +126,11 @@ public sealed class RestartNoticeHost : IDisposable
     private void ShowRefused(string reason)
     {
         if (_isSettingsOpen() || _isProbeOpen()) return;
+        if (_isGuideOpen?.Invoke() == true)
+        {
+            _pendingOnGuideClosed = () => ShowRefused(reason); // defer-newest replay (r3 F4)
+            return;
+        }
 
         var target = _targetLanguage();
         Log.Information("Restart notice: showing 'restart not possible' (no Settings window is open)");
@@ -133,6 +149,11 @@ public sealed class RestartNoticeHost : IDisposable
     public void ShowProbeStartFailed(string message, string closeLabel)
     {
         if (_isSettingsOpen() || _isProbeOpen()) return;
+        if (_isGuideOpen?.Invoke() == true)
+        {
+            _pendingOnGuideClosed = () => ShowProbeStartFailed(message, closeLabel); // defer-newest replay (r3 F4)
+            return;
+        }
 
         Log.Information("Restart notice: showing the probe's start-failure notice");
         _presenter.ShowNotice(message, closeLabel, StartFailedHold);
@@ -163,6 +184,21 @@ public sealed class RestartNoticeHost : IDisposable
     public void OnProbeOpenChanged(bool open)
     {
         if (open || _isProbeOpen()) _presenter.HideNotice();
+    }
+
+    /// <summary>Guide opened or closed. Opening takes a notice down (it covers the card);
+    /// closing replays at most ONE stashed show — the newest wins, an older notice is stale
+    /// (defer, never drop — r3 F4).</summary>
+    /// <param name="open">True when the first-run guide has opened.</param>
+    public void OnGuideOpenChanged(bool open)
+    {
+        if (open) _presenter.HideNotice();
+        else
+        {
+            var pending = _pendingOnGuideClosed;
+            _pendingOnGuideClosed = null;
+            pending?.Invoke();
+        }
     }
 
     /// <summary>Unregisters from the messenger and takes any notice down.</summary>

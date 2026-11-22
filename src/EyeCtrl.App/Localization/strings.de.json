@@ -254,6 +254,154 @@
     "text": "✓ Gut gemacht",
     "src": "8a888f50"
   },
+  "guide.calibrate.body": {
+    "text": "Die Kalibrierung zeigt dem Eyetracker, wohin Ihre Augen gerichtet sind. Sie können später auch über Einstellungen oder die Symbolleiste kalibrieren.",
+    "src": "015eb125"
+  },
+  "guide.calibrate.now": {
+    "text": "Kalibrieren",
+    "src": "27d0fadf"
+  },
+  "guide.calibrate.skip": {
+    "text": "Überspringen",
+    "src": "c00cef89"
+  },
+  "guide.calibrate.title": {
+    "text": "Kalibrierung",
+    "src": "556f4252"
+  },
+  "guide.chrome.close": {
+    "text": "Schließen",
+    "src": "2c1b85b8"
+  },
+  "guide.done.body": {
+    "text": "Der angedockte Rand ruft die Symbolleiste auf — Ihr Hauptmenü. Darüber öffnet sich die Bildschirmtastatur, und jede Einstellung findet sich in den Einstellungen.",
+    "src": "130e1f8b"
+  },
+  "guide.done.finish": {
+    "text": "Fertigstellen",
+    "src": "16254a6d"
+  },
+  "guide.done.title": {
+    "text": "Alles bereit.",
+    "src": "94b304e4"
+  },
+  "guide.dwell.body": {
+    "text": "Lassen Sie den Blick auf dem Kreis ruhen und halten Sie still: Der Ring füllt sich, und wenn er voll ist, löst das Ziel aus. Probieren Sie es jetzt aus.",
+    "src": "5eabdb9e"
+  },
+  "guide.dwell.skip": {
+    "text": "Überspringen",
+    "src": "c00cef89"
+  },
+  "guide.dwell.title": {
+    "text": "Verweilen — Ihr Klick",
+    "src": "cb6f8ff5"
+  },
+  "guide.dwelltime.body": {
+    "text": "Die Karten − und + legen fest, wie lange ein Desktop-Klick dauert — das Verweilen des Cursors, das klickt. Probieren Sie Werte am Kreis aus; die eigenen Schaltflächen der Anleitung behalten die übliche Verweilzeit der Oberfläche.",
+    "src": "9b63ec08"
+  },
+  "guide.dwelltime.continue": {
+    "text": "Weiter",
+    "src": "d99f4e62"
+  },
+  "guide.dwelltime.title": {
+    "text": "Verweilzeit",
+    "src": "ff876ffb"
+  },
+  "guide.later": {
+    "text": "Später",
+    "src": "94b426bb"
+  },
+  "guide.safety.begin": {
+    "text": "Beginnen",
+    "src": "631b8b3e"
+  },
+  "guide.safety.body": {
+    "text": "Fünf kurze Fragen richten den automatischen Neustart nach einem Absturz, den Start und den Ton bei einer Auslösung für Sie ein.",
+    "src": "6667c833"
+  },
+  "guide.safety.title": {
+    "text": "5 kurze Fragen für Ihre Sicherheit",
+    "src": "147fcaae"
+  },
+  "guide.theme.body": {
+    "text": "Wählen Sie ein Farbschema — es wird nach einem Neustart wirksam; die Karte hier zeigt Ihre Wahl als Vorschau.",
+    "src": "3190ee8f"
+  },
+  "guide.theme.continue": {
+    "text": "Weiter",
+    "src": "d99f4e62"
+  },
+  "guide.theme.contrast": {
+    "text": "Kontrast",
+    "src": "133972a1"
+  },
+  "guide.theme.daylight": {
+    "text": "Tageslicht",
+    "src": "cf3e0ac1"
+  },
+  "guide.theme.ember": {
+    "text": "Glut",
+    "src": "0747a50f"
+  },
+  "guide.theme.midnight": {
+    "text": "Mitternacht",
+    "src": "53fcd699"
+  },
+  "guide.theme.title": {
+    "text": "Farbschema wählen",
+    "src": "30601cbb"
+  },
+  "guide.toolbar.body": {
+    "text": "Schauen Sie zum {0} Rand des Bildschirms, um die Symbolleiste aufzurufen — Tastatur, Einstellungen und alles Weitere öffnen sich von dort. Probieren Sie es jetzt aus.",
+    "src": "39cca262"
+  },
+  "guide.toolbar.continue": {
+    "text": "Weiter",
+    "src": "d99f4e62"
+  },
+  "guide.toolbar.edge.bottom": {
+    "text": "unteren",
+    "src": "f6144b30"
+  },
+  "guide.toolbar.edge.left": {
+    "text": "linken",
+    "src": "a7587ec7"
+  },
+  "guide.toolbar.edge.right": {
+    "text": "rechten",
+    "src": "8732749c"
+  },
+  "guide.toolbar.edge.top": {
+    "text": "oberen",
+    "src": "60ca9e4a"
+  },
+  "guide.toolbar.skip": {
+    "text": "Überspringen",
+    "src": "c00cef89"
+  },
+  "guide.toolbar.success": {
+    "text": "Aufgerufen! Die Symbolleiste blendet sich von selbst wieder aus. Machen Sie weiter, wenn Sie bereit sind.",
+    "src": "55962806"
+  },
+  "guide.toolbar.title": {
+    "text": "Ihr Hauptmenü",
+    "src": "e14ac4fb"
+  },
+  "guide.welcome.body": {
+    "text": "Mit EyeCtrl steuern Sie diesen PC mit Ihren Augen. Diese kurze Anleitung zeigt Ihnen die Grundlagen — etwa 2 Minuten. Jede Übungsaufgabe können Sie überspringen.",
+    "src": "9b407c92"
+  },
+  "guide.welcome.start": {
+    "text": "Start",
+    "src": "ff81db63"
+  },
+  "guide.welcome.title": {
+    "text": "Willkommen bei EyeCtrl",
+    "src": "606487ee"
+  },
   "language-recovery.note.pending": {
     "text": "Wird nach Neustart wirksam / Takes effect after restart",
     "src": "1dcf3882"
@@ -2070,6 +2218,10 @@
     "text": "Mit Windows starten",
     "src": "a9f19885"
   },
+  "settings.general.guide.label": {
+    "text": "Einführung erneut starten",
+    "src": "dab8cbd0"
+  },
   "settings.general.pause.description": {
     "text": "Startet pausiert; die Blicksteuerung beginnt erst mit „Fortsetzen“.",
     "src": "289182b1"
@@ -2125,10 +2277,6 @@
   "settings.general.restart_notice.label": {
     "text": "Neustart-Hinweis (ms)",
     "src": "410a6cb1"
-  },
-  "settings.general.safety.label": {
-    "text": "Sicherheitseinrichtung wiederholen",
-    "src": "1dda5f16"
   },
   "settings.general.supervision.description": {
     "text": "Reagiert EyeCtrl nicht mehr oder stürzt ab, startet es automatisch neu; fällt es immer wieder aus, öffnet sich stattdessen TD Control.",

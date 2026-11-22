@@ -72,9 +72,10 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.general.restart_notice.label"), 0, 3000, 200, 0,
                     () => s.Dwell.RestartNoticeDwellMs, v => { s.Dwell.RestartNoticeDwellMs = v < 200 ? 0 : (int)v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.general.restart_notice.description") },
-                new ButtonSpec("g_safety",
-                    StringTable.Current.T("settings.general.safety.label"),
-                    () => _ctx.RunSafetySetup(), ButtonKind.Reset, Width: 300, Height: 100) { Simple = true },
+                new ButtonSpec("g_guide",
+                    StringTable.Current.T("settings.general.guide.label"),
+                    () => { _ctx.Close(); _ctx.Messenger.Send(new FirstRunGuideRequestedMessage()); },
+                    ButtonKind.Reset, Width: 300, Height: 100) { Simple = true },
                 new ButtonSpec("g_restart",
                     StringTable.Current.T("settings.general.restart.label"),
                     OnRestart, ButtonKind.Reset, Width: 300, Height: 100),

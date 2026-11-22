@@ -39,6 +39,7 @@ public sealed class LagMarkHost : IDisposable
     private readonly Func<bool> _isInstrumentOn;
     private readonly Func<bool> _isSettingsOpen;
     private readonly Func<bool> _isProbeOpen;
+    private readonly Func<bool>? _isGuideOpen;
     private readonly Func<DateTime> _now;
     private readonly Action<Action> _postToUi;
     private readonly Action<string> _log;
@@ -53,6 +54,8 @@ public sealed class LagMarkHost : IDisposable
     /// <param name="now">The wall clock, a seam for tests.</param>
     /// <param name="postToUi">Runs work on the UI thread.</param>
     /// <param name="log">Writes one line to the session log.</param>
+    /// <param name="isGuideOpen">Whether the first-run guide holds the screen; while it does, the
+    /// button hides and returns when the guide closes, like Settings (r3 F4).</param>
     public LagMarkHost(
         IMessenger messenger,
         ILagMarkPresenter presenter,
@@ -62,7 +65,8 @@ public sealed class LagMarkHost : IDisposable
         Func<bool> isProbeOpen,
         Func<DateTime> now,
         Action<Action> postToUi,
-        Action<string> log)
+        Action<string> log,
+        Func<bool>? isGuideOpen = null)
     {
         _messenger = messenger;
         _presenter = presenter;
@@ -70,6 +74,7 @@ public sealed class LagMarkHost : IDisposable
         _isInstrumentOn = isInstrumentOn;
         _isSettingsOpen = isSettingsOpen;
         _isProbeOpen = isProbeOpen;
+        _isGuideOpen = isGuideOpen;
         _now = now;
         _postToUi = postToUi;
         _log = log;
@@ -130,8 +135,19 @@ public sealed class LagMarkHost : IDisposable
             _postToUi(ShowButtonAndZone);
     }
 
+    /// <summary>Guide opened or closed — the button hides and returns like Settings does (r3 F4).</summary>
+    /// <param name="open">True when the first-run guide has opened. The current flag is read as well:
+    /// <c>ModalInteractionState.GuideOpenChanged</c>'s contract says the argument can be stale.</param>
+    public void OnGuideOpenChanged(bool open)
+    {
+        if (open || (_isGuideOpen?.Invoke() ?? false))
+            _postToUi(HideButtonAndZone);
+        else if (CanShow())
+            _postToUi(ShowButtonAndZone);
+    }
+
     /// <summary>The surfaces that own the screen when open, and the instrument's live gate.</summary>
-    private bool CanShow() => _isInstrumentOn() && !_isSettingsOpen() && !_isProbeOpen();
+    private bool CanShow() => _isInstrumentOn() && !_isSettingsOpen() && !_isProbeOpen() && (_isGuideOpen?.Invoke() ?? false) == false;
 
     private void OnGaze(GazeCursorMovedMessage message)
     {

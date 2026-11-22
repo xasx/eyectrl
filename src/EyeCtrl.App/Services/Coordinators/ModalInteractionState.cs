@@ -75,4 +75,112 @@ internal sealed class ModalInteractionState
             }
         }
     }
+
+    // volatile: read on the gaze thread (ring predicates, toolbar feed checks), written on the
+    // UI thread by the guide's raise/close path.
+    private volatile bool _guideOpen;
+
+    /// <summary>
+    /// True while the first-run guide owns the screen. The guide's card is interactive but the
+    /// window is click-through outside it and every proactive surface defers behind it, so every
+    /// consumer gates on it like <see cref="SettingsOpen"/>. Assigning raises
+    /// <see cref="GuideOpenChanged"/>.
+    /// </summary>
+    public bool GuideOpen
+    {
+        get => _guideOpen;
+        set
+        {
+            if (_guideOpen == value) return;
+            _guideOpen = value;
+            RaiseGuideOpenChanged(value);
+        }
+    }
+
+    /// <summary>Raised after <see cref="GuideOpen"/> flips, on the UI thread. Per-subscriber
+    /// try/catch like <see cref="ProbeOpenChanged"/>; subscribers read <see cref="GuideOpen"/>,
+    /// not the argument (re-entrancy).</summary>
+    public event Action<bool>? GuideOpenChanged;
+
+    private void RaiseGuideOpenChanged(bool open)
+    {
+        var subscribers = GuideOpenChanged;
+        if (subscribers is null) return;
+
+        foreach (var subscriber in subscribers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<bool>)subscriber)(open);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "A GuideOpenChanged subscriber threw; the remaining subscribers still run");
+            }
+        }
+    }
+
+    // volatile: read on the gaze thread (the ring's re-show predicates — RingMayReshow and the
+    // cursor-visibility binding), written on the UI thread by the guide wiring. Task 1's pattern:
+    // a plain volatile field, no event, no property — the wiring sets it directly.
+    /// <summary>
+    /// True while the first-run guide WANTS the cursor ring up despite owning the screen: step 5
+    /// (ToolbarTask) shows the ring so the owner can summon the toolbar, and a pause/resume round
+    /// trip during that step must not strand it hidden — the resume's visibility flip consults
+    /// <c>RingMayReshow</c>, which would otherwise refuse while <see cref="GuideOpen"/> is still
+    /// true. Set by the guide's StepEntered handler (step 5 only), cleared on every other step and
+    /// in the guide's restore/unwind paths.
+    /// </summary>
+    public volatile bool GuideRingWanted;
+
+    // volatile: read on the gaze thread (RingMayReshow's calibration exception, like GuideRingWanted),
+    // written on the UI thread by the guide's calibration lifecycle.
+    private volatile bool _guideCalibrationActive;
+
+    /// <summary>
+    /// True while a calibration the guide started is between its first Collecting/Training message
+    /// and its terminal Idle/Cancelled — INCLUDING the Active/Failed result card, whose
+    /// Retry/Accept a gaze user can only reach through the activation path the guide suspends
+    /// (ruling D3, PR-review n1): the guide's wiring releases its fixation-suppression claim and
+    /// sets this flag so the guide's offer-suspension reason and the ring re-show gate stand down
+    /// for the calibration surface. That is exactly a NORMAL calibration's state — the engine's
+    /// own <c>FixationSuppressor.Calibration</c> claim (not a suspension reason) is what blocks
+    /// offers while gaze is collected. Assigning raises
+    /// <see cref="GuideCalibrationActiveChanged"/>. <see cref="GuideOpen"/> itself is NOT flipped
+    /// mid-calibration: the guide's other claims (banner hold, toolbar hold, notice defers) stay
+    /// held, and the deferred notices must not replay over the calibration window.
+    /// </summary>
+    public bool GuideCalibrationActive
+    {
+        get => _guideCalibrationActive;
+        set
+        {
+            if (_guideCalibrationActive == value) return;
+            _guideCalibrationActive = value;
+            RaiseGuideCalibrationActiveChanged(value);
+        }
+    }
+
+    /// <summary>Raised after <see cref="GuideCalibrationActive"/> flips, on the UI thread.
+    /// Per-subscriber try/catch like <see cref="GuideOpenChanged"/>; subscribers read the
+    /// property, not the argument (re-entrancy).</summary>
+    public event Action<bool>? GuideCalibrationActiveChanged;
+
+    private void RaiseGuideCalibrationActiveChanged(bool active)
+    {
+        var subscribers = GuideCalibrationActiveChanged;
+        if (subscribers is null) return;
+
+        foreach (var subscriber in subscribers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<bool>)subscriber)(active);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "A GuideCalibrationActiveChanged subscriber threw; the remaining subscribers still run");
+            }
+        }
+    }
 }

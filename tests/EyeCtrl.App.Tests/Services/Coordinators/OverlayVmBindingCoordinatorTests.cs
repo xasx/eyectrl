@@ -672,6 +672,102 @@ public class OverlayVmBindingCoordinatorTests
         Check.That(ring.ShowCalls).IsEqualTo(1);
     }
 
+    // ── the first-run guide owns the screen: the ring must not re-show over it ──
+    //
+    // Same gate family as the probe above, but driven by the guide's modal flag. The flag is the
+    // re-show seam the calibration sites in OverlayMessageCoordinator consult through _vmBinding;
+    // the full ring lifecycle lives in the guide's own wiring (Task 12).
+
+    [Fact]
+    public void RingMayReshow_IsFalse_WhileGuideOpen()
+    {
+        var modal = new ModalInteractionState();
+        var vmBinding = new OverlayVmBindingCoordinator(modal);
+
+        modal.GuideOpen = true;
+        Check.That(vmBinding.RingMayReshow).IsFalse();
+        modal.GuideOpen = false;
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+    }
+
+    [Fact]
+    public void RingMayReshow_IsTrue_WhileTheGuidesStepWantsTheRing_EvenGuideOpen()
+    {
+        // S3-4: step 5 (ToolbarTask) shows the ring so the owner can summon the toolbar; a
+        // pause/resume round trip during the task used to strand it hidden — the resume's
+        // visibility flip consulted RingMayReshow, which refused while GuideOpen was still true.
+        var modal = new ModalInteractionState();
+        var vmBinding = new OverlayVmBindingCoordinator(modal);
+
+        modal.GuideOpen = true;
+        modal.GuideRingWanted = true;                    // the wiring sets it on the ToolbarTask step
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+        modal.GuideRingWanted = false;                   // every other step / restore / unwind clears it
+        Check.That(vmBinding.RingMayReshow).IsFalse();
+        modal.GuideOpen = false;
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+    }
+
+    [Fact]
+    public void RingMayReshow_IsTrue_WhileTheGuidesCalibrationRuns_EvenGuideOpen()
+    {
+        // Ruling D3 (PR-review n1): the guide's calibration window is the second exception. The
+        // guide is hidden and the calibration result card's Retry/Accept need the ring — the two
+        // completion sites in OverlayMessageCoordinator re-show it through this very predicate,
+        // which the guide's GuideOpen claim used to keep false for the whole guide lifetime (a
+        // silently bad calibration auto-accepted after 12 s with Retry unreachable).
+        var modal = new ModalInteractionState();
+        var vmBinding = new OverlayVmBindingCoordinator(modal);
+
+        modal.GuideOpen = true;
+        Check.That(vmBinding.RingMayReshow).IsFalse();   // the guide owns the screen, no calibration
+        modal.GuideCalibrationActive = true;             // Collecting through the result card
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+        modal.GuideCalibrationActive = false;            // Idle/Cancelled: the guide's again
+        Check.That(vmBinding.RingMayReshow).IsFalse();
+        modal.GuideOpen = false;
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+    }
+
+    [Fact]
+    public void AResumeVisibilityFlip_DuringTheGuidesRingWantedStep_ShowsTheRing()
+    {
+        // The handler-level mirror of the flip above: the pause hides (any state, ungated — the
+        // pause strip is the feedback), and the RESUME's flip re-shows while the guide is open and
+        // step 5 wants the ring — exactly the strand this fix exists for.
+        var modal = new ModalInteractionState { GuideOpen = true, GuideRingWanted = true };
+        var ring = new RecordingRingVisibility();
+        var messenger = new WeakReferenceMessenger();
+        var cursorVm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger) { IsVisible = false };
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            CursorVM = cursorVm,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(cursorCircle: ring),
+        };
+        var coordinator = new OverlayVmBindingCoordinator(modal);
+        SetContext(coordinator, ctx);
+
+        // The pause: the VM flips invisible, the ring hides.
+        cursorVm.IsVisible = false;
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+        Check.That(ring.HideCalls).IsEqualTo(1);
+        Check.That(ring.ShowCalls).IsEqualTo(0);
+
+        // The resume: the VM flips visible again — GuideOpen still true, but the step wants the ring.
+        cursorVm.IsVisible = true;
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+        Check.That(ring.ShowCalls).IsEqualTo(1);
+
+        // Without the step-5 exception the same flip is a hide (the S1-era strand).
+        cursorVm.IsVisible = false;
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+        cursorVm.IsVisible = true;
+        modal.GuideRingWanted = false;                   // e.g. the step just ended (or Restore ran)
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+        Check.That(ring.ShowCalls).IsEqualTo(1);         // no second show
+    }
+
     /// <summary>
     /// Fixup-01 item 3: the switcher's show/hide must suspend the toolbar auto-hide (the Settings
     /// pattern, named holder), so the band cannot hide during a long session and the close always

@@ -83,6 +83,7 @@ public sealed class BannerSlot : IBannerSlot
         }
 
         Show(banner);
+        _livePreempted = ReferenceEquals(_live, banner);   // the safety channel is up (Show may have failed)
     }
 
     /// <inheritdoc />
@@ -97,8 +98,54 @@ public sealed class BannerSlot : IBannerSlot
         }
 
         _live = null;
+        _livePreempted = false;    // the slot took the pre-emptor down: the marker dies with it
         banner.Closed -= OnClosed;
         banner.HideFromSlot();
+        ShowNextIfFree();
+    }
+
+    // The guide's hold (spec §5 claim 4): while held, the live banner hides and re-queues at the
+    // FRONT (it resumes first) and dequeue pauses — nothing is dropped, `_live` cannot wedge
+    // because the hold clears it. Preempt deliberately bypasses the hold: caregiver alerts are
+    // the safety channel and take the slot even mid-guide (pinned by test) — and a pre-emptor
+    // that is ALREADY live stays live through a later Hold (it is never demoted into the queue;
+    // the marker clears when it closes or the slot withdraws it). UI thread only.
+    private bool _held;
+
+    /// <summary>Whether the live occupant took the slot via <see cref="Preempt"/> — the safety
+    /// channel stays up through a hold. Cleared by every non-preempting show, a natural close and
+    /// a slot-driven withdrawal.</summary>
+    private bool _livePreempted;
+
+    /// <summary>Hold for a fullscreen surface (the first-run guide). Idempotent. A live
+    /// pre-emptor is left up (S3: Hold() used to demote it into the queue, contradicting the
+    /// documented bypass).</summary>
+    public void Hold()
+    {
+        if (_held) return;
+        _held = true;
+        if (_live is { } live && !_livePreempted)
+        {
+            _live = null;
+            live.Closed -= OnClosed;
+            try
+            {
+                live.HideFromSlot();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "A held banner failed to hide; it still re-queues.");
+            }
+            _queue.Insert(0, live);
+        }
+    }
+
+    /// <summary>Release: dequeue resumes at once with the front of the queue (nothing dropped).
+    /// A live pre-emptor is untouched.</summary>
+    public void Release()
+    {
+        if (!_held) return;
+        _held = false;
         ShowNextIfFree();
     }
 
@@ -123,7 +170,7 @@ public sealed class BannerSlot : IBannerSlot
     {
         // A loop, because an occupant may close synchronously inside ShowInSlot (nothing to show):
         // the next queued banner then takes the slot in the same turn instead of waiting forever.
-        while (_live is null && _queue.Count > 0)
+        while (!_held && _live is null && _queue.Count > 0)
         {
             var next = _queue[0];
             _queue.RemoveAt(0);
@@ -134,6 +181,7 @@ public sealed class BannerSlot : IBannerSlot
     private void Show(IBannerSlotOccupant banner)
     {
         _live = banner;
+        _livePreempted = false;   // a queue advance is not a pre-emption (Preempt re-marks after)
         banner.Closed -= OnClosed;
         banner.Closed += OnClosed;
         try
@@ -157,6 +205,7 @@ public sealed class BannerSlot : IBannerSlot
             return; // a stale close from a banner that is no longer live
 
         _live = null;
+        _livePreempted = false;   // a live pre-emptor that closed naturally no longer bypasses a hold
         banner.Closed -= OnClosed;
         ShowNextIfFree();
     }

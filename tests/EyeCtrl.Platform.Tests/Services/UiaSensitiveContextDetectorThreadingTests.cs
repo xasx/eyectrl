@@ -62,26 +62,61 @@ public class UiaSensitiveContextDetectorThreadingTests
             detector.Start();
             Check.That(hook.Added.Wait(TestTimeouts.PositiveWaitMs)).IsTrue();
 
+            // Run Stop on a dedicated background thread, not the thread pool: a Task.Run here also
+            // measured the wait for a pool thread, and on a loaded, coverage-instrumented CI host that
+            // wait alone can outlast the guard (run 45059573422 missed the 5 s guard while Stop itself
+            // was never slow). The stopwatch is started and stopped inside that thread, immediately
+            // around detector.Stop(), so only Stop's own duration is measured. The thread is background
+            // and the event is not disposed (the blocked caller still sets it after the release below),
+            // so a Stop that never returns fails the backstop without crashing or hanging the run.
+            var elapsed = new Stopwatch();
+            var stopped = new ManualResetEventSlim(false);
+            Exception? stopFailure = null;
+            var stopThread = new Thread(() =>
+            {
+                try
+                {
+                    elapsed.Start();
+                    detector.Stop();
+                    elapsed.Stop();
+                }
+                catch (Exception ex)
+                {
+                    stopFailure = ex;
+                }
+                finally
+                {
+                    stopped.Set();
+                }
+            })
+            {
+                IsBackground = true,
+                Name = "UIA detector Stop caller",
+            };
+            stopThread.Start();
+
             try
             {
-                var elapsed = Stopwatch.StartNew();
-                // The inner Task.Wait is what turns the mutant (Remove called inline) into a RED test
-                // instead of a hung run: the task never completes, and the assertion below fails.
-                Task stop = Task.Run(detector.Stop);
-                Check.That(stop.Wait(TimeSpan.FromSeconds(5))).IsTrue();
-                elapsed.Stop();
+                // The 5 s backstop is what turns the mutant (Remove called inline on this thread) and
+                // an unbounded Stop into RED tests instead of hung runs: the thread never completes,
+                // so this fails.
+                Check.That(stopped.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+                if (stopFailure is not null)
+                    ExceptionDispatchInfo.Capture(stopFailure).Throw();
 
                 Check.That(hook.EnteredRemove.Wait(TimeSpan.FromSeconds(5))).IsTrue();
                 // The detector abandons the (background) hook thread at StopBudget, so Stop must
                 // return by then plus scheduling allowance for a loaded, coverage-instrumented CI
                 // host — 2.69 s was measured there on main (186b9f22) against this test's old 2.5 s
-                // limit. 2 s budget (pinned by the ratchet test above) + 1.5 s slack = 3.5 s,
-                // written ABSOLUTE rather than derived from StopBudget on purpose: raising the
+                // limit. The dedicated caller thread and the stopwatch inside it remove thread-pool
+                // scheduling from the measurement; what remains is Stop itself plus the hook thread
+                // being scheduled. 2 s budget (pinned by the ratchet test above) + 1.5 s slack =
+                // 3.5 s, written ABSOLUTE rather than derived from StopBudget on purpose: raising the
                 // budget is a longer exit hang and must go red here (a 4 s budget runs ~4 s, past
-                // 3.5 s, while the 5 s Wait guard above still passes) instead of quietly
-                // stretching the allowance with it. A deliberate budget raise must consciously
-                // widen this number too. Still well under the 5 s guard, which remains the
-                // backstop for a Stop that never returns at all.
+                // 3.5 s, while the 5 s backstop above still passes) instead of quietly stretching the
+                // allowance with it. A deliberate budget raise must consciously widen this number
+                // too. Still well under the 5 s guard, which remains the backstop for a Stop that
+                // never returns at all.
                 Check.That(elapsed.Elapsed).IsLessThan(TimeSpan.FromSeconds(3.5));
             }
             finally

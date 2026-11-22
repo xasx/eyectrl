@@ -97,9 +97,9 @@ public class UiaSensitiveContextDetectorThreadingTests
 
             try
             {
-                // The 5 s backstop is what turns the mutant (Remove called inline on this thread) and
-                // an unbounded Stop into RED tests instead of hung runs: the thread never completes,
-                // so this fails.
+                // The 5 s backstop is what turns the mutant (Remove called inline on the dedicated
+                // Stop-caller thread instead of being posted to the hook thread) and an unbounded Stop
+                // into RED tests instead of hung runs: the caller thread never completes, so this fails.
                 Check.That(stopped.Wait(TimeSpan.FromSeconds(5))).IsTrue();
                 if (stopFailure is not null)
                     ExceptionDispatchInfo.Capture(stopFailure).Throw();

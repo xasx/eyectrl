@@ -9,17 +9,20 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// D4 of the password-detector diagnostics: the read-only IsPassword side poll at the keyboard's show/hide
-/// moment. The properties that matter: one line per check with the event verdict beside the poll, the poll
-/// never waits for a hanging read, and no field content (or exception message) can reach a line.
+/// moment. The properties that matter: one line per check at Information (the day file starts there) with the
+/// event verdict, the poll, the live focus-event counters and the process name; the poll never waits for a
+/// hanging read; and no field content (or exception message) can reach a line.
 /// </summary>
 public class KeyboardSensitiveCheckTests
 {
     private const string Marker = "Zebrafink-Marker";
 
+    private static readonly FocusEventCounts Counts = new(12, 1, 2, 3);
+
     private sealed class Capture : ILogger
     {
         private readonly object _gate = new();
-        private readonly List<string> _lines = new();
+        private readonly List<(LogLevel Level, string Message)> _lines = new();
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -28,10 +31,12 @@ public class KeyboardSensitiveCheckTests
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            lock (_gate) _lines.Add(formatter(state, exception));
+            lock (_gate) _lines.Add((logLevel, formatter(state, exception)));
         }
 
-        public string[] Snapshot() { lock (_gate) return _lines.ToArray(); }
+        public (LogLevel Level, string Message)[] Snapshot() { lock (_gate) return _lines.ToArray(); }
+
+        public string[] Messages() => Snapshot().Select(e => e.Message).ToArray();
     }
 
     private sealed class FakePoll : IFocusedPasswordPoll
@@ -57,14 +62,17 @@ public class KeyboardSensitiveCheckTests
         await task.WaitAsync(HangGuard, TestContext.Current.CancellationToken);
 
     [Fact]
-    public async Task ACheck_LogsTheEventVerdictThePollAndTheProcess_Once()
+    public async Task ACheck_LogsAtInformation_TheEventVerdictThePollTheProcessAndTheLiveCounts()
     {
         var log = new Capture();
 
-        await Done(New(log, new FakePoll { Read = () => true }).Begin("show", evt: true, "msedge.exe"));
+        await Done(New(log, new FakePoll { Read = () => true }).Begin("show", evt: true, "msedge.exe", Counts));
 
-        Check.That(log.Snapshot()).ContainsExactly(
-            "Sensitive check at show: event=true poll=true proc=msedge.exe");
+        Check.That(log.Messages()).ContainsExactly(
+            "Sensitive check at show: event=true poll=true proc=msedge.exe"
+            + " events=12 password=1 failures=2 own=3");
+        Check.WithCustomMessage("The day file starts at Information: a Debug line is a no-show at the sitting.")
+            .That(log.Snapshot().All(l => l.Level == LogLevel.Information)).IsTrue();
     }
 
     [Fact]
@@ -73,10 +81,11 @@ public class KeyboardSensitiveCheckTests
         // The PW1 failure shape: the event-driven verdict says not sensitive, the direct poll says password.
         var log = new Capture();
 
-        await Done(New(log, new FakePoll { Read = () => true }).Begin("show", evt: false, "msedge.exe"));
+        await Done(New(log, new FakePoll { Read = () => true }).Begin("show", evt: false, "msedge.exe", Counts));
 
-        Check.That(log.Snapshot()).ContainsExactly(
-            "Sensitive check at show: event=false poll=true proc=msedge.exe");
+        Check.That(log.Messages()).ContainsExactly(
+            "Sensitive check at show: event=false poll=true proc=msedge.exe"
+            + " events=12 password=1 failures=2 own=3");
     }
 
     [Fact]
@@ -84,10 +93,24 @@ public class KeyboardSensitiveCheckTests
     {
         var log = new Capture();
 
-        await Done(New(log, new FakePoll { Read = () => null }).Begin("hide", evt: false, "msedge.exe"));
+        await Done(New(log, new FakePoll { Read = () => null }).Begin("hide", evt: false, "msedge.exe", Counts));
 
-        Check.That(log.Snapshot()).ContainsExactly(
-            "Sensitive check at hide: event=false poll=none proc=msedge.exe");
+        Check.That(log.Messages()).ContainsExactly(
+            "Sensitive check at hide: event=false poll=none proc=msedge.exe"
+            + " events=12 password=1 failures=2 own=3");
+    }
+
+    [Fact]
+    public async Task UnknownCounts_RenderAsDashes_NeverAsAZeroThatWouldReadAsNoEvents()
+    {
+        var log = new Capture();
+
+        await Done(New(log, new FakePoll { Read = () => false })
+            .Begin("show", evt: false, "msedge.exe", FocusEventCounts.Unknown));
+
+        Check.That(log.Messages()).ContainsExactly(
+            "Sensitive check at show: event=false poll=false proc=msedge.exe"
+            + " events=- password=- failures=- own=-");
     }
 
     [Fact]
@@ -96,11 +119,12 @@ public class KeyboardSensitiveCheckTests
         var log = new Capture();
         var poll = new FakePoll { Read = () => throw new InvalidOperationException(Marker) };
 
-        await Done(New(log, poll).Begin("show", evt: false, "msedge.exe"));
+        await Done(New(log, poll).Begin("show", evt: false, "msedge.exe", Counts));
 
-        Check.That(log.Snapshot()).ContainsExactly(
-            "Sensitive check at show: event=false poll=error:InvalidOperationException proc=msedge.exe");
-        Check.That(log.Snapshot().Any(l => l.Contains(Marker, StringComparison.Ordinal))).IsFalse();
+        Check.That(log.Messages()).ContainsExactly(
+            "Sensitive check at show: event=false poll=error:InvalidOperationException proc=msedge.exe"
+            + " events=12 password=1 failures=2 own=3");
+        Check.That(log.Messages().Any(l => l.Contains(Marker, StringComparison.Ordinal))).IsFalse();
     }
 
     [Fact]
@@ -123,12 +147,13 @@ public class KeyboardSensitiveCheckTests
 
         try
         {
-            await Done(New(log, poll, timeBoxMs: 100).Begin("show", evt: false, "msedge.exe"));
+            await Done(New(log, poll, timeBoxMs: 100).Begin("show", evt: false, "msedge.exe", Counts));
 
             Check.WithCustomMessage("the verdict must not wait for the hanging read")
                 .That(Volatile.Read(ref readEnded)).IsEqualTo(0);
-            Check.That(log.Snapshot()).ContainsExactly(
-                "Sensitive check at show: event=false poll=timeout proc=msedge.exe");
+            Check.That(log.Messages()).ContainsExactly(
+                "Sensitive check at show: event=false poll=timeout proc=msedge.exe"
+                + " events=12 password=1 failures=2 own=3");
         }
         finally
         {
@@ -146,13 +171,15 @@ public class KeyboardSensitiveCheckTests
 
         try
         {
-            await Done(check.Begin("show", evt: false, "msedge.exe"));   // times out, the read is still hanging
-            await Done(check.Begin("hide", evt: false, "msedge.exe"));   // must not pile on a thread
+            await Done(check.Begin("show", evt: false, "msedge.exe", Counts));   // times out, read still hanging
+            await Done(check.Begin("hide", evt: false, "msedge.exe", Counts));   // must not pile on a thread
 
             Check.That(poll.Reads).IsEqualTo(1);
-            Check.That(log.Snapshot()).ContainsExactly(
-                "Sensitive check at show: event=false poll=timeout proc=msedge.exe",
-                "Sensitive check at hide: event=false poll=busy proc=msedge.exe");
+            Check.That(log.Messages()).ContainsExactly(
+                "Sensitive check at show: event=false poll=timeout proc=msedge.exe"
+                + " events=12 password=1 failures=2 own=3",
+                "Sensitive check at hide: event=false poll=busy proc=msedge.exe"
+                + " events=12 password=1 failures=2 own=3");
         }
         finally
         {
@@ -165,7 +192,7 @@ public class KeyboardSensitiveCheckTests
     {
         var log = new Capture();
 
-        await Done(New(log, poll: null).Begin("show", evt: true, "msedge.exe"));
+        await Done(New(log, poll: null).Begin("show", evt: true, "msedge.exe", Counts));
 
         Check.That(log.Snapshot()).IsEmpty();
     }

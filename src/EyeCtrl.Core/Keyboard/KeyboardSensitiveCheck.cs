@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Keyboard;
 
+using System.Globalization;
 using EyeCtrl.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -58,22 +59,25 @@ public sealed class KeyboardSensitiveCheck
 
     /// <summary>
     /// Starts one check and returns immediately. <paramref name="evt"/> is the detector's verdict in the same
-    /// moment — evidence to compare, never an input. The returned task completes after the line is logged and
-    /// never faults; a caller on a path that must not wait (the keyboard's show/hide) must not await it.
+    /// moment — evidence to compare, never an input. <paramref name="counts"/> is the detector's live
+    /// focus-event tally (F3a: a sitting's log is read while EyeCtrl runs, before the exit line exists). The
+    /// returned task completes after the line is logged and never faults; a caller on a path that must not wait
+    /// (the keyboard's show/hide) must not await it.
     /// </summary>
     /// <param name="at"><c>show</c> or <c>hide</c>.</param>
     /// <param name="evt">The event-driven verdict at this moment.</param>
     /// <param name="process">The foreground PROCESS name (never a title), or <c>unknown</c>.</param>
-    public Task Begin(string at, bool evt, string process)
+    /// <param name="counts">The live focus-event counters, or <see cref="FocusEventCounts.Unknown"/>.</param>
+    public Task Begin(string at, bool evt, string process, FocusEventCounts counts)
     {
         try
         {
             if (_logger is null || _poll is null)
                 return Task.CompletedTask;
             if (Interlocked.CompareExchange(ref _readInFlight, 1, 0) != 0)
-                return Report(at, evt, Busy, process);
+                return Report(at, evt, Busy, process, counts);
 
-            return Task.Run(() => CheckAsync(at, evt, process));
+            return Task.Run(() => CheckAsync(at, evt, process, counts));
         }
         catch (Exception)
         {
@@ -81,7 +85,7 @@ public sealed class KeyboardSensitiveCheck
         }
     }
 
-    private async Task CheckAsync(string at, bool evt, string process)
+    private async Task CheckAsync(string at, bool evt, string process, FocusEventCounts counts)
     {
         string polled;
         Task<bool?>? read = null;
@@ -108,15 +112,18 @@ public sealed class KeyboardSensitiveCheck
                 Interlocked.Exchange(ref _readInFlight, 0);
         }
 
-        Report(at, evt, polled, process);
+        Report(at, evt, polled, process, counts);
     }
 
-    private Task Report(string at, bool evt, string polled, string process)
+    private Task Report(string at, bool evt, string polled, string process, FocusEventCounts counts)
     {
         try
         {
-            _logger?.LogInformation("Sensitive check at {At}: event={Event} poll={Poll} proc={Proc}",
-                at, evt ? True : False, polled, process);
+            _logger?.LogInformation(
+                "Sensitive check at {At}: event={Event} poll={Poll} proc={Proc}"
+                + " events={Events} password={Password} failures={Failures} own={Own}",
+                at, evt ? True : False, polled, process,
+                Count(counts.Total), Count(counts.Password), Count(counts.Failures), Count(counts.Own));
         }
         catch (Exception)
         {
@@ -124,4 +131,8 @@ public sealed class KeyboardSensitiveCheck
         }
         return Task.CompletedTask;
     }
+
+    /// <summary>An unknown counter (-1) renders <c>-</c>, never a real zero that would read as "no events".</summary>
+    private static string Count(int value) =>
+        value < 0 ? "-" : value.ToString(CultureInfo.InvariantCulture);
 }

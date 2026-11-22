@@ -355,11 +355,19 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     /// <summary>
     /// D4: one read-only <c>IsPassword</c> poll at the keyboard's show/hide moment, logged beside the
-    /// event-driven verdict (<c>Sensitive check at show|hide: event=… poll=… proc=…</c>). Returns at once;
-    /// the poll runs off the UI thread under a 300 ms box. <b>It never changes the verdict</b> — evidence only.
+    /// event-driven verdict and the detector's LIVE focus-event counters
+    /// (<c>Sensitive check at show|hide: event=… poll=… proc=… events=… password=… failures=… own=…</c>).
+    /// The counters make "no events" and "every read throws" readable while EyeCtrl is still running.
+    /// Returns at once; the poll runs off the UI thread under a 300 ms box. <b>It never changes the verdict</b>
+    /// — evidence only.
     /// </summary>
-    public Task BeginSensitiveCheck(string at) =>
-        _sensitiveCheck.Begin(at, SensitiveNow(), ForegroundProcessName());
+    public Task BeginSensitiveCheck(string at)
+    {
+        FocusEventCounts counts = _sensitiveContext is IFocusEventDiagnostics diagnostics
+            ? diagnostics.GetFocusEventCounts()
+            : FocusEventCounts.Unknown;
+        return _sensitiveCheck.Begin(at, SensitiveNow(), ForegroundProcessName(), counts);
+    }
 
     public void Configure(int keyDwellMs, int cooldownMs)
     {

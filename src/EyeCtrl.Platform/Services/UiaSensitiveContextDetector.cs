@@ -33,15 +33,18 @@ using Microsoft.Extensions.Logging;
 /// <b>Diagnostics (the 21.11 "PW1 failed" sitting).</b> The verdict is a single <c>IsPassword</c> read per
 /// focus event and every fault degrades to <em>not sensitive</em>, so a missed password field used to leave no
 /// trace in the day log. Now every verdict <b>change</b> is logged at Information
-/// (<c>Sensitive context: on|off proc=&lt;name&gt; source=event|stop</c>), the first focus event of each process
-/// name says what arrived (<c>UIA focus event: first from proc=… isPassword=… controlType=…</c>), the first read
-/// failure of the session goes to <b>Warning</b> with the exception type and HRESULT only, and <see cref="Stop"/>
-/// writes one counter line (<c>UIA focus events: N (password P, read failures F, own O)</c>). They are
-/// <b>content-free by contract</b>: a process name, booleans, a control-type enum name, counts and an HRESULT —
-/// never a field's text, name, value or automation id.
+/// (<c>Sensitive context: on|off proc=&lt;name&gt; source=event|stop controlType=&lt;…&gt;</c>), the first focus event
+/// of each process name says what arrived (<c>UIA focus event: first from proc=… isPassword=… controlType=…</c>,
+/// with <c>isPassword=error</c> when that process's first read failed), the first read failure <b>per process</b>
+/// goes to <b>Warning</b> with the exception type and HRESULT only, and <see cref="Stop"/> writes one counter
+/// line (<c>UIA focus events: N (password P, read failures F, own O)</c>) — the same counters are also exposed
+/// live through <see cref="IFocusEventDiagnostics"/> for the keyboard's show/hide line. The verdict is
+/// published <b>before</b> any diagnostic read, and the control type is read only for a process's first event or
+/// a verdict change. They are <b>content-free by contract</b>: a process name, booleans, a control-type enum
+/// name, counts and an HRESULT — never a field's text, name, value or automation id.
 /// </para>
 /// </summary>
-public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
+public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector, IFocusEventDiagnostics
 {
     /// <summary>How long <see cref="Stop"/> waits for the removal before abandoning its thread.</summary>
     internal static readonly TimeSpan StopBudget = TimeSpan.FromSeconds(2);
@@ -69,13 +72,15 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
     // Every process name whose first focus event has been logged (the "did focus events arrive, and
     // from where" evidence). Concurrent: UI-Automation may deliver callbacks on more than one thread.
     private readonly ConcurrentDictionary<string, byte> _processesSeen = new(StringComparer.OrdinalIgnoreCase);
+    // Every process name whose first READ FAILURE has been logged at Warning (later ones are Debug). Per
+    // process, so an Edge whose reads all throw is visible live even after another app failed hours earlier.
+    private readonly ConcurrentDictionary<string, byte> _failureProcesses = new(StringComparer.OrdinalIgnoreCase);
     // The last FOREIGN process whose element was read: names the off at Stop, which has no event of its own.
     private string _lastProcess = "-";
     private int _focusEvents;
     private int _passwordEvents;
     private int _ownEvents;
     private int _readFailures;
-    private int _firstFailureLogged;
     private int _countLogged;
 
     /// <summary>Initializes the detector. Assigns fields only — no UI Automation call happens until <see cref="Start"/>.</summary>
@@ -125,10 +130,10 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
             _passwordEvents = 0;
             _ownEvents = 0;
             _readFailures = 0;
-            Volatile.Write(ref _firstFailureLogged, 0);
             Volatile.Write(ref _countLogged, 0);
             _lastProcess = "-";
             _processesSeen.Clear();
+            _failureProcesses.Clear();
             commands = EnsureHookThreadLocked();
         }
 
@@ -228,23 +233,34 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
     /// <c>true</c> is logged as the session's last transition (<c>source=stop</c>), naming the last
     /// foreign process that had focus.
     /// </summary>
-    private void ResetSensitive() =>
-        PublishSensitive(false, "stop", System.Threading.Volatile.Read(ref _lastProcess) ?? "-");
+    private void ResetSensitive()
+    {
+        if (!PublishSensitive(false))
+            return;   // already not sensitive: a Stop is not a transition
+        LogTransition(false, "stop", System.Threading.Volatile.Read(ref _lastProcess) ?? "-", "-");
+    }
 
     /// <summary>
-    /// Publishes a new verdict and logs a transition (D1) — exactly once per CHANGE. Content-free: the
-    /// state, a process name and a closed source id only. Logging must never fault the UIA callback
-    /// thread (or Stop), so the write is guarded.
+    /// Publishes a new verdict and returns whether it <b>changed</b>. The write happens before any diagnostic
+    /// read, so no diagnostic call can delay the verdict (the control type is read only when a line needs it).
     /// </summary>
-    private void PublishSensitive(bool value, string source, string process)
+    private bool PublishSensitive(bool value)
     {
         int published = value ? 1 : 0;
-        if (Interlocked.Exchange(ref _isSensitive, published) == published)
-            return;
+        return Interlocked.Exchange(ref _isSensitive, published) != published;
+    }
+
+    /// <summary>
+    /// D1: one line per verdict CHANGE. Content-free: the state, a process name, a closed source id and a
+    /// control-type enum name. Logging must never fault the UIA callback thread (or Stop), so it is guarded.
+    /// </summary>
+    private void LogTransition(bool value, string source, string process, string controlType)
+    {
         try
         {
-            _logger.LogInformation("Sensitive context: {State} proc={Proc} source={Source}",
-                value ? "on" : "off", process, source);
+            _logger.LogInformation(
+                "Sensitive context: {State} proc={Proc} source={Source} controlType={ControlType}",
+                value ? "on" : "off", process, source, controlType);
         }
         catch (Exception)
         {
@@ -252,10 +268,17 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
         }
     }
 
+    /// <inheritdoc />
+    public FocusEventCounts GetFocusEventCounts() => new(
+        System.Threading.Volatile.Read(ref _focusEvents),
+        System.Threading.Volatile.Read(ref _passwordEvents),
+        System.Threading.Volatile.Read(ref _readFailures),
+        System.Threading.Volatile.Read(ref _ownEvents));
+
     /// <summary>
     /// Writes D2's one counter line for the session, exactly once per Start/Stop pair. The total proves
     /// whether focus events arrived at all; the split says whether they were password reads, own-UI events
-    /// (never read), or failures.
+    /// (never read), or failures. The same counters are exposed live via <see cref="GetFocusEventCounts"/>.
     /// </summary>
     private void LogEventCount()
     {
@@ -263,12 +286,10 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
             return;
         try
         {
+            FocusEventCounts counts = GetFocusEventCounts();
             _logger.LogInformation(
                 "UIA focus events: {Total} (password {Password}, read failures {Failures}, own {Own})",
-                System.Threading.Volatile.Read(ref _focusEvents),
-                System.Threading.Volatile.Read(ref _passwordEvents),
-                System.Threading.Volatile.Read(ref _readFailures),
-                System.Threading.Volatile.Read(ref _ownEvents));
+                counts.Total, counts.Password, counts.Failures, counts.Own);
         }
         catch (Exception)
         {
@@ -319,10 +340,10 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
 
     /// <summary>
     /// The UI-Automation focus callback. Reads only what the verdict needs plus (for the diagnostics) the
-    /// process name and control type; the verdict path itself is unchanged — own-process focus retains
-    /// without reading <c>IsPassword</c>, a foreign element's flag is the new value, and any fault degrades
-    /// to not-sensitive. The decision and the logging live in <see cref="ObserveFocusEvent"/> and friends,
-    /// which take primitives, so they are exercised headless without a real <see cref="AutomationElement"/>.
+    /// process name; the verdict path itself is unchanged — own-process focus retains without reading
+    /// <c>IsPassword</c>, a foreign element's flag is the new value, and any fault degrades to not-sensitive.
+    /// The decision and the logging live in <see cref="ObserveFocusEvent"/> and friends, which take
+    /// primitives, so they are exercised headless without a real <see cref="AutomationElement"/>.
     /// </summary>
     internal void OnFocusChanged(object? sender, AutomationFocusChangedEventArgs e)
     {
@@ -331,6 +352,7 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
         // whatever has focus *now*, which for rapid focus flips could be a newer element; either way the
         // ~4 Hz dispatcher read converges to the latest cached value, and using `sender` avoids a round-trip.)
         // Reading it can still fault, so the whole read is guarded and degrades to not-sensitive.
+        string processName = "unknown";
         try
         {
             if (sender is not AutomationElement element)
@@ -344,30 +366,34 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
             // IsPassword — a cross-thread UIA read of our own UI from this callback is avoidable work, and a
             // fault there would wrongly clear an active sensitive context (review r1 F4).
             int processId = element.Current.ProcessId;
-            string processName = ResolveProcessName(processId);
+            processName = ResolveProcessName(processId);
             if (processId == OwnProcessId)
             {
-                ObserveFocusEvent(processId, processName, isPassword: null, controlTypeName: null);
+                ObserveFocusEvent(processId, processName, isPassword: null, readControlType: null);
                 return;
             }
 
             bool isPassword = element.Current.IsPassword;
-            ObserveFocusEvent(processId, processName, isPassword, ReadControlTypeName(element));
+            // F4: the control type is a second cross-process read; hand it over lazily so it only runs when a
+            // line will carry it (the process's first event, or a verdict change), after the verdict is out.
+            ObserveFocusEvent(processId, processName, isPassword, () => ReadControlTypeName(element));
         }
         catch (Exception ex)
         {
             // Any UIA read failure (element vanished mid-read, COM fault) ⇒ not sensitive.
-            ObserveReadFailure(ex);
+            ObserveReadFailure(processName, ex);
         }
     }
 
     /// <summary>
     /// Test seam (D1/D2): one focus event whose element facts were already read.
     /// <paramref name="isPassword"/> is <c>null</c> when it was deliberately not read (own process); the
-    /// verdict then RETAINS, exactly as <see cref="EvaluateFocusedElement"/> decides. Counts the event,
-    /// logs the process's first one, and publishes a verdict change.
+    /// verdict then RETAINS, exactly as <see cref="EvaluateFocusedElement"/> decides. The verdict is published
+    /// first; the process's first event and any verdict change are logged after it, and
+    /// <paramref name="readControlType"/> is invoked only when one of those lines needs the control type.
     /// </summary>
-    internal void ObserveFocusEvent(int processId, string processName, bool? isPassword, string? controlTypeName)
+    internal void ObserveFocusEvent(int processId, string processName, bool? isPassword,
+        Func<string>? readControlType)
     {
         Interlocked.Increment(ref _focusEvents);
         processName = string.IsNullOrWhiteSpace(processName) ? "unknown" : processName;
@@ -375,63 +401,90 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
         if (own)
             Interlocked.Increment(ref _ownEvents);
 
-        LogFirstEventForProcess(processName,
-            isPassword is null ? "noread" : isPassword.Value ? "true" : "false",
-            own || controlTypeName is null ? "-" : controlTypeName);
+        bool? decision = isPassword is null
+            ? null
+            : EvaluateFocusedElement(processId, OwnProcessId, isPassword.Value);
+        bool changed = decision.HasValue && PublishSensitive(decision.Value);   // the verdict is published FIRST
 
-        if (isPassword is null)
+        if (decision is { } value)
+        {
+            if (value)
+                Interlocked.Increment(ref _passwordEvents);
+            if (!own)
+                System.Threading.Volatile.Write(ref _lastProcess, processName);
+        }
+
+        // Diagnostics AFTER the verdict. The control type is a second cross-process UIA read, so it is taken
+        // only when a line will carry it: this process's first event, or a verdict change.
+        bool firstForProcess = MarkFirstEvent(processName);
+        if (!firstForProcess && !changed)
             return;
-        bool? decision = EvaluateFocusedElement(processId, OwnProcessId, isPassword.Value);
-        if (!decision.HasValue)
-            return;
-        if (!own)
-            System.Threading.Volatile.Write(ref _lastProcess, processName);
-        if (decision.Value)
-            Interlocked.Increment(ref _passwordEvents);
-        PublishSensitive(decision.Value, "event", processName);
+        string controlType = own || readControlType is null ? "-" : SafeReadControlType(readControlType);
+
+        if (firstForProcess)
+            LogFirstEvent(processName,
+                isPassword is null ? "noread" : isPassword.Value ? "true" : "false", controlType);
+        if (decision is { } published && changed)
+            LogTransition(published, "event", processName, controlType);
     }
 
     /// <summary>Test seam (D1/D2): a focus event whose sender was not a readable element.</summary>
     internal void ObserveNoElement()
     {
         Interlocked.Increment(ref _focusEvents);
-        LogFirstEventForProcess("unknown", "noread", "-");
-        PublishSensitive(false, "event", "-");
+        bool changed = PublishSensitive(false);           // the verdict first, as on the element path
+        if (MarkFirstEvent("unknown"))
+            LogFirstEvent("unknown", "noread", "-");
+        if (changed)
+            LogTransition(false, "event", "-", "-");
     }
 
     /// <summary>
-    /// Test seam (D3): a focus event whose element read faulted. The FIRST failure of the session is a
-    /// Warning with the exception type and HRESULT only — never the message, which a provider could fill
-    /// with content; later ones stay at Debug and are counted. Degrades to not-sensitive as before.
+    /// Test seam (D3/F3b): a focus event whose element read faulted. The FIRST failure <b>of that process</b>
+    /// is a Warning with the exception type and HRESULT only — never the message, which a provider could fill
+    /// with content; later failures of the same process stay at Debug and are counted. That process's
+    /// first-event line says <c>isPassword=error</c>, so "every Edge read throws" is visible live. Degrades to
+    /// not-sensitive as before.
     /// </summary>
-    internal void ObserveReadFailure(Exception exception)
+    /// <param name="processName">The focused process, or <c>unknown</c> when the process-id read itself threw.</param>
+    /// <param name="exception">The fault; only its base type name and HRESULT are logged.</param>
+    internal void ObserveReadFailure(string processName, Exception exception)
     {
         Interlocked.Increment(ref _focusEvents);
         Interlocked.Increment(ref _readFailures);
+        processName = string.IsNullOrWhiteSpace(processName) ? "unknown" : processName;
+        bool changed = PublishSensitive(false);           // the verdict first, as on the element path
+
+        if (MarkFirstEvent(processName))
+            LogFirstEvent(processName, "error", "-");
 
         var actual = exception.GetBaseException();
         string type = actual.GetType().Name;
         int hresult = actual.HResult;
         try
         {
-            if (Interlocked.Exchange(ref _firstFailureLogged, 1) == 0)
-                _logger.LogWarning("UIA focus read failed: type={Type} hresult=0x{HResult:X8}", type, hresult);
+            if (_failureProcesses.TryAdd(processName, 0))
+                _logger.LogWarning("UIA focus read failed: proc={Proc} type={Type} hresult=0x{HResult:X8}",
+                    processName, type, hresult);
             else
-                _logger.LogDebug("UIA focus read failed again: type={Type} hresult=0x{HResult:X8}", type, hresult);
+                _logger.LogDebug("UIA focus read failed again: proc={Proc} type={Type} hresult=0x{HResult:X8}",
+                    processName, type, hresult);
         }
         catch (Exception)
         {
             // Logging must never fault the UIA callback thread.
         }
 
-        PublishSensitive(false, "event", "-");
+        if (changed)
+            LogTransition(false, "event", "-", "-");
     }
 
-    /// <summary>D2: the first focus event of each process name, once per session.</summary>
-    private void LogFirstEventForProcess(string processName, string isPassword, string controlType)
+    /// <summary>D2: records a process name as seen; true when this is its first event of the session.</summary>
+    private bool MarkFirstEvent(string processName) => _processesSeen.TryAdd(processName, 0);
+
+    /// <summary>D2: the first event of one process name, once per session.</summary>
+    private void LogFirstEvent(string processName, string isPassword, string controlType)
     {
-        if (!_processesSeen.TryAdd(processName, 0))
-            return;
         try
         {
             _logger.LogInformation(
@@ -441,6 +494,22 @@ public sealed class UiaSensitiveContextDetector : ISensitiveContextDetector
         catch (Exception)
         {
             // Logging must never fault the UIA callback thread.
+        }
+    }
+
+    /// <summary>
+    /// Invokes a deferred control-type read for a line that needs it, or <c>-</c>. A diagnostic read must
+    /// never clear a good verdict (the verdict is already published at this point).
+    /// </summary>
+    private static string SafeReadControlType(Func<string> read)
+    {
+        try
+        {
+            return read();
+        }
+        catch (Exception)
+        {
+            return "-";
         }
     }
 

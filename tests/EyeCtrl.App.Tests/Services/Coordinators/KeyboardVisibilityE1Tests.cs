@@ -48,9 +48,11 @@ public class KeyboardVisibilityE1Tests
         public string? ReadFocusedTextTail(int maxChars) => null;
     }
 
-    private sealed class FakeSensitive : ISensitiveContextDetector
+    private sealed class FakeSensitive : ISensitiveContextDetector, IFocusEventDiagnostics
     {
         public bool IsSensitiveActive { get; set; }
+        public FocusEventCounts Counts { get; set; } = new(5, 1, 0, 2);
+        public FocusEventCounts GetFocusEventCounts() => Counts;
         public void Start() { }
         public void Stop() { }
         public void Dispose() { }
@@ -133,8 +135,10 @@ public class KeyboardVisibilityE1Tests
         KeyboardCoordinator.RecordVisibilityE1(vm, visible: false, wasVisible: true, "top", "edge-close");
         await WaitFor(() => log.Lines().Any(l => l.StartsWith("Sensitive check at hide", StringComparison.Ordinal)));
 
-        Check.That(log.Lines()).Contains("Sensitive check at show: event=true poll=false proc=WINWORD.exe");
-        Check.That(log.Lines()).Contains("Sensitive check at hide: event=true poll=false proc=WINWORD.exe");
+        Check.That(log.Lines()).Contains(
+            "Sensitive check at show: event=true poll=false proc=WINWORD.exe events=5 password=1 failures=0 own=2");
+        Check.That(log.Lines()).Contains(
+            "Sensitive check at hide: event=true poll=false proc=WINWORD.exe events=5 password=1 failures=0 own=2");
         Check.That(poll.Reads).IsEqualTo(2);
     }
 

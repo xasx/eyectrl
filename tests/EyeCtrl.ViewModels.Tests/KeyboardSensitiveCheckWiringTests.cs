@@ -19,7 +19,7 @@ public class KeyboardSensitiveCheckWiringTests
     private sealed class Capture : ILogger<KeyboardViewModel>
     {
         private readonly object _gate = new();
-        private readonly List<string> _lines = new();
+        private readonly List<(LogLevel Level, string Message)> _lines = new();
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -28,15 +28,19 @@ public class KeyboardSensitiveCheckWiringTests
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            lock (_gate) _lines.Add(formatter(state, exception));
+            lock (_gate) _lines.Add((logLevel, formatter(state, exception)));
         }
 
-        public string[] Snapshot() { lock (_gate) return _lines.ToArray(); }
+        public (LogLevel Level, string Message)[] Snapshot() { lock (_gate) return _lines.ToArray(); }
+
+        public string[] Messages() => Snapshot().Select(e => e.Message).ToArray();
     }
 
-    private sealed class FakeSensitive : ISensitiveContextDetector
+    private sealed class FakeSensitive : ISensitiveContextDetector, IFocusEventDiagnostics
     {
         public bool IsSensitiveActive { get; set; }
+        public FocusEventCounts Counts { get; set; } = new(7, 1, 0, 3);
+        public FocusEventCounts GetFocusEventCounts() => Counts;
         public void Start() { }
         public void Stop() { }
         public void Dispose() { }
@@ -66,7 +70,7 @@ public class KeyboardSensitiveCheckWiringTests
             sensitiveContext: sensitive, sensitivePoll: poll);
 
     [Fact]
-    public async Task AShowCheck_LogsTheEventVerdictThePollAndTheForegroundProcess()
+    public async Task AShowCheck_LogsTheEventVerdictThePollTheProcessAndTheLiveCounts()
     {
         var log = new Capture();
         var vm = New(log, new FakeSensitive { IsSensitiveActive = true }, new FakePoll { Read = () => false });
@@ -74,8 +78,10 @@ public class KeyboardSensitiveCheckWiringTests
         await vm.BeginSensitiveCheck("show").WaitAsync(TimeSpan.FromSeconds(30),
             TestContext.Current.CancellationToken);
 
-        Check.That(log.Snapshot()).ContainsExactly(
-            "Sensitive check at show: event=true poll=false proc=WINWORD.exe");
+        Check.That(log.Messages()).ContainsExactly(
+            "Sensitive check at show: event=true poll=false proc=WINWORD.exe events=7 password=1 failures=0 own=3");
+        Check.WithCustomMessage("The day file starts at Information: a Debug line is a no-show at the sitting.")
+            .That(log.Snapshot().All(l => l.Level == LogLevel.Information)).IsTrue();
     }
 
     [Fact]

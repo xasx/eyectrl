@@ -77,6 +77,15 @@ public class NoteBadgeTests
 
     private static void ArmThenHold(NoteManager manager, PhysicalPoint centre, long startUs)
     {
+        // D: a Display note's row cell is live only after a look reveals the row.
+        var resting = manager.ActiveNotes.FirstOrDefault(n => n.State == NoteState.Display
+            && !manager.IsRevealedForTest(n.Id)
+            && (NoteTestBench.CellCentre(manager, n.Id, 0) == centre
+                || NoteTestBench.CellCentre(manager, n.Id, 1) == centre
+                || NoteTestBench.CellCentre(manager, n.Id, 3) == centre));
+        if (resting is not null)
+            startUs = NoteTestBench.Reveal(manager, resting.Id, startUs);
+
         for (long t = startUs; t <= startUs + 200_000; t += 100_000)
             Sample(manager, new PhysicalPoint(centre.X + 10_000, centre.Y), t);
         for (long t = startUs + 300_000; t <= startUs + 1_200_000; t += 100_000)
@@ -119,9 +128,10 @@ public class NoteBadgeTests
         window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
         window.SetState(NoteState.Display);
         window.SetTextSize(textSize);
-        var card = new Size(
-            NoteLayout.CardWidthDip(textSize),
-            NoteLayout.CardHeightDip(textSize, window.MeasureTextHeightDip(text), NoteTestBench.WorkArea.Height));
+        var card = NoteLayout.DisplayReservedSize(
+            window.MeasureTextWidthDip(text, textSize),
+            Math.Min(window.MeasureTextHeightDip(text, textSize),
+                NoteLayout.TextCapHeightDip(NoteTestBench.WorkArea.Height, textSize)));
         var placement = NoteLayout.WithTagClearance(
             NoteLayout.Place(anchor, side, card, NoteTestBench.WorkArea, Array.Empty<Rect>(), DpiHelper.ScaleX)!,
             textSize);
@@ -447,15 +457,12 @@ public class NoteBadgeTests
                 .That(tag.Top).IsCloseTo(card.Top - NoteLayout.TagProtrusionDip(textSize), 1e-6);
             Check.WithCustomMessage($"{label}/{textSize}: the tag's height must straddle the edge")
                 .That(tag.Height).IsCloseTo(NoteLayout.TagHeightDip(textSize), 1e-6);
-            // AT the text-side end — inset from the corner the text side hugs (Left's text side
-            // is the card's right corner; every other side the left corner). A tag parked
-            // anywhere else along the top edge — e.g. over the text column's empty top band,
-            // where no drawn thing lives — must fail here even though it hits no rect.
+            // AT the text-side corner. D (sitting 11): the text always starts at the card's
+            // top-LEFT corner (the text corner), on every side, so the tag always sits there.
             double inset = NoteLayout.TagCornerInsetDip;
-            bool textOnRight = placement.Side == NoteSide.Left;
             Check.WithCustomMessage($"{label}/{textSize}: the tag must sit {inset} DIP from the "
                     + "text-side corner")
-                .That(textOnRight ? card.Right - tag.Right : tag.Left - card.Left).IsCloseTo(inset, 1e-6);
+                .That(tag.Left - card.Left).IsCloseTo(inset, 1e-6);
 
             // The drawn text: the editor is the TextBlock in the content border's stack.
             var stack = (StackPanel)canvas.Children.OfType<Border>().First(b => b.Child is StackPanel).Child;
@@ -465,25 +472,16 @@ public class NoteBadgeTests
             Check.WithCustomMessage($"{label}/{textSize}: the tag must not overlap the drawn text")
                 .That(tag.IntersectsWith(textRect)).IsFalse();
 
-            // The occupied hit cells only, at the placement's own grown coordinates.
-            foreach (var slot in NoteLayout.SlotsFor(NoteState.Display))
+            // The occupied hit cells of the REVEALED row (D4), at the placement's own grown
+            // coordinates.
+            foreach (var slot in NoteLayout.DrawnSlotsFor(NoteState.Display, revealed: true))
             {
-                var (cx, cy) = NoteLayout.ButtonCenter(placement, slot);
+                var (cx, cy) = NoteLayout.ButtonCenter(placement, slot, NoteState.Display);
                 var cell = new Rect(cx - (LayoutConstants.NoteCellDip / 2.0), cy - (LayoutConstants.NoteCellDip / 2.0),
                     LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
                 Check.WithCustomMessage($"{label}/{textSize}: the tag must not overlap hit cell {slot}")
                     .That(tag.IntersectsWith(cell)).IsFalse();
             }
-
-            // The 30 DIP gap strip between the text column and the control column, full card
-            // height — window-relative through the placement's own rect.
-            var gap = placement.Side == NoteSide.Left
-                ? new Rect(card.Right - LayoutConstants.NoteColumnWidthDip - NoteLayout.TextColumnGapDip, card.Top,
-                    NoteLayout.TextColumnGapDip, card.Height)
-                : new Rect(card.Left + NoteLayout.TextColumnWidthDip(textSize), card.Top,
-                    NoteLayout.TextColumnGapDip, card.Height);
-            Check.WithCustomMessage($"{label}/{textSize}: the tag must not overlap the 30 DIP gap")
-                .That(tag.IntersectsWith(gap)).IsFalse();
 
             // And never the tail polygon — the tail is the look-at-me affordance; a
             // control-looking thing on it would promise an action on the anchor.
@@ -664,10 +662,8 @@ public class NoteBadgeTests
             var placement = manager.PlacementForTest(a)!;
             var tagScreen = TagScreenRect(placement, NoteLayout.TagRect(placement, textSize));
 
-            Check.WithCustomMessage("the tag must never enter LiveTargetRects — it is not a dwell target")
-                .That(manager.LiveTargetRects().Any(r =>
-                    r.X < tagScreen.X + tagScreen.Width && r.X + r.Width > tagScreen.X
-                    && r.Y < tagScreen.Y + tagScreen.Height && r.Y + r.Height > tagScreen.Y)).IsFalse();
+            Check.WithCustomMessage("the tag must never BE one of LiveTargetRects — it is not a dwell target")
+                .That(manager.LiveTargetRects().Any(r => SameRect(r, tagScreen))).IsFalse();
 
             // The tag rect rides ABOVE the card. The inner half legitimately rides the card AND
             // the first column cell (the straddle is the point) and the protruding half may

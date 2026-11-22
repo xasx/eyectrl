@@ -180,7 +180,7 @@ public class NoteGateCensusTests
         ["modBarVm"] = "suspended — shows only with the action menu, a suspending state",
         ["restartNoticeTargetRects"] = "suspended — the card is a RecomputeSuspension reason",
         ["externalTargetRects"] = "external — WindowFromPoint handles third-party windows (review-02 m-3: never an occluder)",
-        ["noteTargetRects"] = "notes — the manager's own detector snapshot",
+        ["noteTargetRects"] = "notes — the manager's own detector snapshot (card cells, the chip's Undo cell and the at-rest reveal target; D7: the reveal target is a note gaze consumer gated like ✎)",
         // Infrastructure, not gaze sources.
         ["settings"] = "infrastructure — the toolbar settings trigger",
         ["overlays"] = "infrastructure — the lazy keyboard-bounds read",

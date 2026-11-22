@@ -38,9 +38,18 @@ public class NoteChipTailTests
         manager.Receive(new GazeCursorMovedMessage(new GazeFrame(point, tUs, IsInGap: false)));
 
     /// <summary>Arms a control (200 ms outside its circle, past the 150 ms release) and then
-    /// holds it for 900 ms — enough for a fresh 600 ms dwell to complete.</summary>
+    /// holds it for 900 ms — enough for a fresh 600 ms dwell to complete. D: a Display note's
+    /// row cell is live only after a look reveals the row.</summary>
     private static void ArmThenHold(NoteManager manager, PhysicalPoint centre, long startUs)
     {
+        var resting = manager.ActiveNotes.FirstOrDefault(n => n.State == NoteState.Display
+            && !manager.IsRevealedForTest(n.Id)
+            && (NoteTestBench.CellCentre(manager, n.Id, 0) == centre
+                || NoteTestBench.CellCentre(manager, n.Id, 1) == centre
+                || NoteTestBench.CellCentre(manager, n.Id, 3) == centre));
+        if (resting is not null)
+            startUs = NoteTestBench.Reveal(manager, resting.Id, startUs);
+
         for (long t = startUs; t <= startUs + 200_000; t += 100_000)
             Sample(manager, new PhysicalPoint(centre.X + 10_000, centre.Y), t);
         for (long t = startUs + 300_000; t <= startUs + 1_200_000; t += 100_000)

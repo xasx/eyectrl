@@ -36,11 +36,13 @@ public class Review01ProbeTests
         window.SetState(NoteState.Edit);
         window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
         window.SetState(NoteState.Display);
+        // D1: at rest the row is not drawn; D4: the look reveals it.
+        window.SetRevealed(true);
 
         var visible = Blocks((Canvas)window.Content)
             .Where(t => t.Visibility == Visibility.Visible)
             .Select(t => t.Text).ToList();
-        Check.WithCustomMessage("visible texts after Edit->Display: " + string.Join("|", visible))
+        Check.WithCustomMessage("visible texts after Edit->Display(revealed): " + string.Join("|", visible))
             .That(visible).Contains("✕", "✎", "↕");
     }
 

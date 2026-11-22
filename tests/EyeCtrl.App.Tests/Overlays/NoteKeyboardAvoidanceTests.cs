@@ -488,6 +488,8 @@ public class NoteKeyboardAvoidanceTests
 
             // Pick the note up for a Move: the other side is then judged over the avoid set.
             long present = 0;
+            // D: reveal the Display row, then dwell ↕.
+            present = NoteTestBench.Reveal(manager, id, present);
             present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present);
             Check.That(manager.IsMoving).IsTrue();
 

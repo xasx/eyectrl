@@ -95,15 +95,16 @@ public class NoteMoveFeedbackTests
             Check.WithCustomMessage("the hint plate must end inside the card's bottom border")
                 .That(local.Bottom).IsStrictlyLessThan(card.Bottom);
 
-            // The hint owns no dwell target and never reaches the control column: neither Move
-            // cell may intersect it, whatever side the card is on.
+            // The hint owns no dwell target and never reaches the Move row: neither cell may
+            // overlap its plate (the shared bottom/top edge is not an overlap).
             foreach (var slot in NoteLayout.SlotsFor(NoteState.Move))
             {
-                var (cx, cy) = NoteLayout.ButtonCenter(placement, slot);
+                var (cx, cy) = NoteLayout.ButtonCenter(placement, slot, NoteState.Move);
                 var cell = new Rect(cx - (LayoutConstants.NoteCellDip / 2), cy - (LayoutConstants.NoteCellDip / 2),
                     LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
+                var hit = Rect.Intersect(local, cell);
                 Check.WithCustomMessage($"the hint must leave the Move control in slot {slot} untouched")
-                    .That(local.IntersectsWith(cell)).IsFalse();
+                    .That(!hit.IsEmpty && hit.Width > 0.5 && hit.Height > 0.5).IsFalse();
             }
         }
         finally
@@ -199,15 +200,23 @@ public class NoteMoveFeedbackTests
 
             foreach (var slot in NoteLayout.SlotsFor(NoteState.Move))
             {
-                var (cx, cy) = NoteLayout.ButtonCenter(manager.PlacementForTest(id)!, slot);
+                var (cx, cy) = NoteLayout.ButtonCenter(manager.PlacementForTest(id)!, slot, NoteState.Move);
                 var cell = new Rect(cx - (LayoutConstants.NoteCellDip / 2), cy - (LayoutConstants.NoteCellDip / 2),
                     LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
+                // Positive-area overlap: the plate's bottom edge IS the row's top edge (option C:
+                // the hint sits directly above the row), and WPF's IntersectsWith is
+                // edge-inclusive.
+                var hit = Rect.Intersect(local, cell);
                 Check.WithCustomMessage($"at {textSize} DIP the hint must leave slot {slot} untouched")
-                    .That(local.IntersectsWith(cell)).IsFalse();
+                    .That(!hit.IsEmpty && hit.Width > 0.5 && hit.Height > 0.5).IsFalse();
             }
 
-            Check.WithCustomMessage($"the German hint must wrap to at most two lines at {textSize} DIP")
-                .That(lines).IsLessOrEqualThan(2);
+            Check.WithCustomMessage($"the hint text must fit its plate (not clipped) at {textSize} DIP")
+                .That(text.DesiredSize.Height)
+                .IsLessOrEqualThan(box.Height - (2 * NoteLayout.MoveHintMarginDip) + 0.5);
+            Check.WithCustomMessage($"the plate must be exactly the measured line block at {textSize} DIP")
+                .That(box.Height)
+                .IsCloseTo(text.DesiredSize.Height + (2 * NoteLayout.MoveHintMarginDip), 0.5);
         }
         finally
         {
@@ -232,26 +241,33 @@ public class NoteMoveFeedbackTests
             Check.WithCustomMessage("a Display note carries no Move hint")
                 .That(window.MoveHintForTest).IsNull();
 
-            // The two cells the Move set re-registers (⇄ Other side, ⊘ Cancel) are the Display
-            // set's slots 0 and 1: pick-up must leave their drawn and registered centres alone.
-            var before = new[] { NoteTestBench.CellCentre(manager, id, 0), NoteTestBench.CellCentre(manager, id, 1) };
-
+            // The two cells the Move set re-registers (⇄ Other side, ⊘ Cancel) are the row's
+            // slots 0 and 1. D6 (option C): the Move card grows downward for the hint, so the
+            // row — and its cells — move down with it; the TEXT CORNER stays where it was, and
+            // the drawn disc and the registered cell must agree.
+            var displayCard = manager.DrawnCardForTest(id);
             present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present);
             Check.That(manager.IsMoving).IsTrue();
             Check.That(window.MoveHintForTest).IsNotNull();
 
             var placement = manager.PlacementForTest(id)!;
+            Check.WithCustomMessage("the Move card keeps the Display card's top-left")
+                .That((placement.Card.Left, placement.Card.Top))
+                .IsEqualTo((displayCard.Left, displayCard.Top));
             var buttons = window.ButtonsForTest();
             Span<(string Suffix, int Slot)> moveSet = [("otherside", 0), ("cancel", 1)];
             foreach (var (suffix, slot) in moveSet)
             {
-                var (cx, cy) = NoteLayout.ButtonCenter(placement, slot);
+                var (cx, cy) = NoteLayout.ButtonCenter(placement, slot, NoteState.Move);
                 var ellipse = buttons[$"{id}:{suffix}"];
-                Check.WithCustomMessage($"the drawn {suffix} disc must sit on its cell centre")
+                Check.WithCustomMessage($"the drawn {suffix} disc must sit on its row cell centre")
                     .That(Canvas.GetLeft(ellipse) + (ellipse.Width / 2)).IsCloseTo(cx, 1e-6);
                 Check.That(Canvas.GetTop(ellipse) + (ellipse.Height / 2)).IsCloseTo(cy, 1e-6);
-                Check.WithCustomMessage($"the registered {suffix} cell must not move on pick-up")
-                    .That(NoteTestBench.CellCentre(manager, id, slot)).IsEqualTo(before[slot]);
+                var drawnPhysical = new PhysicalPoint(
+                    DpiHelper.LogicalToPhysicalX(placement.Window.Left + cx),
+                    DpiHelper.LogicalToPhysicalY(placement.Window.Top + cy));
+                Check.WithCustomMessage($"the registered {suffix} cell must sit on the drawn disc")
+                    .That(NoteTestBench.CellCentre(manager, id, slot)).IsEqualTo(drawnPhysical);
             }
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
@@ -631,7 +647,7 @@ public class NoteMoveFeedbackTests
                 "NOTE-MOVE end=placed ms=50000 settles=5 holds=2 moves=1",
             };
             Check.WithCustomMessage($"the settle/move-end lines must appear in order, one each:\n  {string.Join("\n  ", lines)}")
-                .That(lines).IsEqualTo(expected);
+                .That(lines.Where(l => !l.StartsWith("NOTE-REVEAL", StringComparison.Ordinal))).IsEqualTo(expected);
 
             Check.WithCustomMessage("no line may carry note text")
                 .That(lines.Count(l => l.Contains("saved text", StringComparison.Ordinal))).IsEqualTo(0);
@@ -696,7 +712,7 @@ public class NoteMoveFeedbackTests
             };
 
             Check.WithCustomMessage($"the end lines must match the sessions:\n  {string.Join("\n  ", lines)}")
-                .That(lines).IsEqualTo(expected);
+                .That(lines.Where(l => !l.StartsWith("NOTE-REVEAL", StringComparison.Ordinal))).IsEqualTo(expected);
 
             Check.WithCustomMessage("no line may carry note text")
                 .That(lines.Count(l => l.Contains("saved text", StringComparison.Ordinal))).IsEqualTo(0);
@@ -809,9 +825,18 @@ public class NoteMoveFeedbackTests
     }
 
     /// <summary>Looks away past every control for 200 ms (the leave-before-arm latch), then holds
-    /// a point for <paramref name="ms"/>; the hold feeds the settle tracker as well.</summary>
+    /// a point for <paramref name="ms"/>; the hold feeds the settle tracker as well. D: a hold on
+    /// a resting Display note's row cell reveals the row first (the reveal is not an action).</summary>
     private static long HoldGaze(NoteManager manager, PhysicalPoint point, long present, int ms = 1200)
     {
+        var resting = manager.ActiveNotes.FirstOrDefault(n => n.State == NoteState.Display
+            && !manager.IsRevealedForTest(n.Id)
+            && (NoteTestBench.CellCentre(manager, n.Id, 0) == point
+                || NoteTestBench.CellCentre(manager, n.Id, 1) == point
+                || NoteTestBench.CellCentre(manager, n.Id, 3) == point));
+        if (resting is not null)
+            present = NoteTestBench.Reveal(manager, resting.Id, present);
+
         var away = new PhysicalPoint(point.X + 10_000, point.Y);
         for (var t = present; t <= present + 220_000; t += 33_000)
             manager.OnGazeMoved(away, t);
@@ -830,15 +855,16 @@ public class NoteMoveFeedbackTests
     }
 
     /// <summary>The placement the manager's own closure derives for an anchor: the same
-    /// <see cref="NoteLayout.Place"/> call <c>FinishMove</c> makes, with the card size measured
-    /// from the note's text.</summary>
+    /// <see cref="NoteLayout.Place"/> call <c>FinishMove</c> makes, with the RESERVED Display card
+    /// size (D2) measured from the note's text.</summary>
     private static NotePlacement ExpectedPlacement(NoteManager manager, string id, PhysicalPoint anchorPhysical)
     {
         var note = manager.ActiveNotes.First(n => n.Id == id);
-        double textHeight = manager.WindowForTest(id)!.MeasureTextHeightDip(note.Text);
-        var card = new Size(
-            NoteLayout.CardWidthDip(TextSize),
-            NoteLayout.CardHeightDip(TextSize, textHeight, NoteTestBench.WorkArea.Height));
+        var window = manager.WindowForTest(id)!;
+        double textHeight = Math.Min(
+            window.MeasureTextHeightDip(note.Text),
+            NoteLayout.TextCapHeightDip(NoteTestBench.WorkArea.Height, TextSize));
+        var card = NoteLayout.DisplayReservedSize(window.MeasureTextWidthDip(note.Text), textHeight);
         var placement = NoteLayout.Place(anchorPhysical, note.Side, card, NoteTestBench.WorkArea,
             Array.Empty<Rect>(), DpiHelper.ScaleX)!;
         return NoteLayout.WithTagClearance(placement, TextSize);

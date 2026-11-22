@@ -159,10 +159,29 @@ public class NoteWindowNameTests
 
         AssertVisibleButtons(window, expectEditSet: true);
         window.SetState(NoteState.Display);
+        // D (sitting 11): a Display note at rest draws NO control glyphs at all; the look
+        // reveals the row and its ✎ ↕ ✕.
+        AssertNoControlGlyphs(window);
+        window.SetRevealed(true);
         AssertVisibleButtons(window, expectEditSet: false);
         window.SetState(NoteState.Edit);
         window.SetKeyboardControlVisible(true);
         AssertVisibleButtons(window, expectEditSet: true);
+    }
+
+    private static readonly string[] AllControlGlyphs = ["✓", "⌨", "↩", "✕", "✎", "↕", "↺"];
+
+    /// <summary>D1: at rest there is not one visible control glyph — only the text, the tag and
+    /// the tail.</summary>
+    private static void AssertNoControlGlyphs(NoteWindow window)
+    {
+        var visible = TextBlocks((Canvas)window.Content)
+            .Where(t => t.Visibility == Visibility.Visible)
+            .Select(t => t.Text)
+            .ToList();
+        Check.WithCustomMessage("a Display note at rest must draw no control glyph, got: "
+                + string.Join("|", visible))
+            .That(visible.Any(g => AllControlGlyphs.Contains(g))).IsFalse();
     }
 
     private static void AssertVisibleButtons(NoteWindow window, bool expectEditSet)

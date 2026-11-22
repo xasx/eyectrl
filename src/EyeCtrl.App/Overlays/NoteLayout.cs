@@ -188,24 +188,20 @@ internal static class NoteLayout
     }
 
     /// <summary>
-    /// The drawn tag's rect in window-relative coordinates (fixup-04: sized from the body text
-    /// size — the numeral's 0.75× font sets the height, and the window grew for the matching
-    /// protrusion): straddling the card's top edge at the TEXT-side end — the end away from the
-    /// control column, which hugs the edge away from the tail — inset from the corner. The
-    /// in-card depth stays fixed at <see cref="TagInsetDepthDip"/>, so the first text line stays
-    /// clear whatever the height; the extra height of a larger text size rides above the edge.
+    /// The drawn tag's rect in window-relative coordinates: straddling the card's top edge at
+    /// the TEXT-side end — since D (sitting 11) the text always starts at the card's top-left
+    /// corner (the text corner), so the tag always sits there, inset from the corner. The in-card
+    /// depth stays fixed at <see cref="TagInsetDepthDip"/>, so the first text line stays clear
+    /// whatever the height; the extra height of a larger text size rides above the edge.
     /// On a Below placement the tail shares the top edge, so the tag slides along it toward the
-    /// column (never over it) until it clears the tail polygon's base.
+    /// card's other end (never over the edge) until it clears the tail polygon's base.
     /// </summary>
     public static Rect TagRect(NotePlacement placement, double textSizeDip)
     {
         var card = RectLocal(placement);
-        bool textOnRight = placement.Side == NoteSide.Left;
         double width = TagWidthDip(textSizeDip);
         double height = TagHeightDip(textSizeDip);
-        double x = textOnRight
-            ? card.Right - TagCornerInsetDip - width
-            : card.Left + TagCornerInsetDip;
+        double x = card.Left + TagCornerInsetDip;
         double y = card.Top - TagProtrusionDip(textSizeDip);
 
         if (placement.Side == NoteSide.Below && TailTriangle(placement) is { } tri)
@@ -216,10 +212,10 @@ internal static class NoteLayout
             bool overlaps = x < baseRight && x + width > baseLeft;
             if (overlaps)
             {
-                // Slide toward the column so the tag's LEFT edge clears the base's right end.
+                // Slide toward the card's other end so the tag's LEFT edge clears the base's end,
+                // and never past the card's inset corner.
                 x = baseRight;
-                // Never over the column: the tag stops short of the column strip.
-                double limit = card.Right - LayoutConstants.NoteColumnWidthDip - width;
+                double limit = card.Right - TagCornerInsetDip - width;
                 if (x > limit) x = limit;
             }
         }
@@ -229,10 +225,11 @@ internal static class NoteLayout
     /// <summary>
     /// The per-state slot table (P4 D3; the Edit row is K2a). A slot IS a control-table row: slot
     /// 0 and 1 are adjacent, slot 2 is the full empty gap cell (P2 D8's "one cell apart", P1 D7's
-    /// "Discard one slot from Done"), and slot 3 is the bottom row. Display occupies rows 0, 1 and
-    /// 3; Edit's three controls occupy the SAME slots (0, 1, 3) but draw and register in one ROW
+    /// "Discard one slot from Done"), and slot 3 is the bottom row. Display occupies cells 0, 1 and
+    /// 3 of its four-cell ROW under the text when revealed (D: at rest it has no controls); Edit's
+    /// three controls occupy the SAME slots (0, 1, 3) but draw and register in its own centred ROW
     /// of three cells under the text (<see cref="ButtonCenter(NotePlacement, int, NoteState)"/>);
-    /// Move occupies rows 0 and 1; a chip occupies row 0 only (the Undo cell).
+    /// Move occupies row cells 0 and 1; a chip occupies column row 0 only (the Undo cell).
     /// </summary>
     public static IReadOnlyList<int> SlotsFor(NoteState state) => state switch
     {
@@ -241,6 +238,15 @@ internal static class NoteLayout
         NoteState.PendingUndo => [0],
         _ => Array.Empty<int>(),
     };
+
+    /// <summary>
+    /// The slots a note ACTUALLY draws and registers in its current presentation (D1): a Display
+    /// note at rest carries NO controls — only its reveal target — and every other presentation
+    /// draws its <see cref="SlotsFor"/> set. The window's visibility pass and the manager's chrome
+    /// zones both read this, so a control that is not drawn cannot be registered or published.
+    /// </summary>
+    public static IReadOnlyList<int> DrawnSlotsFor(NoteState state, bool revealed) =>
+        state == NoteState.Display && !revealed ? Array.Empty<int>() : SlotsFor(state);
 
     /// <summary>
     /// Window-relative centre of hit cell #<paramref name="slot"/> for a card on
@@ -271,19 +277,23 @@ internal static class NoteLayout
     public static (double X, double Y) ButtonCenter(NotePlacement placement, int slot) =>
         ButtonCenter(placement.Side, slot, placement.Card.Width, ExtraTopClearance(placement));
 
-    /// <summary>Window-relative centre of a control in <paramref name="state"/> (K2a): Display,
-    /// Move and the chips read the control COLUMN, exactly as before; Edit reads its own ROW of
-    /// three cells under the text (<see cref="EditCellCenter"/>), with the discard control
-    /// (slot 3 in the control table) in the row's third cell.</summary>
+    /// <summary>Window-relative centre of a control in <paramref name="state"/> (K2a, D): Edit
+    /// reads its own centred ROW of three cells under the text (<see cref="EditCellCenter"/>),
+    /// the chip reads the control COLUMN exactly as before, and Display (revealed) and Move read
+    /// the four-cell ROW under the text (<see cref="RowCellCenter"/>) — the column is gone from
+    /// every card presentation.</summary>
     public static (double X, double Y) ButtonCenter(NotePlacement placement, int slot, NoteState state) =>
-        state == NoteState.Edit
-            ? EditCellCenter(placement, EditCellForSlot(slot))
-            : ButtonCenter(placement, slot);
+        state switch
+        {
+            NoteState.Edit => EditCellCenter(placement, EditCellForSlot(slot)),
+            NoteState.PendingUndo => ButtonCenter(placement, slot),
+            _ => RowCellCenter(placement, slot),
+        };
 
     /// <summary>The drawn hit-cell row a control's slot maps to in <paramref name="state"/>
-    /// (K2a): in Edit the three controls occupy the row's cells 0, 1 and 2 (the discard control
-    /// is slot 3 of the control table but the third row cell), and every other state maps a slot
-    /// to the same column row.</summary>
+    /// (K2a, D): in Edit the three controls occupy the row's cells 0, 1 and 2 (the discard control
+    /// is slot 3 of the control table but the third row cell), the chip's Undo is column row 0,
+    /// and Display/Move map a slot to the same cell index in the four-cell row.</summary>
     public static int CellRowFor(NoteState state, int slot) =>
         state == NoteState.Edit ? EditCellForSlot(slot) : slot;
 
@@ -341,16 +351,128 @@ internal static class NoteLayout
     public static double TextCapHeightDip(double workAreaHeightDip, double textSize) =>
         Math.Min(workAreaHeightDip * 0.55, 12 * TextLineHeightDip(textSize));
 
-    /// <summary>
-    /// The card height in DIP (P4 D2): the larger of the control column (the floor - the cells
-    /// must always fit) and the measured text height plus padding, never past the cap.
-    /// </summary>
+    /// <summary>The pre-D Display card height in DIP (P4 D2, the four-row column): the larger of
+    /// the control column (the floor - the cells must always fit) and the measured text height
+    /// plus padding, never past the cap. Production Display placements use
+    /// <see cref="DisplayReservedSize"/> since D (sitting 11); this stays for the pure layout
+    /// tables and the historical A2/K2a pins.</summary>
     public static double CardHeightDip(double textSize, double measuredTextHeightDip, double workAreaHeightDip)
     {
         double cap = TextCapHeightDip(workAreaHeightDip, textSize);
         double content = Math.Min(measuredTextHeightDip, cap);
         return Math.Max(ControlsColumnHeightDip, content + (2 * LayoutConstants.NoteButtonPadding));
     }
+
+    // == D (sitting 11): the text-only Display card and the one reserved footprint it reveals
+    // into. The RESERVED (revealed) size is what every placement, collision, keyboard-avoidance
+    // and clamp read; the at-rest card is the TOP PART of that rect, so the text origin is
+    // identical in both states to the pixel. ==
+
+    /// <summary>The at-rest Display card's width in DIP (D1): the MEASURED wrapped text plus the
+    /// card's two paddings. Never the old text column - a short note is a short card.</summary>
+    public static double DisplayRestWidthDip(double measuredTextWidthDip) =>
+        Math.Max(0, measuredTextWidthDip) + (2 * LayoutConstants.NoteButtonPadding);
+
+    /// <summary>The at-rest Display card's height in DIP (D1, D2): the (capped) measured text
+    /// plus the top and bottom paddings - the reserved rect's top part.</summary>
+    public static double DisplayRestHeightDip(double measuredTextHeightDip) =>
+        LayoutConstants.NoteButtonPadding + measuredTextHeightDip + LayoutConstants.NoteButtonPadding;
+
+    /// <summary>The RESERVED Display card's width in DIP (D2): the measured text width, or the
+    /// four-cell row when that is wider, plus the two paddings - the row (✎ ↕ · ✕) must fit
+    /// inside the card whatever the text is.</summary>
+    public static double DisplayReservedWidthDip(double measuredTextWidthDip) =>
+        Math.Max(measuredTextWidthDip, 4 * LayoutConstants.NoteCellDip)
+        + (2 * LayoutConstants.NoteButtonPadding);
+
+    /// <summary>The RESERVED Display card's height in DIP (D2): padding + (capped) text height +
+    /// one hit cell + padding. Revealing grows the card DOWNWARD by exactly that cell; the text
+    /// and the tag never move.</summary>
+    public static double DisplayReservedHeightDip(double measuredTextHeightDip) =>
+        LayoutConstants.NoteButtonPadding + measuredTextHeightDip + LayoutConstants.NoteCellDip
+        + LayoutConstants.NoteButtonPadding;
+
+    /// <summary>The at-rest Display card's size (D1) for a measured text.</summary>
+    public static Size DisplayRestSize(double measuredTextWidthDip, double measuredTextHeightDip) =>
+        new(DisplayRestWidthDip(measuredTextWidthDip), DisplayRestHeightDip(measuredTextHeightDip));
+
+    /// <summary>The reserved (revealed) Display card's size (D2) for a measured text.</summary>
+    public static Size DisplayReservedSize(double measuredTextWidthDip, double measuredTextHeightDip) =>
+        new(DisplayReservedWidthDip(measuredTextWidthDip), DisplayReservedHeightDip(measuredTextHeightDip));
+
+    /// <summary>The at-rest card rect (D2): the reserved placement's card with the at-rest size,
+    /// SAME top-left - the top part of the reserved rect.</summary>
+    public static Rect RestCardRect(NotePlacement placement, Size restSize) =>
+        new(placement.Card.Left, placement.Card.Top, restSize.Width, restSize.Height);
+
+    /// <summary>The card rect a note currently DRAWS (D1/D6): the reserved rect when revealed or
+    /// moving, the at-rest top part otherwise. Every chrome rect and every drawn element reads
+    /// this one answer.</summary>
+    public static Rect DrawnCardRect(NotePlacement placement, Size restSize, bool expanded) =>
+        expanded ? placement.Card : RestCardRect(placement, restSize);
+
+    /// <summary>Window-relative centre of row cell <paramref name="cell"/> (0..3) — the Display
+    /// reveal row and the Move row (D4/D6): four 112 DIP cells from the card's text corner along
+    /// the bottom padding, cell 2 the empty gap. The text always starts at the card's top-left
+    /// corner (the text corner), so the row never moves with the placement side.</summary>
+    public static (double X, double Y) RowCellCenter(NotePlacement placement, int cell)
+    {
+        var card = RectLocal(placement);
+        double half = LayoutConstants.NoteCellDip / 2;
+        return (
+            card.Left + LayoutConstants.NoteButtonPadding + (cell * LayoutConstants.NoteCellDip) + half,
+            card.Bottom - LayoutConstants.NoteButtonPadding - half);
+    }
+
+    /// <summary>The reveal dwell (D3): how long the gaze must rest on the at-rest card before the
+    /// row appears. A constant, not an adapted target - a reveal is not an action.</summary>
+    public const int RevealDwellMs = 500;
+
+    /// <summary>The hide time (D5): how long the gaze must stay outside the revealed card plus
+    /// <see cref="RevealHideMarginDip"/> before the note returns to rest.</summary>
+    public const int RevealHideMs = 2000;
+
+    /// <summary>The margin around the revealed card that still counts as "on the note" for the
+    /// hide clock (D5), in DIP.</summary>
+    public const double RevealHideMarginDip = 24.0;
+
+    /// <summary>
+    /// The reveal target (D3) for a note whose at-rest card is <paramref name="restCardDip"/>
+    /// (screen DIP): that rect enlarged to at least one hit cell (112 DIP) on each axis. It grows
+    /// UPWARD and to BOTH SIDES only - the bottom edge is the at-rest card's bottom edge, so the
+    /// target never reaches down into the row band the revealed controls will occupy.
+    /// </summary>
+    public static Rect RevealTargetRect(Rect restCardDip)
+    {
+        const double min = LayoutConstants.NoteCellDip;
+        double width = Math.Max(restCardDip.Width, min);
+        double height = Math.Max(restCardDip.Height, min);
+        double left = restCardDip.Left - ((width - restCardDip.Width) / 2);
+        return new Rect(left, restCardDip.Bottom - height, width, height);
+    }
+
+    // == the Move card (D6, sitting-11 coordinator's option C): the reserved card plus the
+    // sitting-9 Move hint between the text and the row. The hint must stay readable, so the drawn
+    // Move card GROWS DOWNWARD by the hint's height; the landing outline stays the reserved rect
+    // (what will land at the new spot). ==
+
+    /// <summary>The Move hint's text height in DIP at the card width (the window measures the
+    /// real face; this is the block's padding only). The manager grows the drawn Move card by
+    /// <c>hintTextHeight + 2 * MoveHintMarginDip</c>.</summary>
+    public static double MoveHintBlockHeightDip(double hintTextHeightDip) =>
+        hintTextHeightDip + (2 * MoveHintMarginDip);
+
+    /// <summary>The Move hint's plate width in DIP: the text column plus its two margins, but
+    /// never wider than the card allows. The hint is one instruction line block; it must fit the
+    /// card at every text size and side.</summary>
+    public static double MoveHintWidthDip(double cardWidthDip, double textSizeDip, double cardInsetDip) =>
+        Math.Max(1, Math.Min(
+            TextColumnWidthDip(textSizeDip) + (2 * MoveHintMarginDip),
+            cardWidthDip - (2 * cardInsetDip)));
+
+    /// <summary>The Move card's border thickness in DIP (the Move state's 2 DIP edge), the inset
+    /// the hint plate keeps from the card's edges.</summary>
+    public const double MoveCardInsetDip = 2.0;
 
     // == the compact Edit card (K2a, sitting 10): the text above, one row of three control
     // cells below - the same three controls, no four-row column. ==
@@ -617,34 +739,28 @@ internal static class NoteLayout
     public const double MoveHintMarginDip = 10.0;
 
     /// <summary>
-    /// The Move hint's box in WINDOW-relative DIP: full width of the card's text column (plus its
-    /// margins), pinned to the card's bottom edge and inset by the card's border thickness, so
-    /// the card's own left and bottom border lines stay unbroken around it. The column is the
-    /// strip the body text lives in — on the side away from the control column — so the hint can
-    /// never cover ⇄/⊘ or their hit cells, whatever side the placement chose.
+    /// The Move hint's box in WINDOW-relative DIP (D6, option C): full width of the card's text
+    /// area up to the 540 DIP column, pinned just ABOVE the control row (the row stays clear for
+    /// ⇄/⊘), so it never covers a control. The drawn Move card has already grown downward by
+    /// <see cref="MoveHintBlockHeightDip"/>, so the box sits exactly between the body text and
+    /// the row. <paramref name="placement"/> must be the DRAWN Move placement (the manager applies
+    /// the grown one while moving); <paramref name="textHeightDip"/> is the measured wrapped
+    /// height of the hint text at the returned width's text column.
     /// </summary>
-    /// <param name="placement">The note's stored placement (which side the card is on).</param>
-    /// <param name="textSizeDip">The note's body text size — the hint's font size.</param>
-    /// <param name="textHeightDip">The measured wrapped height of the hint's text at the text
-    /// column's width — the box grows with the lines the real face produces.</param>
-    /// <param name="cardInsetDip">The card's border thickness in DIP: the plate starts inside it
-    /// on the left and bottom, so the border line is not painted over (sitting 9 fixup).</param>
     public static Rect MoveHintRect(NotePlacement placement, double textSizeDip, double textHeightDip,
         double cardInsetDip)
     {
         var card = RectLocal(placement);
-        // The control column hugs the edge away from the tail: on a Left placement it is the
-        // card's left strip, so the text column starts after it; otherwise the text column is
-        // the card's left strip and the column sits on the right.
-        bool columnOnLeft = placement.Side == NoteSide.Left;
-        double x = card.Left + (columnOnLeft ? LayoutConstants.NoteColumnWidthDip : 0) + cardInsetDip;
-        double height = textHeightDip + (2 * MoveHintMarginDip);
-        return new Rect(
-            x,
-            card.Bottom - cardInsetDip - height,
-            TextColumnWidthDip(textSizeDip) + (2 * MoveHintMarginDip),
-            height);
+        double width = MoveHintWidthDip(card.Width, textSizeDip, cardInsetDip);
+        double height = MoveHintBlockHeightDip(textHeightDip);
+        double bottom = card.Bottom - LayoutConstants.NoteButtonPadding - LayoutConstants.NoteCellDip;
+        return new Rect(card.Left + cardInsetDip, bottom - height, width, height);
     }
+
+    /// <summary>The text column inside the Move hint's plate (the plate's width minus its two
+    /// margins) - the width the hint text is measured at, so drawn and measured cannot drift.</summary>
+    public static double MoveHintTextWidthDip(double plateWidthDip) =>
+        Math.Max(1, plateWidthDip - (2 * MoveHintMarginDip));
 
     // == the capacity notice (P4 D4): one fixed-size, click-through, target-free window. ==
 
@@ -954,18 +1070,28 @@ internal static class NoteLayout
     }
 
     /// <summary>The tail triangle in window-relative points (tip first), or null when the tail is
-    /// hidden. The base sits on the card edge facing the anchor, half-width
-    /// <see cref="Constants.TailHalfWidthDip"/> around the tip — the tip's Y (or X, on vertical
-    /// sides) was clamped into the card when the placement was built, so the base is always
-    /// inside the card and the triangle inside the window's tail zone.</summary>
-    public static Point[]? TailTriangle(NotePlacement placement)
+    /// hidden, against the placement's reserved card rect. The base sits on the card edge facing
+    /// the anchor, half-width <see cref="Constants.TailHalfWidthDip"/> around the tip — the tip's
+    /// Y (or X, on vertical sides) was clamped into the card when the placement was built, so the
+    /// base is always inside the card and the triangle inside the window's tail zone.</summary>
+    public static Point[]? TailTriangle(NotePlacement placement) =>
+        TailTriangle(placement, RectLocal(placement));
+
+    /// <summary>
+    /// The tail triangle against a SPECIFIC drawn card rect (D, sitting 11): the at-rest card is
+    /// the reserved rect's top part, and its bottom edge can sit ABOVE the anchor's Y — the
+    /// reserved-edge triangle would then float below the body the owner sees. The TIP stays the
+    /// placement's point (the anchor relation, so the move/settle math is untouched); only the
+    /// triangle's BASE is clamped into the drawn card's tail edge, so the body the owner sees
+    /// carries the pointer even when the anchor lies beside the short at-rest card. On the
+    /// reserved card the triangle is the old one.
+    /// </summary>
+    public static Point[]? TailTriangle(NotePlacement placement, Rect cardLocal)
     {
         if (placement.TailTip is not { } tip)
             return null;
 
-        var origin = CardOrigin(placement.Side);
         var local = new Point(tip.X - placement.Window.X, tip.Y - placement.Window.Y);
-        var card = RectLocal(placement);
         double hw = Constants.TailHalfWidthDip;
 
         return placement.Side switch
@@ -974,29 +1100,29 @@ internal static class NoteLayout
             NoteSide.Right =>
             [
                 local,
-                new(card.Left, Clamp(local.Y - hw, card.Top, card.Bottom)),
-                new(card.Left, Clamp(local.Y + hw, card.Top, card.Bottom)),
+                new(cardLocal.Left, Clamp(local.Y - hw, cardLocal.Top, cardLocal.Bottom)),
+                new(cardLocal.Left, Clamp(local.Y + hw, cardLocal.Top, cardLocal.Bottom)),
             ],
             // Tail on the card's RIGHT edge, pointing right.
             NoteSide.Left =>
             [
                 local,
-                new(card.Right, Clamp(local.Y - hw, card.Top, card.Bottom)),
-                new(card.Right, Clamp(local.Y + hw, card.Top, card.Bottom)),
+                new(cardLocal.Right, Clamp(local.Y - hw, cardLocal.Top, cardLocal.Bottom)),
+                new(cardLocal.Right, Clamp(local.Y + hw, cardLocal.Top, cardLocal.Bottom)),
             ],
             // Tail on the card's TOP edge, pointing up.
             NoteSide.Below =>
             [
                 local,
-                new(Clamp(local.X - hw, card.Left, card.Right), card.Top),
-                new(Clamp(local.X + hw, card.Left, card.Right), card.Top),
+                new(Clamp(local.X - hw, cardLocal.Left, cardLocal.Right), cardLocal.Top),
+                new(Clamp(local.X + hw, cardLocal.Left, cardLocal.Right), cardLocal.Top),
             ],
             // Tail on the card's BOTTOM edge, pointing down.
             _ =>
             [
                 local,
-                new(Clamp(local.X - hw, card.Left, card.Right), card.Bottom),
-                new(Clamp(local.X + hw, card.Left, card.Right), card.Bottom),
+                new(Clamp(local.X - hw, cardLocal.Left, cardLocal.Right), cardLocal.Bottom),
+                new(Clamp(local.X + hw, cardLocal.Left, cardLocal.Right), cardLocal.Bottom),
             ],
         };
     }

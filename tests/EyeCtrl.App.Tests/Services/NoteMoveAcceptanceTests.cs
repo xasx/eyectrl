@@ -45,8 +45,13 @@ public class NoteMoveAcceptanceTests
             Check.WithCustomMessage("the ↕ dwell must pick the note up").That(manager.IsMoving).IsTrue();
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.Move);
             Check.That(manager.ActiveNotes[0].Id).IsEqualTo(id);
-            Check.WithCustomMessage("a pick-up must not move the card")
-                .That(before.Window).IsEqualTo(manager.PlacementForTest(id)!.Window);
+            // D6 (option C): the pick-up grows the drawn card DOWNWARD by the Move hint; the
+            // card's text corner stays exactly where it was.
+            var moving = manager.PlacementForTest(id)!;
+            Check.WithCustomMessage("a pick-up must keep the card's top-left")
+                .That((moving.Card.Left, moving.Card.Top)).IsEqualTo((before.Card.Left, before.Card.Top));
+            Check.WithCustomMessage("a pick-up grows the card downward for the Move hint")
+                .That(moving.Card.Height).IsStrictlyGreaterThan(before.Card.Height);
             Check.WithCustomMessage("the move set is Other side + Cancel (no place yet)")
                 .That(manager.LiveTargetRects()).HasSize(2);
             Check.That(manager.PlaceShownForTest).IsFalse();
@@ -206,8 +211,10 @@ public class NoteMoveAcceptanceTests
                 .That(manager.ActiveNotes[0].Anchor).IsEqualTo(anchor);
             Check.WithCustomMessage("the place-here window must be gone after the re-anchor")
                 .That(manager.PlaceShownForTest).IsFalse();
-            Check.WithCustomMessage("the display set (✎↕✕) is back")
-                .That(manager.LiveTargetRects()).HasSize(3);
+            // D6: the note ends AT REST — its one target is the reveal target, not the old row.
+            Check.WithCustomMessage("the note ends at rest with its reveal target")
+                .That(manager.LiveTargetRects()).HasSize(1);
+            Check.That(manager.RevealTargetForTest(id)).IsNotNull();
         }
         finally
         {
@@ -225,8 +232,10 @@ public class NoteMoveAcceptanceTests
         try
         {
             long present = 0;
-            var id = NewMovingNote(manager, new PhysicalPoint(1600, 1000), ref present);
+            var id = NewDisplayNote(manager, new PhysicalPoint(1600, 1000), ref present);
             var before = manager.PlacementForTest(id)!;
+            present = HoldGaze(manager, NoteTestBench.CellCentre(manager, id, 1), present); // Move
+            Check.That(manager.IsMoving).IsTrue();
 
             // The Cancel cell is the move set's slot 1 — the exact spot the picked-up ↕ left the
             // gaze on, latched: the look-away in HoldGaze re-arms it, the hold fires it.
@@ -362,9 +371,19 @@ public class NoteMoveAcceptanceTests
     /// the leave-before-arm latch to release), then hold past the 600 ms dwell. While the note
     /// is moving, the hold also feeds the settle tracker — cells sit inside the card, so cell
     /// dwells settle onto the card's ignored path and can never spuriously anchor place-here.
+    /// D: a Display note's row cell is only live after a look reveals the row, so a hold on a
+    /// resting note's cell reveals it first (the reveal is not an action).
     /// Returns the cursor 33 ms past the pump's last sample.</summary>
     private static long HoldGaze(NoteManager manager, PhysicalPoint point, long present, int ms = 1200)
     {
+        var resting = manager.ActiveNotes.FirstOrDefault(n => n.State == NoteState.Display
+            && !manager.IsRevealedForTest(n.Id)
+            && (NoteTestBench.CellCentre(manager, n.Id, 0) == point
+                || NoteTestBench.CellCentre(manager, n.Id, 1) == point
+                || NoteTestBench.CellCentre(manager, n.Id, 3) == point));
+        if (resting is not null)
+            present = NoteTestBench.Reveal(manager, resting.Id, present);
+
         var away = new PhysicalPoint(point.X + 10_000, point.Y);
         for (var t = present; t <= present + 220_000; t += 33_000)
             manager.OnGazeMoved(away, t);

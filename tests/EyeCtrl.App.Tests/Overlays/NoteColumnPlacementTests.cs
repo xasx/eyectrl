@@ -78,10 +78,14 @@ public class NoteColumnPlacementTests
             window.SetState(state);
             window.SetTextSize(size);
             // K2a: an editing note places the compact Edit card — text above, the three controls
-            // in a row under it. The Display/Move card keeps the four-row column.
+            // in a row under it. D: the Display note places the RESERVED card (text + the
+            // four-cell row) and draws the row only when revealed.
+            double cap = NoteLayout.TextCapHeightDip(1200, size);
             var card = state == NoteState.Edit
                 ? NoteLayout.EditCardSize(size, 0, 1200)
-                : new Size(NoteLayout.CardWidthDip(size), NoteLayout.ControlsColumnHeightDip);
+                : NoteLayout.DisplayReservedSize(
+                    window.MeasureTextWidthDip(Sample, size),
+                    Math.Min(window.MeasureTextHeightDip(Sample, size), cap));
             var placement = NoteLayout.Place(new PhysicalPoint(ax * 2, ay * 2), side, card,
                 new Rect(0, 0, 1920, 1200), Array.Empty<Rect>(), 2.0)!;
             Check.That(placement.Side).IsEqualTo(side);
@@ -90,6 +94,8 @@ public class NoteColumnPlacementTests
             // probe compared a grown text/cell against an ungrown placement.
             placement = NoteLayout.WithTagClearance(placement, size);
             window.ApplyPlacement(placement);
+            if (state == NoteState.Display)
+                window.SetRevealed(true); // the row is the revealed presentation
             window.SetText(Sample);
             window.UpdateContent();
 
@@ -110,22 +116,31 @@ public class NoteColumnPlacementTests
                 visible++;
                 var discBounds = new Rect(Canvas.GetLeft(disc), Canvas.GetTop(disc), disc.Width, disc.Height);
                 Check.WithCustomMessage($"{side}/{state}/{size}: {suffix} disc {discBounds} overlaps the text {textBounds}")
-                    .That(discBounds.IntersectsWith(textBounds)).IsFalse();
+                    .That(Overlaps(discBounds, textBounds)).IsFalse();
             }
             Check.That(visible).IsStrictlyGreaterThan(0);
-            foreach (var slot in NoteLayout.SlotsFor(state))
+            foreach (var slot in NoteLayout.DrawnSlotsFor(state, revealed: state == NoteState.Display))
             {
                 var (cx, cy) = NoteLayout.ButtonCenter(placement, slot, state);
                 var cell = new Rect(
                     cx - (LayoutConstants.NoteCellDip / 2), cy - (LayoutConstants.NoteCellDip / 2),
                     LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
                 Check.WithCustomMessage($"{side}/{state}/{size}: cell {slot} {cell} overlaps the text {textBounds}")
-                    .That(cell.IntersectsWith(textBounds)).IsFalse();
+                    .That(Overlaps(cell, textBounds)).IsFalse();
                 Check.WithCustomMessage($"{side}/{state}/{size}: cell {slot} {cell} must lie inside the card {cardLocal}")
                     .That(cardLocal.Contains(cell)).IsTrue();
             }
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    /// <summary>A positive-AREA overlap (D): the row's hit cell shares its top edge with the
+    /// text's bottom (padding + text + cell + padding, no gap), and WPF's edge-inclusive
+    /// <c>IntersectsWith</c> would call a shared edge an overlap.</summary>
+    private static bool Overlaps(Rect a, Rect b)
+    {
+        var hit = Rect.Intersect(a, b);
+        return !hit.IsEmpty && hit.Width > 0.5 && hit.Height > 0.5;
     }
 
     // T5 review-02 F2 + fixup-03 G1: the disc glyph is a GAZE-sized INK area. The Solo-size
@@ -164,28 +179,33 @@ public class NoteColumnPlacementTests
         Check.That(window.LabelsForTest().Count).IsStrictlyGreaterThan(0);
     }
 
-    // The Left half of the chip-shrink anchor (review-03 G2): with the full card on the Left
-    // side the column hugs the WINDOW LEFT, so the shrunk chip must keep the window left too,
-    // and the Undo cell keeps its pre-shrink centre. A mutant that anchors the Left chip on
-    // its window right (the other sides' branch) slides the Undo cell sideways - RED here.
+    // D6 (sitting 11): the chip anchors at the RESERVED card's top-left (the text corner) on
+    // every side, and the ↺ disc never sits where ✕ was — the two halves of the latch story.
     [StaFact]
-    public void R16b_TheShrink_KeepsTheUndoCell_OnTheLeftSide()
+    public void D6_TheChipAnchorsAtTheReservedTextCorner_OnTheLeftSide_AndTheUndoIsNotWhereCloseWas()
     {
         var (manager, _) = MakeManager();
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
-            manager.CreateNoteAt(new PhysicalPoint(3600, 1200)); // DIP (1800, 600): Right cannot fit, the cycle falls to Left
+            manager.CreateNoteAt(new PhysicalPoint(3600, 1200)); // DIP (1800, 600): Left
             var id = manager.ActiveNotes[^1].Id;
             manager.Apply(new NoteAppend("hello"));
             manager.FinishEdit(id, commit: true);
-            Check.WithCustomMessage("the probe must start from a Left full card, or the Left anchor path never runs")
+            Check.WithCustomMessage("the probe must start from a Left full card")
                 .That(manager.PlacementForTest(id)!.Side).IsEqualTo(NoteSide.Left);
-            var before = NoteTestBench.CellCentre(manager, id, 0);
-            Hold(manager, NoteTestBench.CellCentre(manager, id, 3), startUs: 0);
+            var reserved = manager.PlacementForTest(id)!.Card;
+            var closeBefore = NoteTestBench.CellCentre(manager, id, 3);
+
+            long t0 = NoteTestBench.Reveal(manager, id, 0);
+            Hold(manager, NoteTestBench.CellCentre(manager, id, 3), startUs: t0);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
-            Check.WithCustomMessage($"the Left shrink must keep the Undo cell at {before}")
-                .That(NoteTestBench.CellCentre(manager, id, 0)).IsEqualTo(before);
+
+            var chip = manager.PlacementForTest(id)!;
+            Check.WithCustomMessage("the chip's card must anchor at the reserved card's top-left")
+                .That((chip.Card.Left, chip.Card.Top)).IsEqualTo((reserved.Left, reserved.Top));
+            Check.WithCustomMessage("the ↺ disc must not sit where ✕ was")
+                .That(NoteTestBench.CellCentre(manager, id, 0)).IsNotEqualTo(closeBefore);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); manager.Dispose(); }
     }
@@ -205,11 +225,10 @@ public class NoteColumnPlacementTests
             manager.Receive(new GazeCursorMovedMessage(new GazeFrame(centre, t, IsInGap: false)));
     }
 
-    // R16's shrink half: the shrunk chip keeps the Undo cell at its pre-shrink centre.
-    // Below is the odd-man side here: it shares the Right window-right branch of the
-    // column-edge anchor.
+    // D6 (sitting 11): the same anchor rule on the Below side (the odd-man side: its window has
+    // the tail strip at the TOP, so the card origin is not the window origin).
     [StaFact]
-    public void R16_TheShrink_KeepsTheUndoCell_OnTheBelowSide()
+    public void D6_TheChipAnchorsAtTheReservedTextCorner_OnTheBelowSide()
     {
         var (manager, _) = MakeManager();
         DpiHelper.Initialize(2.0, 2.0);
@@ -220,11 +239,18 @@ public class NoteColumnPlacementTests
             manager.Apply(new NoteAppend("hello"));
             manager.FinishEdit(id, commit: true);
             Check.That(manager.PlacementForTest(id)!.Side).IsEqualTo(NoteSide.Below);
-            var before = NoteTestBench.CellCentre(manager, id, 0);
-            Hold(manager, NoteTestBench.CellCentre(manager, id, 3), startUs: 0);
+            var reserved = manager.PlacementForTest(id)!.Card;
+            var closeBefore = NoteTestBench.CellCentre(manager, id, 3);
+
+            long t0 = NoteTestBench.Reveal(manager, id, 0);
+            Hold(manager, NoteTestBench.CellCentre(manager, id, 3), startUs: t0);
             Check.That(manager.ActiveNotes[0].State).IsEqualTo(NoteState.PendingUndo);
-            Check.WithCustomMessage($"the Below shrink must keep the Undo cell at {before}")
-                .That(NoteTestBench.CellCentre(manager, id, 0)).IsEqualTo(before);
+
+            var chip = manager.PlacementForTest(id)!;
+            Check.WithCustomMessage("the chip's card must anchor at the reserved card's top-left")
+                .That((chip.Card.Left, chip.Card.Top)).IsEqualTo((reserved.Left, reserved.Top));
+            Check.WithCustomMessage("the ↺ disc must not sit where ✕ was")
+                .That(NoteTestBench.CellCentre(manager, id, 0)).IsNotEqualTo(closeBefore);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); manager.Dispose(); }
     }

@@ -54,10 +54,39 @@ internal static class NoteTestBench
         NoteLayout.Place(anchor, NoteSide.Right, PlacementCard, WorkArea, Array.Empty<Rect>(), DpiHelper.ScaleX)
             ?? throw new InvalidOperationException("no fitting side");
 
-    // The P4 default card at the control-column floor (the windowless seams measure no text).
-    private static Size PlacementCard => new(
-        NoteLayout.CardWidthDip(NoteSettings.DefaultTextSizeDip),
-        NoteLayout.CardHeightDip(NoteSettings.DefaultTextSizeDip, 0, WorkArea.Height));
+    // The reserved Display card at the floor (the windowless seams measure no text): D2's
+    // four-cell row plus the paddings.
+    private static Size PlacementCard => NoteLayout.DisplayReservedSize(0, 0);
+
+    /// <summary>
+    /// D (sitting 11): reveals a Display note the way a look does — a short look-away, then the
+    /// at-rest card's centre past the 500 ms reveal dwell, then an away excursion that releases
+    /// every leave-before-arm latch so the caller's own hold starts armed. Returns the timestamp
+    /// after the excursion. Throws when the note did not reveal, so a broken reveal cannot pass a
+    /// test silently.
+    /// </summary>
+    internal static long Reveal(NoteManager manager, string noteId, long present)
+    {
+        var card = manager.DrawnCardForTest(noteId);
+        var centre = new PhysicalPoint(
+            DpiHelper.LogicalToPhysicalX(card.Left + (card.Width / 2)),
+            DpiHelper.LogicalToPhysicalY(card.Top + (card.Height / 2)));
+        var away = new PhysicalPoint(centre.X + 10_000, centre.Y);
+        long t = present;
+        // A short look-away, then the 500 ms reveal dwell (600 ms of samples), then a 200 ms
+        // excursion that releases every leave-before-arm latch. Kept under a second so the
+        // callers' fixed timeline slots still line up.
+        for (; t <= present + 100_000; t += 33_000)
+            manager.OnGazeMoved(away, t);
+        long start = t;
+        for (; t <= start + 600_000; t += 33_000)
+            manager.OnGazeMoved(centre, t);
+        if (!manager.IsRevealedForTest(noteId))
+            throw new InvalidOperationException($"note {noteId} did not reveal after the 500 ms look");
+        for (; t <= start + 800_000; t += 33_000)
+            manager.OnGazeMoved(away, t);
+        return t;
+    }
 
 
     internal static PhysicalPoint CellCentre(NotePlacement placement, int slot, NoteState state)

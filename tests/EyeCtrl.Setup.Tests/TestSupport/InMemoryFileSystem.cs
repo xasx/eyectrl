@@ -48,6 +48,10 @@ public sealed class InMemoryFileSystem : IFileSystem
     /// <summary>When it returns true, the next AppendAllText throws (the log must swallow it).</summary>
     public Func<string, bool>? AppendFailure { get; set; }
 
+    /// <summary>When it returns true for the normalized path, DeleteFile throws (the shortcut
+    /// writer's best-effort removal must swallow it).</summary>
+    public Func<string, bool>? DeleteFileFailure { get; set; }
+
     /// <summary>Adds a file (and its parents) without logging, for test setup.</summary>
     public void AddFile(string path, string contents = "")
     {
@@ -103,6 +107,9 @@ public sealed class InMemoryFileSystem : IFileSystem
     {
         var full = SetupPaths.Normalize(path);
         Log.Add("deleteFile:" + full);
+        if (DeleteFileFailure?.Invoke(full) == true)
+            throw new IOException("injected delete-file failure");
+
         _files.Remove(full);
         _zoneIdentifiers.Remove(full);
     }

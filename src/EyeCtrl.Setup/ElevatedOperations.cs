@@ -17,6 +17,7 @@ public sealed class ElevatedOperations
     private readonly StopCoordinator _stop;
     private readonly InstallStateMachine _state;
     private readonly AppsAndFeaturesWriter _appsAndFeatures;
+    private readonly ShortcutWriter _shortcuts;
     private readonly IAppDataDeletion _appDataDeletion;
     private readonly IElevatedPhaseResultStore _phaseResults;
     private readonly ISetupLog _log;
@@ -25,7 +26,8 @@ public sealed class ElevatedOperations
     public ElevatedOperations(
         SetupPaths paths, IElevationPolicy policy, RunCopyManager runCopies, StagingService staging,
         StopCoordinator stop, InstallStateMachine state, AppsAndFeaturesWriter appsAndFeatures,
-        IAppDataDeletion appDataDeletion, IElevatedPhaseResultStore phaseResults, ISetupLog log)
+        ShortcutWriter shortcuts, IAppDataDeletion appDataDeletion,
+        IElevatedPhaseResultStore phaseResults, ISetupLog log)
     {
         _paths = paths;
         _policy = policy;
@@ -34,6 +36,7 @@ public sealed class ElevatedOperations
         _stop = stop;
         _state = state;
         _appsAndFeatures = appsAndFeatures;
+        _shortcuts = shortcuts;
         _appDataDeletion = appDataDeletion;
         _phaseResults = phaseResults;
         _log = log;
@@ -192,11 +195,13 @@ public sealed class ElevatedOperations
 
         try
         {
-            // Program first, then the launch values, then the Apps & Features entry. If a folder
-            // cannot be removed, the entry stays so the owner can retry and the data is kept.
+            // Program first, then the launch values, then the Apps & Features entry, then the
+            // shell shortcuts. If a folder cannot be removed, the entry stays so the owner can
+            // retry and the data is kept.
             _state.RemoveInstalledFolders();
             _state.RemoveRunValues();
             _appsAndFeatures.Remove();
+            _shortcuts.Remove();
         }
         catch (Exception ex)
         {

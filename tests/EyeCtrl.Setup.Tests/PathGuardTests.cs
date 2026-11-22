@@ -7,7 +7,9 @@ using Microsoft.Win32;
 public class PathGuardTests
 {
     private static PathGuard Guard() => new(new SetupPaths(
-        @"C:\Program Files", @"C:\Users\test\AppData\Roaming", @"C:\Users\test\AppData\Local"));
+        @"C:\Program Files", @"C:\Users\test\AppData\Roaming", @"C:\Users\test\AppData\Local", null,
+        new MachineShortcutLocations(
+            @"C:\ProgramData\Microsoft\Windows\Start Menu\Programs", @"C:\Users\Public\Desktop")));
 
     [Theory]
     [InlineData(@"C:\Program Files\EyeCtrl")]
@@ -133,5 +135,28 @@ public class PathGuardTests
         guard.RequireProgramFilesPath(@"C:\PROGRAM FILES\EyeCtrl\");
         Check.ThatCode(() => guard.RequireProgramFilesPath(@"C:\PROGRAM FILES\eyectrl2\")
         ).Throws<PathGuardException>();
+    }
+
+    [Theory]
+    [InlineData(@"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\EyeCtrl.lnk")]
+    [InlineData(@"C:\PROGRAMDATA\MICROSOFT\WINDOWS\START MENU\PROGRAMS\EYECTRL.LNK")]
+    [InlineData(@"C:\Users\Public\Desktop\EyeCtrl.lnk")]
+    [InlineData(@"C:\Users\Public\Desktop\EYECTRL.LNK")]
+    public void TheTwoShellShortcuts_AreAllowed(string path)
+    {
+        Guard().RequireShortcutPath(path);
+    }
+
+    [Theory]
+    [InlineData(@"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Other.lnk")]
+    [InlineData(@"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\EyeCtrl\EyeCtrl.lnk")]
+    [InlineData(@"C:\Users\Public\Desktop\EyeCtrl.url")]
+    [InlineData(@"C:\Users\test\Desktop\EyeCtrl.lnk")]
+    [InlineData(@"C:\Program Files\EyeCtrl\EyeCtrl.lnk")]
+    [InlineData(@"C:\ProgramData\Microsoft\Windows\Start Menu\EyeCtrl.lnk")]
+    public void EverythingElseAtTheShellFolders_IsRefused(string path)
+    {
+        Check.ThatCode(() => Guard().RequireShortcutPath(path))
+            .Throws<PathGuardException>();
     }
 }

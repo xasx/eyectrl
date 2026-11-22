@@ -19,7 +19,9 @@ public sealed class PathGuardException : Exception
 /// <item>the exact <c>Uninstall\EyeCtrl</c> key under HKLM;</item>
 /// <item>HKCU <c>Run</c>/<c>RunOnce</c> values whose names start with <c>EyeCtrl</c>;</item>
 /// <item><c>%APPDATA%\EyeCtrl\setup-last.json</c> — the result record;</item>
-/// <item><c>%APPDATA%\EyeCtrl\logs\setup-*.log</c> — the rolling diagnostics log (S6c D9).</item>
+/// <item><c>%APPDATA%\EyeCtrl\logs\setup-*.log</c> — the rolling diagnostics log (S6c D9);</item>
+/// <item>the two shell shortcuts in the machine's common Start menu programs folder and on its
+/// common desktop (both named <c>EyeCtrl.lnk</c>).</item>
 /// </list>
 /// <c>%APPDATA%\EyeCtrl</c> otherwise moves only through the S6e deletion seam.
 /// </summary>
@@ -48,6 +50,20 @@ public sealed class PathGuard
 
         throw new PathGuardException(
             $"'{full}' is outside the EyeCtrl* Program Files folders");
+    }
+
+    /// <summary>Throws unless this is exactly one of the two shell shortcuts the install owns.</summary>
+    public void RequireShortcutPath(string path)
+    {
+        var full = SetupPaths.Normalize(path);
+        if (string.Equals(full, _paths.StartMenuShortcutPath, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(full, _paths.DesktopShortcutPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        throw new PathGuardException(
+            $"'{full}' is not an EyeCtrl shell shortcut (Start menu programs folder or common desktop)");
     }
 
     /// <summary>Throws unless the key is exactly the Apps &amp; Features entry.</summary>

@@ -27,6 +27,10 @@
     <SolidColorBrush x:Key="BrushTextPrimary"        Color="{x:Static theme:Tokens.TextPrimary}"/>
     <SolidColorBrush x:Key="BrushTextSecondary"      Color="{x:Static theme:Tokens.TextSecondary}"/>
     <SolidColorBrush x:Key="BrushTextDim"            Color="{x:Static theme:Tokens.TextDim}"/>
+    <!-- F17's typed-prefix brush is DERIVED (secondary lightened until it clears 4.5:1 on
+         SurfacePrediction), so it has no single palette colour to bind: expose the frozen brush
+         itself, like BrushAccentDim10. -->
+    <x:Static x:Key="BrushPredictionPrefix" Member="theme:Tokens.BrushPredictionPrefix"/>
     <SolidColorBrush x:Key="BrushMarkerMove"         Color="{x:Static theme:Tokens.MarkerMove}"/>
 
     <SolidColorBrush x:Key="BrushAccent"             Color="{x:Static theme:Tokens.Accent}"/>

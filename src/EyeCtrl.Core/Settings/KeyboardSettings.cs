@@ -15,8 +15,10 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     /// Maximum number of suggestions in the prediction bar. Valid range:
     /// 1–<see cref="MaxSuggestionsCeiling"/> — bind the constant, never a hand-copied literal.
     /// Fewer suggestions means fewer dwell targets to mis-hit; the bar renders one cell per
-    /// suggestion, so a lower count simply leaves the tail empty. The renderer is dynamic — 5
-    /// is today's hard-coded fill and stays the default.
+    /// suggestion up to 4 (F17: a fifth slot would make the bar's cells too small), so 5 is
+    /// accepted and stored, and the renderer clamps its slots. The upper bound stays 5 on
+    /// purpose: narrowing it would reject the owner's saved <c>maxSuggestions: 5</c> at load,
+    /// and a rejected settings file reverts every setting to defaults.
     /// </summary>
     [ObservableProperty] private int _maxSuggestions = 5;
 

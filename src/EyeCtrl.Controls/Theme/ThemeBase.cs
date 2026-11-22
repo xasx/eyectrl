@@ -150,6 +150,7 @@ public abstract class ThemeBase : ITheme
     private SolidColorBrush? _textPrimary;
     private SolidColorBrush? _textSecondary;
     private SolidColorBrush? _textDim;
+    private SolidColorBrush? _predictionPrefix;
     private SolidColorBrush? _markerMove;
     private SolidColorBrush? _accent;
     private SolidColorBrush? _strokeHalo;
@@ -210,6 +211,64 @@ public abstract class ThemeBase : ITheme
     public SolidColorBrush BrushTextSecondary => CachedBrush(ref _textSecondary, TextSecondary);
     /// <inheritdoc />
     public SolidColorBrush BrushTextDim => CachedBrush(ref _textDim, TextDim);
+    /// <summary>
+    /// The typed part of a prediction-bar completion, at the WCAG AA floor for normal text.
+    /// Starts at <see cref="TextSecondary"/> — the palette's de-emphasised grey — and blends
+    /// toward <see cref="TextPrimary"/> in 10% steps until it clears 4.5:1 on
+    /// <see cref="SurfacePrediction"/>. Ember, Daylight and Contrast clear with the secondary
+    /// itself; Midnight measures 3.50:1, so it lands on a 40% primary blend.
+    /// </summary>
+    public SolidColorBrush BrushPredictionPrefix =>
+        CachedBrush(ref _predictionPrefix, PredictionPrefixColour);
+
+    /// <summary>The body-text floor the typed part must clear on the bar's surface.</summary>
+    private const double PredictionPrefixContrastFloor = 4.5;
+
+    private Color PredictionPrefixColour
+    {
+        get
+        {
+            for (var step = 0; step <= 10; step++)
+            {
+                var candidate = Blend(TextSecondary, TextPrimary, step / 10.0);
+                if (ContrastRatio(candidate, SurfacePrediction) >= PredictionPrefixContrastFloor)
+                    return candidate;
+            }
+
+            return TextPrimary;
+        }
+    }
+
+    private static Color Blend(Color from, Color to, double t) => Color.FromArgb(
+        from.A,
+        BlendChannel(from.R, to.R, t),
+        BlendChannel(from.G, to.G, t),
+        BlendChannel(from.B, to.B, t));
+
+    private static byte BlendChannel(byte from, byte to, double t) =>
+        (byte)Math.Round(from + (to - from) * t);
+
+    /// <summary>WCAG 2.1 relative-luminance contrast, the same formula the validator's gates use.</summary>
+    private static double ContrastRatio(Color a, Color b)
+    {
+        var la = RelativeLuminance(a);
+        var lb = RelativeLuminance(b);
+        var lighter = Math.Max(la, lb);
+        var darker = Math.Min(la, lb);
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    private static double RelativeLuminance(Color colour) =>
+        0.2126 * LinearChannel(colour.R)
+        + 0.7152 * LinearChannel(colour.G)
+        + 0.0722 * LinearChannel(colour.B);
+
+    private static double LinearChannel(byte value)
+    {
+        var s = value / 255.0;
+        return s <= 0.04045 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+    }
+
     /// <inheritdoc />
     public SolidColorBrush BrushMarkerMove => CachedBrush(ref _markerMove, MarkerMove);
     /// <inheritdoc />

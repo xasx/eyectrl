@@ -107,6 +107,13 @@ public interface ITheme
     SolidColorBrush BrushTextSecondary { get; }
     /// <summary>Frozen brush over <see cref="TextDim"/>.</summary>
     SolidColorBrush BrushTextDim { get; }
+    /// <summary>
+    /// The typed leading part of a word-completion suggestion on the prediction bar. This is the
+    /// de-emphasised text colour held to 4.5:1 on <see cref="SurfacePrediction"/>: TextSecondary
+    /// alone measures only 3.50:1 under Midnight, so the derived brush blends toward TextPrimary
+    /// until it clears the floor. Derived, not a palette colour — a new theme inherits it.
+    /// </summary>
+    SolidColorBrush BrushPredictionPrefix { get; }
     /// <summary>Frozen brush over <see cref="MarkerMove"/>.</summary>
     SolidColorBrush BrushMarkerMove { get; }
     /// <summary>Frozen brush over <see cref="Accent"/>.</summary>

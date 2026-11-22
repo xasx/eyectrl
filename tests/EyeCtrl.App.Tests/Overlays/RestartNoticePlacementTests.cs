@@ -35,17 +35,21 @@ public class RestartNoticePlacementTests
     /// <summary>The user's screen at 2.0 less the taskbar, in DIP (the fit harness's reference).</summary>
     private static readonly Rect WorkArea = new(0, 0, 1920, 1152);
 
+    /// <summary>The full primary screen, in DIP: the card may use the taskbar strip, never the keys.</summary>
+    private static readonly Rect ScreenArea = new(0, 0, 1920, 1200);
+
     internal sealed record KeyboardProbe(Rect Chrome, IReadOnlyDictionary<string, Rect> Keys);
 
     private static string EmojiJsonPath() =>
         Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json");
 
     /// <summary>
-    /// The laid-out keyboard at a <c>KeySizeMultiplier</c>: its chrome rectangle's SIZE and every
-    /// key's rectangle relative to the chrome's top-left, in DIP (the fixture hosts it with
-    /// physical == DIP, as the keyboard tests do; the position is then supplied by the caller).
+    /// The laid-out keyboard at a <c>KeySizeMultiplier</c> and sub-layout: its chrome rectangle's
+    /// SIZE and every key's rectangle relative to the chrome's top-left, in DIP (the fixture hosts
+    /// it with physical == DIP, as the keyboard tests do; the position is then supplied by the
+    /// caller).
     /// </summary>
-    internal static KeyboardProbe MeasureKeyboard(double keySizeMultiplier)
+    internal static KeyboardProbe MeasureKeyboard(double keySizeMultiplier, string page = "letters")
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
@@ -58,6 +62,7 @@ public class RestartNoticePlacementTests
         window.SetEmojiData(
             EmojiJsonPath(),
             Path.Combine(Path.GetTempPath(), "eyectrl_t15_place_" + Guid.NewGuid().ToString("N") + ".json"));
+        vm.SwitchSubLayout(page);
 
         var content = (FrameworkElement)window.Content;
         window.Content = null;
@@ -118,18 +123,29 @@ public class RestartNoticePlacementTests
         + "Das neue EyeCtrl startet gerade; klappt das nicht, läuft dieses weiter.\n"
         + "Ausblenden hält den Neustart nicht an.";
 
-    [StaTheory]
-    [InlineData(0.5, "bottom")]
-    [InlineData(1.0, "bottom")]
-    [InlineData(1.5, "bottom")]
-    [InlineData(2.0, "bottom")]
-    [InlineData(1.5, "top")]
-    [InlineData(2.0, "top")]
-    public void WithTheKeyboardShown_TheCardAndItsButtonNeverTouchAKey(double multiplier, string edge)
+    public static IEnumerable<object[]> ShownKeyboardCases()
     {
-        var keyboard = MeasureKeyboard(multiplier);
+        // The old letters-page cases, kept; then every multiplier/page/dock F17's fixup pins.
+        yield return [0.5, "letters", "bottom"];
+        yield return [1.0, "letters", "bottom"];
+        foreach (var multiplier in new[] { 1.5, 1.75, 2.0 })
+            foreach (var page in new[] { "letters", "function" })
+                foreach (var dock in new[] { "bottom", "top" })
+                    yield return [multiplier, page, dock];
+    }
+
+    [StaTheory]
+    [MemberData(nameof(ShownKeyboardCases))]
+    public void WithTheKeyboardShown_TheCardAndItsButtonNeverTouchAKey(
+        double multiplier, string page, string edge)
+    {
+        var keyboard = MeasureKeyboard(multiplier, page);
         var (left, top) = OverlayPositioning.PlaceAtEdge(WorkArea, edge, keyboard.Chrome.Width, keyboard.Chrome.Height);
         var chrome = new Rect(left, top, keyboard.Chrome.Width, keyboard.Chrome.Height);
+        // 2.0x on the Fn page already overlapped on main (978 DIP keyboard, 174 DIP left); the
+        // fixup's wider-card and full-screen passes cannot fit the 283 DIP card either. It is
+        // pinned explicitly below, never skipped silently.
+        var mustClear = !(page == "function" && multiplier >= 2.0);
 
         foreach (var text in new[] { GermanRefusal, GermanInProgress })
         {
@@ -137,18 +153,43 @@ public class RestartNoticePlacementTests
             try
             {
                 card.SetText(text);
-                card.Prepare(WorkArea);
+                card.Prepare(WorkArea, ScreenArea);
                 card.Measure(new Size(card.Width, card.Height));
                 card.Arrange(new Rect(0, 0, card.Width, card.Height));
                 card.UpdateLayout();
 
                 var cardRect = new Rect(card.Left, card.Top, card.Width, card.Height);
                 var button = ButtonRect(card);
+                var what = $"keyboard {multiplier}x/{page}/{edge}, card '{text.Split('\n')[0]}'";
 
-                Check.WithCustomMessage($"the card lies inside the work area (keyboard {multiplier}x, {edge})")
-                    .That(WorkArea.Contains(cardRect)).IsTrue();
+                Check.WithCustomMessage($"the card lies inside the screen ({what})")
+                    .That(ScreenArea.Contains(cardRect)).IsTrue();
+
+                if (!mustClear)
+                {
+                    Check.WithCustomMessage(
+                            $"2.0x Fn is the known remaining overlap on main too ({what}); the "
+                            + "fixup cannot clear it without shrinking the card below the text floor.")
+                        .That(cardRect.IntersectsWith(chrome)).IsTrue();
+                    Check.WithCustomMessage($"the known 2.0x Fn case must use the old fallback ({what})")
+                        .That(card.LastPlacementPass)
+                        .IsEqualTo(RestartNoticeWindow.PlacementPass.Fallback);
+                    continue;
+                }
+
+                // A work-area pass must stay inside it; the full-screen pass may use the taskbar
+                // strip (screen containment is asserted above), never the keys.
+                if (card.LastPlacementPass is RestartNoticeWindow.PlacementPass.DefaultWorkArea
+                    or RestartNoticeWindow.PlacementPass.WiderCardWorkArea)
+                {
+                    Check.WithCustomMessage($"the work-area card lies inside the work area ({what})")
+                        .That(WorkArea.Contains(cardRect)).IsTrue();
+                }
+                Check.WithCustomMessage($"the card fell back over the chrome ({what})")
+                    .That(card.LastPlacementPass)
+                    .Not.IsEqualTo(RestartNoticeWindow.PlacementPass.Fallback);
                 Check.WithCustomMessage(
-                        $"the card {cardRect} covers the keyboard {chrome} (keyboard {multiplier}x, {edge})")
+                        $"the card {cardRect} covers the keyboard {chrome} ({what})")
                     .That(cardRect.IntersectsWith(chrome)).IsFalse();
 
                 // Key by key, as the user's gaze would meet them: the card and the button, against
@@ -161,13 +202,52 @@ public class RestartNoticePlacementTests
                     })
                     .Select(pair => pair.Key)
                     .ToList();
-                Check.WithCustomMessage($"the card or its button touches key(s): {string.Join(", ", touched)}")
+                Check.WithCustomMessage($"the card or its button touches key(s): {string.Join(", ", touched)} ({what})")
                     .That(touched).IsEmpty();
             }
             finally
             {
                 card.Close();
             }
+        }
+    }
+
+    /// <summary>
+    /// The full-screen pass (b) needs its own case: a long body that still wraps to two lines at
+    /// the widest card keeps the card at 315 DIP, which cannot fit the 289 DIP below a top-docked
+    /// 1.75x Fn keyboard on the 1152 DIP work area, but does fit on the 1200 DIP screen (the
+    /// taskbar strip). Without pass (b) the card falls back over the keys.
+    /// </summary>
+    [StaFact]
+    public void WhenOnlyTheFullScreenFits_TheTaskbarStripIsUsed_NeverTheKeys()
+    {
+        var keyboard = MeasureKeyboard(1.75, "function");
+        var (left, top) = OverlayPositioning.PlaceAtEdge(WorkArea, "top", keyboard.Chrome.Width, keyboard.Chrome.Height);
+        var chrome = new Rect(left, top, keyboard.Chrome.Width, keyboard.Chrome.Height);
+        var longBody = string.Concat(Enumerable.Repeat("Das neue EyeCtrl startet gerade; ", 6));
+
+        var card = new RestartNoticeWindow(keepClear: () => [chrome]);
+        try
+        {
+            card.SetText("EyeCtrl wird neu gestartet.\n" + longBody);
+            card.Prepare(WorkArea, ScreenArea);
+            card.Measure(new Size(card.Width, card.Height));
+            card.Arrange(new Rect(0, 0, card.Width, card.Height));
+            card.UpdateLayout();
+
+            var cardRect = new Rect(card.Left, card.Top, card.Width, card.Height);
+            Check.WithCustomMessage("the card must use the full-screen pass, not the old fallback")
+                .That(card.LastPlacementPass)
+                .IsEqualTo(RestartNoticeWindow.PlacementPass.WiderCardScreen);
+            Check.WithCustomMessage($"the card {cardRect} covers the keyboard {chrome}")
+                .That(cardRect.IntersectsWith(chrome)).IsFalse();
+            Check.WithCustomMessage("the card only fits by covering part of the taskbar strip")
+                .That(cardRect.Bottom).IsStrictlyGreaterThan(WorkArea.Bottom);
+            Check.That(ScreenArea.Contains(cardRect)).IsTrue();
+        }
+        finally
+        {
+            card.Close();
         }
     }
 
@@ -192,7 +272,7 @@ public class RestartNoticePlacementTests
             try
             {
                 card.SetText(text);
-                card.Prepare(WorkArea);
+                card.Prepare(WorkArea, ScreenArea);
                 card.Measure(new Size(card.Width, card.Height));
                 card.Arrange(new Rect(0, 0, card.Width, card.Height));
                 card.UpdateLayout();
@@ -222,7 +302,7 @@ public class RestartNoticePlacementTests
         try
         {
             card.SetText(GermanRefusal);
-            card.Prepare(WorkArea);
+            card.Prepare(WorkArea, ScreenArea);
             var cardRect = new Rect(card.Left, card.Top, card.Width, card.Height);
 
             Check.That(cardRect.IntersectsWith(toolbar)).IsFalse();
@@ -243,7 +323,7 @@ public class RestartNoticePlacementTests
         try
         {
             card.SetText(GermanRefusal);
-            card.Prepare(WorkArea);
+            card.Prepare(WorkArea, ScreenArea);
 
             Check.That(card.Left).IsEqualTo((1920 - card.Width) / 2);
             Check.That(card.Top + card.Height).IsEqualTo(1152 - RestartNoticePlacement.MarginDip);
@@ -285,20 +365,20 @@ public class RestartNoticePlacementTests
         try
         {
             card.SetText(GermanRefusal);
-            card.Prepare(WorkArea);
+            card.Prepare(WorkArea, ScreenArea);
             var bottomTop = card.Top;
             Check.WithCustomMessage("nothing moved, so nothing is re-placed")
-                .That(card.ReplaceIfChromeMoved(WorkArea)).IsFalse();
+                .That(card.ReplaceIfChromeMoved(WorkArea, ScreenArea)).IsFalse();
 
             // The keyboard opens at the bottom, under the card's resting place.
             chrome = [new Rect(300, 700, 1320, 420)];
-            Check.That(card.ReplaceIfChromeMoved(WorkArea)).IsTrue();
+            Check.That(card.ReplaceIfChromeMoved(WorkArea, ScreenArea)).IsTrue();
             Check.That(card.Top + card.Height).IsEqualTo(700 - RestartNoticePlacement.KeepClearGapDip);
-            Check.That(card.ReplaceIfChromeMoved(WorkArea)).IsFalse();
+            Check.That(card.ReplaceIfChromeMoved(WorkArea, ScreenArea)).IsFalse();
 
             // And closes again: the card goes back to the bottom.
             chrome = [];
-            Check.That(card.ReplaceIfChromeMoved(WorkArea)).IsTrue();
+            Check.That(card.ReplaceIfChromeMoved(WorkArea, ScreenArea)).IsTrue();
             Check.That(card.Top).IsEqualTo(bottomTop);
         }
         finally
@@ -333,6 +413,26 @@ public class RestartNoticePlacementTests
         Check.That(RestartNoticePlacement.Place(area, card, [new Rect(0, 0, 1920, 1152)]).Top).IsEqualTo(0);
     }
 
+    [Fact]
+    public void WhenTheFullGapCannotFit_TheCardStillStaysClearOfTheTallerKeyboard()
+    {
+        // F17's 2.0x top-docked keyboard is 834 DIP tall, leaving 318 DIP below it on the
+        // taskbar-reduced work area: 9 short of the card plus the 24 DIP clear gap. The card must
+        // take the minimal separation below the keyboard, not fall back over it.
+        var card = new Size(1000, 315);
+        var area = new Rect(0, 0, 1920, 1152);
+        var keyboard = new Rect(27, 0, 1866, 834);
+
+        var (left, top) = RestartNoticePlacement.Place(area, card, [keyboard]);
+        var rect = new Rect(left, top, card.Width, card.Height);
+
+        Check.WithCustomMessage($"the card {rect} covers the keyboard {keyboard}")
+            .That(rect.IntersectsWith(keyboard)).IsFalse();
+        Check.That(rect.Bottom).IsLessOrEqualThan(area.Bottom);
+        Check.WithCustomMessage("the card must sit below the keyboard with the minimal separation")
+            .That(top).IsEqualTo(keyboard.Bottom + RestartNoticePlacement.MinimumClearGapDip);
+    }
+
     // B4: the bottom-centre banner slot's live occupant is part of the card's keep-clear set, so a
     // drift notice or caregiver alert sharing the resting spot never ends up underneath the card
     // (whose close button would then be dwelled over the banner, and hide it).
@@ -347,7 +447,7 @@ public class RestartNoticePlacementTests
         try
         {
             card.SetText(GermanRefusal);
-            card.Prepare(WorkArea);
+            card.Prepare(WorkArea, ScreenArea);
             card.Measure(new Size(card.Width, card.Height));
             card.Arrange(new Rect(0, 0, card.Width, card.Height));
             card.UpdateLayout();
@@ -375,20 +475,20 @@ public class RestartNoticePlacementTests
         try
         {
             card.SetText(GermanRefusal);
-            card.Prepare(WorkArea);
+            card.Prepare(WorkArea, ScreenArea);
             var bottomTop = card.Top;
 
             var occupant = new RestartBannerOccupant(Physical(banner));
             slot.Enqueue(occupant);
             Check.WithCustomMessage("a banner taking the slot must move the card")
-                .That(card.ReplaceIfChromeMoved(WorkArea)).IsTrue();
+                .That(card.ReplaceIfChromeMoved(WorkArea, ScreenArea)).IsTrue();
             Check.WithCustomMessage("the card must rise clear of the live banner")
                 .That(card.Top + card.Height).IsEqualTo(banner.Top - RestartNoticePlacement.KeepClearGapDip);
             Check.That(new Rect(card.Left, card.Top, card.Width, card.Height).IntersectsWith(banner)).IsFalse();
 
             occupant.Close();
             Check.WithCustomMessage("the card returns to the bottom when the banner is gone")
-                .That(card.ReplaceIfChromeMoved(WorkArea)).IsTrue();
+                .That(card.ReplaceIfChromeMoved(WorkArea, ScreenArea)).IsTrue();
             Check.That(card.Top).IsEqualTo(bottomTop);
         }
         finally

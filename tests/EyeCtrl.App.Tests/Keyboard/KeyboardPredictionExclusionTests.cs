@@ -102,6 +102,9 @@ public class KeyboardPredictionExclusionTests
     private static string CellText(UIElement? element) => element switch
     {
         TextBlock tb when !string.IsNullOrEmpty(tb.Text) => tb.Text,
+        // F17's greyed typed prefix makes the label two Runs; TextBlock.Text stays empty for an
+        // inline-built label, so read the runs' text instead.
+        TextBlock tb => string.Concat(tb.Inlines.OfType<System.Windows.Documents.Run>().Select(r => r.Text)),
         Border border => CellText(border.Child),
         Panel panel => panel.Children.Cast<UIElement>()
             .Select(CellText).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? "",

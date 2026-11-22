@@ -73,21 +73,15 @@ public class NoteWindowGeometryTests
         var placement = manager.PlacementForTest(id)!;
         var window = manager.WindowForTest(id)!;
 
-        // The window reports the placement's rect EXACTLY. Since fixup-02 F4 the reveal-target
-        // clearance snaps its union outward to whole DEVICE pixels at the placement's scale
-        // (WithRevealTargetClearance), and this geometry lands on whole DIP; WPF's own window
-        // snap (the test host renders at 1.0) therefore has nothing left to round away.
-        Check.WithCustomMessage(
-                $"the window's width {window.Width} must come from the placement's {placement.Window} "
-                + $"(card {placement.Card}, real {window.Left},{window.Top},{window.Width},{window.Height}, "
-                + $"side {placement.Side}, text '{manager.ActiveNotes.FirstOrDefault(n => n.Id == id)?.Text}')")
-            .That(window.Width).IsEqualTo(placement.Window.Width);
-        Check.WithCustomMessage("the window's height must come from the placement's window rect")
-            .That(window.Height).IsEqualTo(placement.Window.Height);
-        Check.WithCustomMessage("the window's Left must come from ApplyPlacementToWindow")
-            .That(window.Left).IsEqualTo(placement.Window.Left);
-        Check.WithCustomMessage("the window's Top must come from ApplyPlacementToWindow")
-            .That(window.Top).IsEqualTo(placement.Window.Top);
+        // The window reports the placement's rect up to the HOST's own device-pixel snap: fixup-02
+        // F4's WithRevealTargetClearance snaps the placement to the SIMULATED scale (2.0 here),
+        // while WPF stores the real window's Left/Top on the host monitor's grid. Exact when the
+        // host is at the simulated 2.0 (production, where DpiHelper IS the real DPI, and this dev
+        // machine); within one host device pixel otherwise - the CI runner is at 1.0, so the
+        // half-DIP top (358.5 at 2.0) legitimately arrives as 359 (CI run 45058318223).
+        HostDpiBounds.AssertWindowMatches(window, placement.Window,
+            $"the real window (side {placement.Side}, card {placement.Card}, "
+            + $"text '{manager.ActiveNotes.FirstOrDefault(n => n.Id == id)?.Text}')");
 
         // The drawn Display row's buttons (✎ ↕ ✕ are slots 0, 1 and 3 of the four-cell row, D4)
         // must sit on NoteLayout.ButtonCenter for the CURRENT state — per-slot, in the row.

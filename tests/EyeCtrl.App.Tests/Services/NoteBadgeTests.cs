@@ -793,12 +793,14 @@ public class NoteBadgeTests
                 .That(NoteTestBench.WorkArea.Contains(placement.Window)).IsTrue();
 
             var window = manager.WindowForTest(a)!;
-            Check.WithCustomMessage("the drawn window must be the grown rect — EXACTLY (fixup-05: "
-                    + "the tag's height is a whole DIP again, so the 2× DPI transform has nothing "
-                    + "to round and the half-DIP tolerance is gone)")
-                .That((window.Width, window.Height, window.Left, window.Top))
-                .IsEqualTo((placement.Window.Width, placement.Window.Height,
-                    placement.Window.Left, placement.Window.Top));
+            // The drawn window is the grown rect. The placement is snapped to the SIMULATED 2.0
+            // scale (WithRevealTargetClearance's device-pixel grid), while WPF stores the real
+            // window's bounds on the HOST monitor's grid: exact on a 2.0 host (production, where
+            // DpiHelper IS the real DPI, and this dev machine); within one host device pixel
+            // elsewhere - the CI runner is at 1.0 and rounds the half-DIP top up to 359
+            // (CI run 45058318223). HostDpiBounds enforces exactly that and nothing looser.
+            HostDpiBounds.AssertWindowMatches(window, placement.Window,
+                "the drawn window must be the grown rect");
             // The drawn tag straddling the grown card is proven on the arranged manual windows
             // (TheTag_StraddlesTheTopEdge...); a lone note keeps its badge hidden, so nothing
             // is drawn to read here.

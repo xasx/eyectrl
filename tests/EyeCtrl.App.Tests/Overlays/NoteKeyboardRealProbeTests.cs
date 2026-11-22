@@ -99,6 +99,83 @@ public class NoteKeyboardRealProbeTests
         AssertFlipFollowsTheFinalRect(rig);
     }
 
+    [StaFact]
+    public void AKeyboardPageSwitchMidEdit_RePlacesAgainstTheNewKeyboardHeight()
+    {
+        // B item 2: the Fn page is 126.5 DIP taller than the letters page at the owner's key size
+        // 1.75 (MEASURED from the real window: 736 -> 862.5). The page switch is a sub-layout
+        // swap: KeyboardWindow rebuilds the grid, SizeToContent re-lays the window out, its own
+        // SizeChanged re-anchors it and the KeyboardProbe queues its raise at Background
+        // (KeyboardProbe.cs:87-93). The editing note must be re-placed against the NEW height -
+        // both on the way to Fn and back.
+        using var rig = new Rig(keySizeMultiplier: 1.75);
+        rig.CreateNote();
+        var letters = rig.KeyboardRectDip;
+        var lettersPlacement = rig.Placement;
+
+        Check.WithCustomMessage($"the owner's letters page is 736 DIP tall at 1.75 (measured {letters.Height:F1})")
+            .That(letters.Height).IsCloseTo(736, 1.0);
+
+        AssertPageSwitchFollows(rig, "function", "letters -> Fn");
+        var fn = rig.KeyboardRectDip;
+        Check.WithCustomMessage($"the Fn page is 862.5 DIP tall at 1.75 (measured {fn.Height:F1})")
+            .That(fn.Height).IsCloseTo(862.5, 1.0);
+        Check.WithCustomMessage("the taller keyboard must have MOVED the editing card")
+            .That(rig.Placement.Window).IsNotEqualTo(lettersPlacement.Window);
+
+        AssertPageSwitchFollows(rig, "letters", "Fn -> letters");
+        Check.WithCustomMessage("the letters page must return the keyboard to its height")
+            .That(rig.KeyboardRectDip.Height).IsCloseTo(letters.Height, 1.0);
+        Check.WithCustomMessage("and the card must return to its letters-page placement")
+            .That(rig.Placement.Window).IsEqualTo(lettersPlacement.Window);
+    }
+
+    [StaFact]
+    public void OnASmallWorkArea_AKeyboardPageSwitchStillFollows()
+    {
+        // The same page-switch essence on the CI runner's ~768 DIP stage: the card may have no
+        // clear spot at either height (the placement is clamped to the inset at both), so the
+        // assertion is the EQUALITY with the derivation against the new rect - not movement.
+        using var rig = new Rig(() => new Rect(0, 0, 1366, 768));
+        rig.CreateNote();
+        var letters = rig.KeyboardRectDip;
+
+        AssertPageSwitchFollows(rig, "function", "small: letters -> Fn");
+        Check.WithCustomMessage("the Fn page must be taller, small stage included")
+            .That(rig.KeyboardRectDip.Height).IsStrictlyGreaterThan(letters.Height);
+        AssertPageSwitchFollows(rig, "letters", "small: Fn -> letters");
+    }
+
+    /// <summary>The page-switch essence: after the sub-layout swap the published placement IS the
+    /// one derived against the keyboard's NEW rect, through the manager's own Edit inputs. The
+    /// keyboard's height must have changed (that is what makes this a re-place), and where the
+    /// derivation genuinely moved, the clearance rule is checked too.</summary>
+    private static void AssertPageSwitchFollows(Rig rig, string page, string when)
+    {
+        var oldProbe = rig.ProbeRects;
+        var oldExpected = rig.Derive(oldProbe);
+        rig.SwitchPage(page);
+        var probe = rig.ProbeRects;
+
+        Check.WithCustomMessage($"{when}: the real keyboard must be visible AND sourced")
+            .That(probe).Not.IsEmpty();
+        var expected = rig.Derive(probe);
+        Check.WithCustomMessage(
+                $"{when}: the card {rig.Placement.Window} must be the placement derived against the "
+                + $"NEW keyboard {rig.KeyboardRectDip} (expected {expected.Window}, before {oldExpected.Window})")
+            .That(rig.Placement).IsEqualTo(expected);
+        Check.WithCustomMessage($"{when}: the page switch must have resized the keyboard")
+            .That(Math.Abs(probe[0].Height - oldProbe[0].Height) > 0.5).IsTrue();
+
+        if (expected.Window != oldExpected.Window)
+        {
+            Check.WithCustomMessage($"{when}: the derivation changed, so the card must have moved")
+                .That(rig.Placement.Window).IsNotEqualTo(oldExpected.Window);
+            if (HasClearBand(rig.WorkAreaDip, rig.KeyboardRectDip, rig.Placement.Window.Height))
+                AssertClearOfTheKeyboard(rig.Placement, rig.KeyboardRectDip, when);
+        }
+    }
+
     /// <summary>The creation essence: the published placement IS the one derived against the
     /// probe's current (live) rects, through the manager's own Edit inputs. The 24 DIP clearance
     /// is added only when the work area really leaves that much room beside the keyboard.</summary>
@@ -218,7 +295,7 @@ public class NoteKeyboardRealProbeTests
         private readonly IMessenger _messenger;
         private readonly KeyboardProbe _probe;
 
-        public Rig(Func<Rect>? workArea = null)
+        public Rig(Func<Rect>? workArea = null, double keySizeMultiplier = 1.5)
         {
             WpfApplicationGate.EnsureApplicationWithTokens();
             _dispatcher = Dispatcher.CurrentDispatcher;
@@ -236,7 +313,7 @@ public class NoteKeyboardRealProbeTests
             _window = new KeyboardWindow();
             _window.SetViewModel(_vm);
             _window.SetScreenEdge("Top");
-            _window.LoadLayout(layout, 1.5, keyDwellMs: 450, predictionDwellMs: 800, cooldownMs: 0);
+            _window.LoadLayout(layout, keySizeMultiplier, keyDwellMs: 450, predictionDwellMs: 800, cooldownMs: 0);
             InvisibleTestWindow.Prepare(_window);
             _window.Show();
             Pump();
@@ -319,7 +396,16 @@ public class NoteKeyboardRealProbeTests
             Pump();
         }
 
-        /// <summary>The hide half: the VM flip and the window hide, as the coordinator does.</summary>
+        /// <summary>The production page switch (the Fn/ABC keys): the VM's sub-layout swap, which
+        /// rebuilds the grid. The window is SizeToContent, re-anchors on its own SizeChanged, and
+        /// the probe's SizeChanged subscription queues its raise at Background - Pump drains it.</summary>
+        public void SwitchPage(string subLayoutId)
+        {
+            _vm.SwitchSubLayout(subLayoutId);
+            Pump();
+        }
+
+        /// <summary>The production hide half: the VM flip and the window hide, as the coordinator does.</summary>
         public void HideKeyboard()
         {
             _vm.IsVisible = false;

@@ -186,9 +186,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private bool _reopenedUnmodified;
 
     // F16: true while a letter/digit has been typed since the last word boundary, so a word ended
-    // by Space, Enter, punctuation or a pick can report its bar hit. _wordText is that word's own
-    // typed letters (in memory only, never logged): CurrentInput may still hold the token before a
-    // punctuation boundary, which is not part of this word. The words the bar showed live in the
+    // by Space, Enter, punctuation or a pick can report its bar hit. _wordText is that word as it
+    // sits at the end of CurrentInput (in memory only, never logged): a letter/digit appends, and a
+    // hyphen or apostrophe inside an open word continues it ("E-Mail", "geht's"). Every deletion
+    // re-reads it from CurrentInput, so a Backspace re-open or a deleted boundary cannot leave a
+    // parallel buffer behind what the bar predicts from. The words the bar showed live in the
     // recorder (in memory only too); this flag says whether a word is being typed at all.
     private bool _wordOpen;
     private string _wordText = "";
@@ -315,8 +317,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     internal bool IsSensitiveContext => SensitiveNow();
 
     /// <summary>
-    /// F16: letters typed for the open word (0 at a word boundary). The bar renders are stamped
-    /// with this prefix, so a wordend line can say from which typed letter a word was on offer.
+    /// F16: characters typed for the open word (0 at a word boundary). The bar renders are stamped
+    /// with this prefix, so a wordend line can say from which typed character a word was on offer.
+    /// Includes an inner hyphen/apostrophe, as the final word's length does ("E-M" = 3).
     /// </summary>
     internal int TypedLettersInOpenWord => _wordOpen ? _wordText.Length : 0;
 
@@ -1312,9 +1315,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // System modifier combos (Ctrl+C, Alt+F4, etc.) are shortcuts, not text input
         if (!HasSystemModifiers)
         {
-            // F16: a letter/digit continues the open word; anything else (punctuation, a symbol,
-            // an emoji) ends the word being typed before it is appended.
-            var continuesWord = actualOutput.Length > 0 && char.IsLetterOrDigit(actualOutput[0]);
+            // F16: a letter/digit continues the open word; a hyphen or apostrophe continues one
+            // already open ("E-Mail", "geht's"); anything else (other punctuation, a symbol, an
+            // emoji) ends the word being typed before it is appended. The word text mirrors what
+            // the bar predicts from, so no parallel buffer can say a different word.
+            var continuesWord = actualOutput.Length > 0
+                && (char.IsLetterOrDigit(actualOutput[0])
+                    || (_wordOpen && IsWordInterior(actualOutput[0])));
             if (continuesWord)
                 _wordText = _wordOpen ? _wordText + actualOutput : actualOutput;
             else
@@ -1357,7 +1364,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             CurrentInput = TrimLastGrapheme(CurrentInput);
             _reopenedUnmodified = false;
-            DropLastWordLetterE1();
+            // F16: the word that remains is whatever CurrentInput now ends with — a press that
+            // takes away a boundary comma re-opens the word before it, as the bar sees it.
+            SyncOpenWordFromCurrentInput();
         }
         else
         {
@@ -1388,7 +1397,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             CurrentInput = TrimLastWord(CurrentInput);
             _reopenedUnmodified = false;
-            DropOpenWordE1();
+            // F16: Wort löschen takes the trailing letter/digit run; a fragment before it ("E-")
+            // stays the open token, so the word is re-read from the mirror like any deletion.
+            SyncOpenWordFromCurrentInput();
         }
         else
         {
@@ -1425,14 +1436,20 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // A word that was re-opened (nothing was open before this press) is untouched until the user
         // edits it; any press that reaches into an already open word is an edit.
         _reopenedUnmodified = !hadOpenWord && CurrentInput.Length > 0;
+
+        // F16: the re-opened run is the open word, so the bar's renders are stamped with its length
+        // and a later Space/pick reports the whole word, not just what was typed after the re-open.
+        SyncOpenWordFromCurrentInput();
     }
 
     /// <summary>
     /// F16: finishes the open word for E1 and drops its bar words. A typed word ends with Space,
     /// Enter or punctuation (<paramref name="pick"/> false); a pick ends it with the picked
-    /// suggestion. A word that was REMOVED before it ended never reaches here — the ⌫/Wort löschen
-    /// paths drop its tracking instead, so it writes no line. The final word is compared against
-    /// the bar's rendered words in memory and never logged.
+    /// suggestion. The final word is <see cref="CurrentInput"/>'s open token with leading and
+    /// trailing non-letters trimmed ("Hallo," → "Hallo", "E-" → "E"), because that token is what
+    /// the bar predicts from; it is compared against the bar's rendered words in memory and never
+    /// logged. A word that was REMOVED before it ended never reaches here — the ⌫/Wort löschen
+    /// paths re-read the word from the mirror instead, so a fully removed one writes no line.
     /// </summary>
     private void FinishWordE1(bool pick = false, string? pickedWord = null, int typedPrefix = 0)
     {
@@ -1441,7 +1458,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             E1.ClearWordTracking();
             return;
         }
-        var finalWord = pick ? pickedWord : _wordText;
+        var finalWord = pick ? pickedWord : TrimWordBoundaries(_wordText);
         _wordOpen = false;
         _wordText = "";
         if (finalWord is null)
@@ -1453,25 +1470,34 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         E1.RecordWordEnd(pick ? 0 : LastKeySeq, pick, finalWord, typedPrefix);
     }
 
-    /// <summary>F16: a Backspace took one letter off the open word; if none is left the word is
-    /// gone and writes nothing.</summary>
-    private void DropLastWordLetterE1()
+    /// <summary>
+    /// F16: re-reads the open word from <see cref="CurrentInput"/> after a deletion rewrote it —
+    /// the Backspace re-open, an in-place Backspace (which may take a boundary comma away), and
+    /// Wort löschen. The word is the trailing token of the mirror: letters, digits and word-inner
+    /// hyphens/apostrophes after the last other character ("E-Mail", "geht's", "don'r"), with a
+    /// leading non-letter dropped. It is open only while a letter or digit remains; a word that is
+    /// gone keeps nothing and writes nothing.
+    /// </summary>
+    private void SyncOpenWordFromCurrentInput()
     {
-        if (!_wordOpen) return;
-        _wordText = TrimLastGrapheme(_wordText);
-        if (_wordText.Length > 0) return;
-        _wordOpen = false;
-        E1.ClearWordTracking();
+        var start = CurrentInput.Length;
+        while (start > 0 && IsWordTextChar(CurrentInput[start - 1])) start--;
+        while (start < CurrentInput.Length && !char.IsLetterOrDigit(CurrentInput[start])) start++;
+
+        _wordText = CurrentInput[start..];
+        _wordOpen = _wordText.Length > 0;
+        if (!_wordOpen) E1.ClearWordTracking();
     }
 
-    /// <summary>F16: a Wort löschen took the whole open word back: it is gone, and writes nothing.</summary>
-    private void DropOpenWordE1()
-    {
-        if (!_wordOpen) return;
-        _wordOpen = false;
-        _wordText = "";
-        E1.ClearWordTracking();
-    }
+    /// <summary>
+    /// F16: a character that belongs to a word beside the letters and digits. A hyphen or
+    /// apostrophe typed while a word is open stays inside it ("E-Mail", "geht's"); typed at a
+    /// boundary it starts nothing.
+    /// </summary>
+    private static bool IsWordInterior(char ch) => ch is '-' or '\'' or '’';
+
+    /// <summary>The F16 word-character test: letters, digits and a word-inner hyphen/apostrophe.</summary>
+    private static bool IsWordTextChar(char ch) => char.IsLetterOrDigit(ch) || IsWordInterior(ch);
 
     /// <summary>
     /// The mirror stops being believed: Enter, hide, and every key that moves the caret, changes the
@@ -2245,8 +2271,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         EndSessionOnSensitivityChange();
         // F16: a pick finishes the word too — the picked suggestion is the final word and the
-        // letters typed before it the prefix (0 for a next-word pick at the boundary).
-        FinishWordE1(pick: true, word, _wordText.Length);
+        // letters typed before it the prefix (0 for a next-word pick at the boundary). The prefix
+        // is CurrentInput.Length, the same length the pick line's prefixlen reports.
+        FinishWordE1(pick: true, word, CurrentInput.Length);
         // A pick is a look off the keyboard that proves the gaze left the fired key: re-arm it,
         // exactly as another key's fire does. This also discards a second-dwell run in progress
         // (the latched key may be under the bar's pick gesture).

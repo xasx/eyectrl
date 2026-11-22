@@ -1167,4 +1167,63 @@ public class KeyboardE1RecorderTests
         Check.That(log.Lines).ContainsExactly("KB-E1 sensitive");
         Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
     }
+
+    [Fact]
+    public void ARenderPath_ReadsSensitivity_WithoutMarkerTaintOrUndoEffects()
+    {
+        // L1: F16 fed the bar renders into the recorder through Muted(), whose side effects are
+        // for an INPUT (one sensitive marker, taint, drop a pending pick-undo). A render must read
+        // the verdict alone: it keeps nothing in a password field, writes no marker, taints
+        // nothing, and leaves a pick's undo window open.
+        var sensitive = false;
+        var log = new Capture();
+        var recorder = new KeyboardE1Recorder(log, () => 0) { IsSensitive = () => sensitive };
+
+        recorder.RecordPick(0, "dict", 1, 3, 10, 0);              // a pick awaiting its possible undo
+        var afterPick = log.Lines.Count;
+
+        sensitive = true;
+        recorder.NoteBarRender(["Hallo"], typedLetters: 1);       // the bar in a password field
+        recorder.NoteNextWordFilled("Ziel");
+        Check.WithCustomMessage("a render kept a bar word in a password field")
+            .That(recorder.TrackedBarWordCount).IsEqualTo(0);
+        Check.WithCustomMessage("a render wrote a line itself (the sensitive marker)")
+            .That(log.Lines).HasSize(afterPick);
+        Check.WithCustomMessage("a render tainted the mirror check").That(recorder.Tainted).IsFalse();
+
+        sensitive = false;
+        recorder.RecordKey(Key(KeyE1.Backspace));                 // inside the 3 s window
+        Check.WithCustomMessage("a render in the password field dropped the pending pick-undo")
+            .That(log.Lines.Count(l => l.StartsWith("KB-E1 pickundo ", StringComparison.Ordinal))).IsEqualTo(1);
+        Check.That(log.Lines.Count(l => l == "KB-E1 sensitive")).IsEqualTo(0);
+
+        sensitive = true;
+        recorder.RecordKey(Key(KeyE1.Letter));                    // the first INPUT in the field
+        Check.That(log.Lines.Count(l => l == "KB-E1 sensitive")).IsEqualTo(1);
+        Check.That(recorder.Tainted).IsTrue();
+
+        // A render OUTSIDE the field then a fresh entry: no input happened in between, so the
+        // recorder is still in the same password context — exactly as before F16, when only
+        // inputs could change that state. The render must not fake an exit (and a second marker).
+        sensitive = false;
+        recorder.NoteBarRender(["Welt"], typedLetters: 1);
+        sensitive = true;
+        recorder.RecordKey(Key(KeyE1.Letter));
+        Check.That(log.Lines.Count(l => l == "KB-E1 sensitive")).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void ALateNextWordFillInASensitiveContext_KeepsNoBarWord()
+    {
+        // L2: the view-model already refuses to take a next-word answer in a password field; this
+        // pins the recorder's own guard, so a late fill can never enter the in-memory store.
+        var sensitive = true;
+        var log = new Capture();
+        var recorder = new KeyboardE1Recorder(log, () => 0) { IsSensitive = () => sensitive };
+
+        recorder.NoteNextWordFilled("Ziel");
+
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
+        Check.That(log.Lines).IsEmpty();
+    }
 }

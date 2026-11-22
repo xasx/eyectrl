@@ -149,15 +149,26 @@ public sealed class KeyboardE1Recorder
     private static long MonotonicMs() => Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;
 
     /// <summary>
+    /// The sensitivity probe's verdict ALONE: no marker, no taint, no pick-undo or mode-undo
+    /// side effects. The render path (<see cref="NoteBarRender"/>, <see cref="NoteNextWordFilled"/>)
+    /// must keep nothing while a password field has focus, but a render is not an input: it must
+    /// not write the one <c>sensitive</c> marker, must not taint the mirror check and must not
+    /// drop a pending pick-undo. A throwing probe counts as not sensitive, as in <see cref="Muted"/>.
+    /// </summary>
+    private bool IsSensitiveNow()
+    {
+        try { return IsSensitive?.Invoke() == true; }
+        catch (Exception) { return false; }
+    }
+
+    /// <summary>
     /// True while a sensitive context has focus: callers (and every recorder method below) must then
     /// log nothing per key. The first call after entering drops the pending pick-undo and mode-undo
     /// state and writes ONE <c>KB-E1 sensitive</c> marker with no count.
     /// </summary>
     public bool Muted()
     {
-        bool sensitive;
-        try { sensitive = IsSensitive?.Invoke() == true; }
-        catch (Exception) { sensitive = false; }
+        var sensitive = IsSensitiveNow();
 
         if (sensitive) _tainted = true;
 
@@ -352,7 +363,9 @@ public sealed class KeyboardE1Recorder
     /// </summary>
     public void NoteBarRender(IReadOnlyList<string?> words, int typedLetters)
     {
-        if (Muted()) { ClearWordTracking(); return; }
+        // Side-effect-free probe (L1): a render in a password field keeps nothing, but it must not
+        // write the "sensitive" marker, taint the mirror check or drop a pending pick-undo.
+        if (IsSensitiveNow()) { ClearWordTracking(); return; }
         if (!Enabled) { ClearWordTracking(); return; }
         try
         {
@@ -374,7 +387,9 @@ public sealed class KeyboardE1Recorder
     /// </summary>
     public void NoteNextWordFilled(string word)
     {
-        if (Muted()) { ClearWordTracking(); return; }
+        // Side-effect-free probe (L2): a late fill in a password field keeps nothing and writes
+        // nothing; TryTakeNextWordSuggestions already returns null there, so this is defence in depth.
+        if (IsSensitiveNow()) { ClearWordTracking(); return; }
         if (!Enabled || string.IsNullOrEmpty(word)) return;
         try
         {

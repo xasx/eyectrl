@@ -142,8 +142,12 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      typed (``onbar``), the typed prefix at which it first appeared (``firstprefix``,
                      0 = offered at the word boundary as F7's next-word suggestion), its first slot,
                      and the letters typed after that first appearance (the "savable" letters, the
-                     number a pick there would have saved). Typed words only: a pick
-                     (``wordend how=pick``) is the bar working, not a word typed past an offer.
+                     number a pick there would have saved). A hit needs ``firstprefix < len``: a
+                     word the bar only ever showed once it was complete (``firstprefix == len``, the
+                     predictor returns the typed word itself) could not have been saved, so it is
+                     counted on its own line and kept out of the share, the slots and the median.
+                     Typed words only: a pick (``wordend how=pick``) is the bar working, not a word
+                     typed past an offer.
 * near-move          activations within 1 s of a window move (``movems``)
 * bar empty          share of Spaces after which the bar was empty
 * mirror             verdicts (match / mismatch / unsupported / suppressed / empty), the
@@ -429,7 +433,11 @@ def bar_hits(events: list[dict[str, Any]]) -> dict[str, Any]:
     ends = [e for e in events if e["event"] == "wordend"]
     typed = [e for e in ends if e.get("how") == "typed"]
     picks = [e for e in ends if e.get("how") == "pick"]
-    hits = [e for e in typed if e.get("onbar") == 1]
+    # A bar match must have been offered BEFORE the word was complete: firstprefix == len means the
+    # bar only ever showed the finished word itself (the predictor returns the typed word too), which
+    # no pick could have saved (F2). It is counted on its own line, never as a hit.
+    hits = [e for e in typed if e.get("onbar") == 1 and 0 <= e["firstprefix"] < e["len"]]
+    finished = [e for e in typed if e.get("onbar") == 1 and e["firstprefix"] == e["len"]]
     savable = sum(max(0, e["len"] - e["firstprefix"]) for e in hits)
     slots = Counter(e["firstslot"] for e in hits)
     prefixes = [e["firstprefix"] for e in hits]
@@ -452,6 +460,7 @@ def bar_hits(events: list[dict[str, Any]]) -> dict[str, Any]:
         "picks_joined": joined,
         "on_bar": len(hits),
         "on_bar_share": _share(len(hits), len(typed)),
+        "shown_only_when_finished": len(finished),
         "savable_letters": savable,
         "first_slots": dict(sorted(slots.items())),
         "median_firstprefix": statistics.median(prefixes) if prefixes else None,
@@ -812,6 +821,8 @@ def render(m: dict[str, Any]) -> str:
     b = m["bar_hits"]
     add(f"bar could have saved      {b['on_bar']} of {b['typed_words']} typed words were already on the bar "
         f"({_pct(b['on_bar_share'])})")
+    add(f"  shown only at the end   {b['shown_only_when_finished']}   "
+        f"(firstprefix == len: the bar showed the finished word itself, not an earlier offer)")
     add(f"  savable letters         {b['savable_letters']}   (typed after the word first appeared)")
     add(f"  first-appearance slots  {b['first_slots']}")
     add(f"  median firstprefix      "

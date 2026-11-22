@@ -1845,4 +1845,182 @@ public class KeyboardE1LoggingTests
         rig.Vm.HandlePredictionSelected("Hallo");
         Check.That(Fields(rig.Log.Of("wordend").Single())["onbar"]).IsEqualTo("0");
     }
+
+    [Fact]
+    public void ASingleBackspaceReopen_ContinuesTheReopenedWord()
+    {
+        // F1: the press that deletes the Space re-opens the committed word. The bar predicts
+        // from "hallo" again, so "x" continues it — the finished word is "hallox", not "x".
+        using var rig = new Rig();
+        foreach (var letter in "hallo") rig.Vm.ActivateKey(letter.ToString(), null);
+        rig.Vm.HandleSpace();
+        rig.Vm.HandleBackspace();                                      // the space: re-opens "hallo"
+        Check.That(rig.Vm.CurrentInput).IsEqualTo("hallo");
+        rig.Vm.ActivateKey("x", null);
+        rig.Vm.HandleSpace();
+
+        var f = Fields(rig.Log.Of("wordend").Last());
+        Check.That(f["len"]).IsEqualTo("6");
+        Check.That(f["typed"]).IsEqualTo("6");
+    }
+
+    [Fact]
+    public void AReopenedWord_EndedBySpace_ReportsTheWholeWord()
+    {
+        // F1: a Backspace re-open puts the previous word back into CurrentInput, so the bar
+        // predicts from "has" again. The word the Space finally ends is "hasue", not the "ue"
+        // typed after the re-open. (The bar's exact render of the completed word below is what
+        // F2 excludes from the parser's headline: firstprefix == len.)
+        using var rig = new Rig();
+        foreach (var letter in "hasue") rig.Vm.ActivateKey(letter.ToString(), null);
+        rig.Vm.HandleSpace();                                          // commits "hasue"
+
+        rig.Vm.HandleBackspace();                                      // the space: re-opens "hasue"
+        rig.Vm.HandleBackspace();                                      // "hasu"
+        rig.Vm.HandleBackspace();                                      // "has"
+        Check.That(rig.Vm.CurrentInput).IsEqualTo("has");
+
+        rig.Vm.NoteBarRendered(["Hause"]);                             // offered from the reopened "has"
+        rig.Vm.ActivateKey("u", null);
+        rig.Vm.NoteBarRendered(["Hause"]);
+        rig.Vm.ActivateKey("e", null);
+        rig.Vm.NoteBarRendered(["Hause", "hasue"]);                    // the completed word itself
+        rig.Vm.HandleSpace();
+
+        var ends = rig.Log.Of("wordend").Select(Fields).ToList();
+        Check.That(ends).HasSize(2);                                   // only the two real word ends
+        var f = ends[1];
+        Check.That(f["how"]).IsEqualTo("typed");
+        Check.That(f["len"]).IsEqualTo("5");
+        Check.That(f["typed"]).IsEqualTo("5");
+        Check.That(f["onbar"]).IsEqualTo("1");
+        Check.That(f["firstprefix"]).IsEqualTo("5");
+        Check.That(f["firstslot"]).IsEqualTo("1");
+        Check.That(f["renders"]).IsEqualTo("3");
+    }
+
+    [Fact]
+    public void AReopenedWord_ThenPicked_ReportsTheReopenedPrefix()
+    {
+        // F1: the pick that replaces a re-opened word used to report typed=0, while the pick line
+        // right beside it reported prefixlen=3. Both now count the re-opened letters, and the bar
+        // render that offered "Hause" from "has" is stamped 3, not 0.
+        using var rig = new Rig();
+        foreach (var letter in "hasue") rig.Vm.ActivateKey(letter.ToString(), null);
+        rig.Vm.HandleSpace();
+        rig.Vm.HandleBackspace();
+        rig.Vm.HandleBackspace();
+        rig.Vm.HandleBackspace();
+        Check.That(rig.Vm.CurrentInput).IsEqualTo("has");
+
+        rig.Vm.NoteBarRendered(["Hause"]);                             // first offer, at three letters
+        rig.Vm.HandlePredictionSelected("Hause");
+
+        var f = Fields(rig.Log.Of("wordend").Last());
+        Check.That(f["how"]).IsEqualTo("pick");
+        Check.That(f["len"]).IsEqualTo("5");
+        Check.That(f["typed"]).IsEqualTo("3");
+        Check.That(f["onbar"]).IsEqualTo("1");
+        Check.That(f["firstprefix"]).IsEqualTo("3");
+        Check.That(f["firstslot"]).IsEqualTo("0");
+    }
+
+    [Theory]
+    [InlineData("E-Mail")]
+    [InlineData("geht's")]
+    public void AHyphenOrApostropheToken_StaysOneWord_AndMatchesItsBarEntry(string token)
+    {
+        // F1: a word-inner hyphen or apostrophe does not end the word, so "E-Mail" and "geht's"
+        // are ONE typed word of six characters — the bar's own token — not a word before the
+        // symbol and another one after it.
+        using var rig = new Rig();
+        foreach (var ch in token[..3]) rig.Vm.ActivateKey(ch.ToString(), null);
+        rig.Vm.NoteBarRendered([token]);                               // first offer at three characters
+        foreach (var ch in token[3..]) rig.Vm.ActivateKey(ch.ToString(), null);
+        rig.Vm.NoteBarRendered([token]);
+        rig.Vm.HandleSpace();
+
+        var f = Fields(rig.Log.Of("wordend").Single());                // ONE line for the whole token
+        Check.That(f["how"]).IsEqualTo("typed");
+        Check.That(f["len"]).IsEqualTo("6");
+        Check.That(f["onbar"]).IsEqualTo("1");
+        Check.That(f["firstprefix"]).IsEqualTo("3");
+        Check.That(f["firstslot"]).IsEqualTo("0");
+    }
+
+    [Fact]
+    public void ADeletedPunctuation_ReopensTheWordFromTheMirror()
+    {
+        // F1: the comma ended "foo"; the Backspace that takes it away leaves "foo" under the
+        // caret, and typing "x" continues THAT word ("foox"), which is what the bar predicts from.
+        using var rig = new Rig();
+        foreach (var letter in "foo") rig.Vm.ActivateKey(letter.ToString(), null);
+        rig.Vm.ActivateKey(",", null);                                 // the word "foo" ends here
+        rig.Vm.HandleBackspace();                                      // the comma is gone
+        Check.That(rig.Vm.CurrentInput).IsEqualTo("foo");
+        rig.Vm.ActivateKey("x", null);
+        rig.Vm.HandleSpace();
+
+        var ends = rig.Log.Of("wordend").Select(Fields).ToList();
+        Check.That(ends).HasSize(2);
+        Check.That(ends[0]["len"]).IsEqualTo("3");                     // "foo" before the comma
+        Check.That(ends[1]["len"]).IsEqualTo("4");                     // "foox" after the edit
+        Check.That(ends[1]["typed"]).IsEqualTo("4");
+    }
+
+    [Fact]
+    public void ATrailingWordInteriorSymbol_IsNotPartOfTheFinishedWord()
+    {
+        // F1: the finished word is the open token trimmed of leading and trailing non-letters —
+        // the same boundary trim the Space learn path uses. A hyphen left dangling at the end is
+        // not a character of the word.
+        using var rig = new Rig();
+        rig.Vm.ActivateKey("E", null);
+        rig.Vm.ActivateKey("-", null);                                 // inside the word, not a boundary
+        rig.Vm.HandleSpace();
+
+        var f = Fields(rig.Log.Of("wordend").Single());
+        Check.That(f["how"]).IsEqualTo("typed");
+        Check.That(f["len"]).IsEqualTo("1");
+        Check.That(f["typed"]).IsEqualTo("1");
+    }
+
+    [Fact]
+    public void APickAfterALeadingSymbol_ReportsTheSamePrefixAsThePickLine()
+    {
+        // F1: the prefix a pick replaces is CurrentInput.Length — exactly what the pick line's
+        // prefixlen reports — not the trimmed word's length. "-foo" is four characters to delete.
+        using var rig = new Rig();
+        rig.Vm.ActivateKey("-", null);                                 // a dash at a boundary: no word
+        foreach (var letter in "foo") rig.Vm.ActivateKey(letter.ToString(), null);
+        rig.Vm.NoteBarRendered(["foo"]);
+        rig.Vm.HandlePredictionSelected("foo");
+
+        var f = Fields(rig.Log.Of("wordend").Single());
+        Check.That(f["how"]).IsEqualTo("pick");
+        Check.That(f["len"]).IsEqualTo("3");
+        Check.That(f["typed"]).IsEqualTo("4");
+        Check.That(f["onbar"]).IsEqualTo("1");
+    }
+
+    [Fact]
+    public void AWordBegunInASensitiveContext_FinishedOutside_LogsOnlyTheOutsideLetters()
+    {
+        // F3: the password word is still OPEN when the focus leaves by gaze (no key reaches the
+        // keyboard). Every way that ends the editing session must abandon it: a surviving word
+        // text would make the next Space log the password's length.
+        using var rig = new Rig();
+        rig.Sensitive.IsSensitiveActive = true;
+        foreach (var letter in "geheim") rig.Vm.ActivateKey(letter.ToString(), null);
+        Check.That(rig.Log.Of("wordend")).IsEmpty();                   // nothing was committed inside
+
+        rig.Sensitive.IsSensitiveActive = false;                       // left by gaze: no key seen
+        rig.Vm.ActivateKey("x", null);
+        rig.Vm.HandleSpace();
+
+        var f = Fields(rig.Log.Of("wordend").Single());
+        Check.That(f["how"]).IsEqualTo("typed");
+        Check.That(f["len"]).IsEqualTo("1");
+        Check.That(f["typed"]).IsEqualTo("1");
+    }
 }

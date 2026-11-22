@@ -700,6 +700,42 @@ public class KeyboardE1PrivacyTests
         finally { p.Dispose(); }
     }
 
+    /// <summary>
+    /// The reverse of the test above (F3): the word BEGINS in the password field and is still open
+    /// when the focus leaves by gaze (no key the keyboard sees ends the field). The next typed
+    /// word must start fresh — a surviving word text would make the Space log the password's
+    /// length. This is the reviewer's probe that mutant O1 (an editing-session end that keeps the
+    /// open word) must turn red.
+    /// </summary>
+    [StaFact]
+    public void AWordBegunInAPasswordField_FinishedOutside_LogsOnlyTheOutsideLetters()
+    {
+        var sensitive = new FakeSensitive { IsSensitiveActive = true };
+        var p = Open(sensitive: sensitive);
+        try
+        {
+            long ts = 1_000;
+            p.Vm.IsVisible = true;
+            foreach (var letter in "geheim")
+                Dwell(p, IdOf(p, letter.ToString()), ref ts);
+            Check.WithCustomMessage("a word was committed inside the password field")
+                .That(p.Log.All().Where(l => l.Event == "wordend")).IsEmpty();
+
+            sensitive.IsSensitiveActive = false;   // left by gaze: no key the keyboard sees
+            Dwell(p, IdOf(p, "x"), ref ts);
+            Dwell(p, SpecialId(p, "space"), ref ts);
+
+            var ends = p.Log.All().Where(l => l.Event == "wordend").ToList();
+            Check.WithCustomMessage("a word begun in the password field wrote no single outside word: "
+                    + string.Join(" | ", p.Log.All().Select(l => l.Message)))
+                .That(ends).HasSize(1);
+            Check.WithCustomMessage("the password's length reached the wordend line: " + ends[0].Message)
+                .That((int)ends[0].Props["Len"]!).IsEqualTo(1);
+            Check.That((string)ends[0].Props["How"]!).IsEqualTo("typed");
+        }
+        finally { p.Dispose(); }
+    }
+
     // ---- the log cannot spell the text --------------------------------------------------------
 
     /// <summary>

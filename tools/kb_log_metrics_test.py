@@ -1130,6 +1130,35 @@ class BarHits(unittest.TestCase):
         self.assertEqual(b["first_slots"], {0: 1, 3: 1})
         self.assertEqual(b["median_firstprefix"], 1.0)
 
+    def test_a_word_only_shown_when_finished_is_reported_but_not_a_hit(self) -> None:
+        # F2: the predictor returns the typed word itself, so after the last letter the bar shows a
+        # word that could never have been picked. firstprefix == len is honest raw data but not a
+        # bar hit: it must not inflate the share, the slots, the savable letters or the median.
+        lines = [
+            self.wordend(1_000, seq=3, length=5, typed=5, onbar=1, firstprefix=2, firstslot=3, renders=4),
+            self.wordend(2_000, seq=7, length=4, typed=4, onbar=1, firstprefix=4, firstslot=0, renders=3),
+            self.wordend(3_000, seq=9, length=6, typed=6, onbar=0, renders=2),
+        ]
+        b = kb.metrics(kb.parse(lines))["bar_hits"]
+
+        self.assertEqual(b["typed_words"], 3)
+        self.assertEqual(b["on_bar"], 1)
+        self.assertAlmostEqual(b["on_bar_share"], 1 / 3)
+        self.assertEqual(b["shown_only_when_finished"], 1)
+        self.assertEqual(b["savable_letters"], 3)                     # 5 - 2, not the finished word's 0
+        self.assertEqual(b["first_slots"], {3: 1})
+        self.assertEqual(b["median_firstprefix"], 2)
+
+    def test_the_text_report_names_the_words_only_shown_when_finished(self) -> None:
+        lines = [
+            self.wordend(1_000, seq=3, length=5, typed=5, onbar=1, firstprefix=2, firstslot=3, renders=4),
+            self.wordend(2_000, seq=7, length=4, typed=4, onbar=1, firstprefix=4),
+        ]
+        report = kb.render(kb.metrics(kb.parse(lines)))
+
+        self.assertIn("1 of 2 typed words were already on the bar", report)
+        self.assertIn("shown only at the end   1", report)
+
     def test_picks_are_reported_but_not_counted_as_words_typed_past_an_offer(self) -> None:
         lines = [
             stamp_line(1_000, "pick slot=1 src=dict prefixlen=2 sincekey=-1 sincepick=-1 renderms=50 visited=0"),

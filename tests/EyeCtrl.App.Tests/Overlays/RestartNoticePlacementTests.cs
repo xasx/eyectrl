@@ -333,6 +333,26 @@ public class RestartNoticePlacementTests
         Check.That(RestartNoticePlacement.Place(area, card, [new Rect(0, 0, 1920, 1152)]).Top).IsEqualTo(0);
     }
 
+    [Fact]
+    public void WhenTheFullGapCannotFit_TheCardStillStaysClearOfTheTallerKeyboard()
+    {
+        // F17's 2.0x top-docked keyboard is 834 DIP tall, leaving 318 DIP below it on the
+        // taskbar-reduced work area: 9 short of the card plus the 24 DIP clear gap. The card must
+        // take the minimal separation below the keyboard, not fall back over it.
+        var card = new Size(1000, 315);
+        var area = new Rect(0, 0, 1920, 1152);
+        var keyboard = new Rect(27, 0, 1866, 834);
+
+        var (left, top) = RestartNoticePlacement.Place(area, card, [keyboard]);
+        var rect = new Rect(left, top, card.Width, card.Height);
+
+        Check.WithCustomMessage($"the card {rect} covers the keyboard {keyboard}")
+            .That(rect.IntersectsWith(keyboard)).IsFalse();
+        Check.That(rect.Bottom).IsLessOrEqualThan(area.Bottom);
+        Check.WithCustomMessage("the card must sit below the keyboard with the minimal separation")
+            .That(top).IsEqualTo(keyboard.Bottom + RestartNoticePlacement.MinimumClearGapDip);
+    }
+
     // B4: the bottom-centre banner slot's live occupant is part of the card's keep-clear set, so a
     // drift notice or caregiver alert sharing the resting spot never ends up underneath the card
     // (whose close button would then be dwelled over the banner, and hide it).

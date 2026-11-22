@@ -4,6 +4,7 @@ using EyeCtrl.App.Services;
 
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
 using EyeCtrl.Controls;
 using EyeCtrl.Core;
@@ -20,6 +21,14 @@ using EyeCtrl.ViewModels;
 public partial class KeyboardWindow : OverlayWindow
 {
     private const double BaseKeySize = 70;
+
+    // F17 (owner's option A, 22.11): the bar shows at most FOUR suggestions instead of five,
+    // each 1.6 key-heights tall with 1.6x the label size. The stored setting's ceiling stays 5
+    // — the owner's settings.json holds maxSuggestions: 5, and narrowing that guard would make
+    // the loader reject the file and revert EVERY setting to defaults. The renderer clamps
+    // instead; the settings slider keeps its 1-5 range (see KeyboardPageSource).
+    private const int MaxRenderedSuggestionSlots = 4;
+    private const double SuggestionScale = 1.6;
 
     private static Color KeyColorNormal => Tokens.SurfaceKey;
     private static Color KeyColorSpecial => Tokens.SurfaceKeyModifier;
@@ -135,8 +144,8 @@ public partial class KeyboardWindow : OverlayWindow
     private long _lastMoveMs = long.MinValue;      // last time the window's position actually changed
     private long _barRenderedMs = long.MinValue;   // when the bar's current render happened
     private long _lastSampleTimestampUs;           // the gaze sample being processed (a pick's clock)
-    private readonly long[] _slotDwellStartMs = new long[5];  // start of each slot's CURRENT dwell run
-    private readonly long[] _slotLastRunStartMs = new long[5]; // start of each slot's most recent finished run
+    private readonly long[] _slotDwellStartMs = new long[MaxRenderedSuggestionSlots];  // start of each slot's CURRENT dwell run
+    private readonly long[] _slotLastRunStartMs = new long[MaxRenderedSuggestionSlots]; // start of each slot's most recent finished run
     private int _slotsVisitedMask;                 // slots whose dwell began at least once since render
 
     /// <summary>
@@ -1289,7 +1298,8 @@ public partial class KeyboardWindow : OverlayWindow
 
     public void UpdatePredictions()
     {
-        var slotCount = Math.Clamp(_settings?.Keyboard.MaxSuggestions ?? 5, 1, 5);
+        var slotCount = Math.Clamp(_settings?.Keyboard.MaxSuggestions ?? KeyboardSettings.MaxSuggestionsCeiling,
+            1, MaxRenderedSuggestionSlots);
         var suggestions = _viewModel?.GetSuggestionsWithContext() ?? [];
 
         _predictionDwellDetector.ClearTargets();
@@ -1323,11 +1333,11 @@ public partial class KeyboardWindow : OverlayWindow
         if (ShouldShowPredictionLoadingHint())
         {
             // One plain, non-interactive text across the whole bar. The hint surface keeps the
-            // cells' exact layout footprint (a cell is _keySize + 3+3 margin, the grid's own
-            // margin is 0,0,0,6), so the hint→suggestions transition never resizes the window
-            // under a resting gaze.
+            // cells' exact layout footprint (a cell is _keySize * SuggestionScale + 3+3 margin,
+            // the grid's own margin is 0,0,0,6), so the hint→suggestions transition never
+            // resizes the window under a resting gaze.
             PredictionBar.Visibility = Visibility.Collapsed;
-            _predictionLoadingHint.Height = _keySize;
+            _predictionLoadingHint.Height = _keySize * SuggestionScale;
             _predictionLoadingHint.Margin = new Thickness(0, 3, 0, 9);
             _predictionLoadingHint.Width = _keyGridWidth > 0 ? _keyGridWidth : double.NaN;
             _predictionLoadingHintText.Text =
@@ -1348,7 +1358,8 @@ public partial class KeyboardWindow : OverlayWindow
                 : Visibility.Collapsed;
 
         // Equal slots spanning the key grid exactly: the bar is as wide as the widest row, so
-        // no suggestion can ever grow the window, and its height is one key regardless of count.
+        // no suggestion can ever grow the window; its height is the same 1.6 key-heights
+        // regardless of how many slots are filled.
         var slotWidth = _keyGridWidth > 0 ? _keyGridWidth / slotCount : 0;
         var labelMaxWidth = Math.Max(0, slotWidth - 38); // minus 3+3 margin and 16+16 padding
 
@@ -1418,7 +1429,8 @@ public partial class KeyboardWindow : OverlayWindow
         _nextWordReserved = false;
         if (next.Count == 0) return;       // answered with nothing usable: slot 0 stays empty
 
-        var slotCount = Math.Clamp(_settings?.Keyboard.MaxSuggestions ?? 5, 1, 5);
+        var slotCount = Math.Clamp(_settings?.Keyboard.MaxSuggestions ?? KeyboardSettings.MaxSuggestionsCeiling,
+            1, MaxRenderedSuggestionSlots);
         var cell = CreatePredictionCell(0, next[0], PredictionLabelMaxWidth(slotCount));
         // CreatePredictionCell appends its outline; this cell belongs to slot 0.
         var overlay = _predictionOutlines[^1];
@@ -1435,16 +1447,17 @@ public partial class KeyboardWindow : OverlayWindow
 
     private Border CreatePredictionCell(int index, PredictionResult result, double labelMaxWidth)
     {
+        var foreground = GetPredictionForeground(result.Type);
         var predLabel = new TextBlock
         {
-            Text = result.Word,
-            Foreground = GetPredictionForeground(result.Type),
-            // Sized from the prediction cell, which is _keySize tall (see the Border below),
-            // clamped at Legibility.MinimumGlyphFontSize for the reason recorded at the
-            // key-label site: KeySizeMultiplier's 0.5 floor would otherwise put this at
+            Foreground = foreground,
+            // Sized from the prediction cell, which is 1.6 key-heights tall (see the Border
+            // below), clamped at Legibility.MinimumGlyphFontSize for the reason recorded at
+            // the key-label site: KeySizeMultiplier's 0.5 floor would otherwise put this at
             // 8.05px, under the 12px accessibility floor (§8.4). Proportional scaling still
             // applies above ~0.75x.
-            FontSize = Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
+            FontSize = Math.Max(_keySize * ContainerRatio.Small * SuggestionScale,
+                Legibility.MinimumGlyphFontSize),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Center,
             // The slot is a fixed share of the key grid, so a long word trims inside it. The
@@ -1453,6 +1466,7 @@ public partial class KeyboardWindow : OverlayWindow
             MaxWidth = labelMaxWidth,
             TextTrimming = TextTrimming.CharacterEllipsis
         };
+        SetPredictionText(predLabel, result.Word, foreground);
         System.Windows.Automation.AutomationProperties.SetAutomationId(predLabel, $"Keyboard_Prediction_{index}");
 
         // Calculate background color with optional confidence shading
@@ -1495,7 +1509,7 @@ public partial class KeyboardWindow : OverlayWindow
 
         var btn = new Border
         {
-            Height = _keySize,
+            Height = _keySize * SuggestionScale,
             Margin = new Thickness(3),
             Padding = new Thickness(16, 0, 16, 0),
             Background = brush,
@@ -1506,11 +1520,34 @@ public partial class KeyboardWindow : OverlayWindow
         return btn;
     }
 
+    /// <summary>
+    /// F17: in a completion of the word the user is typing, the already-typed leading part is
+    /// drawn in <see cref="Tokens.BrushPredictionPrefix"/> so the part the suggestion ADDS stands
+    /// out. The split uses the same case-insensitive prefix comparison the predictor uses to
+    /// build completions (<see cref="WordPredictor"/>), and only while something is typed: a
+    /// next-word suggestion (empty input) and every non-completion stay one run in the type's
+    /// colour.
+    /// </summary>
+    private void SetPredictionText(TextBlock label, string word, Brush foreground)
+    {
+        var typedLength = _viewModel?.CurrentInput.Length ?? 0;
+        if (typedLength > 0
+            && typedLength <= word.Length
+            && word.StartsWith(_viewModel!.CurrentInput, StringComparison.OrdinalIgnoreCase))
+        {
+            label.Inlines.Add(new Run(word[..typedLength]) { Foreground = Tokens.BrushPredictionPrefix });
+            label.Inlines.Add(new Run(word[typedLength..]) { Foreground = foreground });
+            return;
+        }
+
+        label.Inlines.Add(new Run(word) { Foreground = foreground });
+    }
+
     private Border CreateEmptyPredictionCell(int index)
     {
         var cell = new Border
         {
-            Height = _keySize,
+            Height = _keySize * SuggestionScale,
             Margin = new Thickness(3),
             Background = new SolidColorBrush(PredictionBarColor),
             CornerRadius = Tokens.StandardCornerRadius,

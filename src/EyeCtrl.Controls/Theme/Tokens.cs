@@ -116,6 +116,8 @@ public static class Tokens
     public static SolidColorBrush BrushTextSecondary => Current.BrushTextSecondary;
     /// <inheritdoc cref="ITheme.BrushTextDim"/>
     public static SolidColorBrush BrushTextDim => Current.BrushTextDim;
+    /// <inheritdoc cref="ITheme.BrushPredictionPrefix"/>
+    public static SolidColorBrush BrushPredictionPrefix => Current.BrushPredictionPrefix;
     /// <inheritdoc cref="ITheme.BrushMarkerMove"/>
     public static SolidColorBrush BrushMarkerMove => Current.BrushMarkerMove;
     /// <inheritdoc cref="ITheme.BrushAccent"/>

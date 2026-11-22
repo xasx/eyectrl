@@ -807,8 +807,10 @@ public class ShippedLayoutFilesTests
 
     public static IEnumerable<object[]> SwitchLandingCases()
     {
+        // 1.75 is the owner's key size (F17's geometry proof); 1.5 and 2.0 bound the range so
+        // a fix cannot special-case one multiplier.
         foreach (var file in LayoutFiles)
-            foreach (var mult in new[] { 1.5, 2.0 })
+            foreach (var mult in new[] { 1.5, 1.75, 2.0 })
                 foreach (var dock in new[] { "bottom", "top" })
                     yield return [file, mult, dock];
     }

@@ -24,6 +24,13 @@ internal static class RestartNoticePlacement
     internal const double KeepClearGapDip = 24;
 
     /// <summary>
+    /// The smaller separation tried only when <see cref="KeepClearGapDip"/> cannot fit anywhere.
+    /// Two DIP keeps the card's edge from TOUCHING the chrome: <see cref="Rect.IntersectsWith"/>
+    /// counts shared edges, and a gaze at a shared edge is ambiguous.
+    /// </summary>
+    internal const double MinimumClearGapDip = 2;
+
+    /// <summary>
     /// The chrome zones the activation offer keeps clear of, converted to DIP (they are published
     /// in physical pixels).
     /// </summary>
@@ -41,6 +48,13 @@ internal static class RestartNoticePlacement
     /// The card's top-left. Without chrome in the way, bottom-centre. Otherwise the nearest spot
     /// to that which clears every zone by <see cref="KeepClearGapDip"/>: just above or just below
     /// any of them, inside the work area; at worst the top of the work area.
+    /// <para>
+    /// F17: the 1.6x-tall prediction bar makes the 2.0x keyboard 834 DIP tall. Top-docked on the
+    /// 1152 DIP work area (1920x1200 at 200% less the taskbar) only 318 DIP remain below it, 9
+    /// too few for the card plus the 24 DIP gap. Before covering the keyboard, the card is placed
+    /// with the smallest separation that still fits (<see cref="MinimumClearGapDip"/>): still no
+    /// overlap, which is the invariant this placement exists for.
+    /// </para>
     /// </summary>
     /// <param name="workArea">The work area in DIP.</param>
     /// <param name="card">The card's size in DIP.</param>
@@ -51,30 +65,35 @@ internal static class RestartNoticePlacement
         var left = workArea.Left + (workArea.Width - card.Width) / 2;
         var bottomTop = workArea.Bottom - card.Height - MarginDip;
 
-        var inflated = keepClear
-            .Select(zone => { zone.Inflate(KeepClearGapDip, KeepClearGapDip); return zone; })
-            .ToList();
-
-        bool Clear(double top)
+        bool Clear(double top, double gap)
         {
             var rect = new Rect(left, top, card.Width, card.Height);
             // A strict overlap: Rect.IntersectsWith counts touching edges, and "just above, a gap
-            // clear" puts the card's edge exactly on the inflated zone's.
+            // clear" puts the card's edge exactly on the zone plus the gap.
             return top >= workArea.Top
                 && rect.Bottom <= workArea.Bottom
-                && !inflated.Any(zone => rect.Right > zone.Left && rect.Left < zone.Right
-                                         && rect.Bottom > zone.Top && rect.Top < zone.Bottom);
+                && !keepClear.Any(zone =>
+                    rect.Right > zone.Left - gap && rect.Left < zone.Right + gap
+                    && rect.Bottom > zone.Top - gap && rect.Top < zone.Bottom + gap);
         }
 
-        if (Clear(bottomTop)) return (left, bottomTop);
+        IEnumerable<double> CandidateTops(double gap) =>
+            keepClear
+                .SelectMany(zone => new[] { zone.Top - gap - card.Height, zone.Bottom + gap })
+                .OrderBy(top => System.Math.Abs(top - bottomTop));
 
-        // Just above or just below each zone, nearest to the resting place first.
-        var candidates = keepClear
-            .SelectMany(zone => new[] { zone.Top - KeepClearGapDip - card.Height, zone.Bottom + KeepClearGapDip })
-            .OrderBy(top => System.Math.Abs(top - bottomTop));
-        foreach (var top in candidates)
+        if (Clear(bottomTop, KeepClearGapDip)) return (left, bottomTop);
+
+        // Just above or just below each zone, nearest to the resting place first, with the full
+        // clear gap. Only when no gapped spot fits does the minimal-separation pass run.
+        foreach (var top in CandidateTops(KeepClearGapDip))
         {
-            if (Clear(top)) return (left, top);
+            if (Clear(top, KeepClearGapDip)) return (left, top);
+        }
+
+        foreach (var top in CandidateTops(MinimumClearGapDip))
+        {
+            if (Clear(top, MinimumClearGapDip)) return (left, top);
         }
 
         return (left, workArea.Top);

@@ -21,9 +21,9 @@ using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
-/// The prediction bar is a fixed row: one slot per configured suggestion, always present in text
-/// mode, empty slots as quiet placeholders. The window must not resize - and no key may move -
-/// when the suggestion count changes while typing.
+/// The prediction bar is a fixed row: four rendered slots (F17 — the stored setting may say 5),
+/// always present in text mode, empty slots as quiet placeholders. The window must not resize —
+/// and no key may move — when the suggestion count changes while typing.
 /// </summary>
 [Collection("WpfApplication")]
 public class KeyboardPredictionBarStabilityTests
@@ -128,6 +128,9 @@ public class KeyboardPredictionBarStabilityTests
     private static string CellText(UIElement? element) => element switch
     {
         TextBlock tb when !string.IsNullOrEmpty(tb.Text) => tb.Text,
+        // F17's labels are two Runs when the typed prefix is greyed; TextBlock.Text stays empty
+        // for an inline-built label, so read the runs' text instead.
+        TextBlock tb => string.Concat(tb.Inlines.OfType<System.Windows.Documents.Run>().Select(r => r.Text)),
         Border border => CellText(border.Child),
         Panel panel => panel.Children.Cast<UIElement>()
             .Select(CellText).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? "",
@@ -171,7 +174,7 @@ public class KeyboardPredictionBarStabilityTests
             {
                 ("0 suggestions", "mmm", 0),
                 ("one 60-character suggestion", "aaa", 1),
-                ("5 suggestions", "hel", 5),
+                ("more suggestions than slots", "hel", 4),
             };
 
             var referenceSize = default((double Width, double Height));
@@ -181,8 +184,8 @@ public class KeyboardPredictionBarStabilityTests
                 Layout(probe, scenario.Input);
                 Check.WithCustomMessage($"{scenario.Label}: rendered {string.Join("|", RenderedWords(probe.Window))}")
                     .That(RenderedWords(probe.Window)).HasSize(scenario.Expected);
-                Check.WithCustomMessage($"{scenario.Label}: the bar must always hold MaxSuggestions slots")
-                    .That(probe.Window.PredictionBar.Children.Count).IsEqualTo(5);
+                Check.WithCustomMessage($"{scenario.Label}: the bar must always hold the 4 rendered slots")
+                    .That(probe.Window.PredictionBar.Children.Count).IsEqualTo(4);
 
                 var size = ContentSize(probe);
                 var keys = KeyBoxes(probe.Window);
@@ -215,7 +218,7 @@ public class KeyboardPredictionBarStabilityTests
         try
         {
             Layout(probe, "mmm");
-            Check.That(probe.Window.PredictionBar.Children.Count).IsEqualTo(5);
+            Check.That(probe.Window.PredictionBar.Children.Count).IsEqualTo(4);
             Check.WithCustomMessage("An empty bar registered dwell targets")
                 .That(RegisteredTargets(probe.PredictionDetector)).IsEmpty();
 

@@ -34,6 +34,9 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.keyboard.prediction.label"),
                     () => k.PredictionEnabled, v => { k.PredictionEnabled = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.keyboard.prediction.description"), Simple = true },
+                // F17: the slider keeps its 1-5 range (no UI or validation change), but the bar
+                // renders at most 4 slots — a fifth would shrink every cell under the owner's
+                // chosen 1.6x height. The stored ceiling stays 5 so a saved 5 still loads.
                 new SliderSpec("k_pred_count",
                     StringTable.Current.T("settings.keyboard.prediction_count.label"), 1, Core.Settings.KeyboardSettings.MaxSuggestionsCeiling, 1, 0,
                     () => k.MaxSuggestions, v => { k.MaxSuggestions = (int)v; _ctx.ApplyAndSave(); })

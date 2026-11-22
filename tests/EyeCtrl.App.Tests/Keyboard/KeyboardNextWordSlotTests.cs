@@ -107,6 +107,9 @@ public class KeyboardNextWordSlotTests
     private static string CellText(UIElement? element) => element switch
     {
         TextBlock tb when !string.IsNullOrEmpty(tb.Text) => tb.Text,
+        // F17's greyed typed prefix makes the label two Runs; TextBlock.Text stays empty for an
+        // inline-built label, so read the runs' text instead.
+        TextBlock tb => string.Concat(tb.Inlines.OfType<System.Windows.Documents.Run>().Select(r => r.Text)),
         Border border => CellText(border.Child),
         Panel panel => panel.Children.Cast<UIElement>()
             .Select(CellText).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? "",
@@ -224,6 +227,38 @@ public class KeyboardNextWordSlotTests
                 .That(targets).Not.Contains("pred_0");
             Check.WithCustomMessage($"targets: {string.Join("|", targets)}")
                 .That(targets).Contains("pred_1");
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void BoundaryRender_LaysThreeConventionalWordsFromSlotOne_BesideTheReservedSlot()
+    {
+        using var probe = Open();
+        try
+        {
+            probe.Orchestrator.LearnPair("Haus", "ist");
+            probe.Orchestrator.LearnPair("Haus", "ist");
+            probe.Orchestrator.LearnPair("Haus", "steht");
+            probe.Orchestrator.LearnPair("Haus", "steht");
+            probe.Orchestrator.LearnPair("Haus", "leer");
+            probe.Orchestrator.LearnPair("Haus", "leer");
+            probe.Orchestrator.LearnPair("Haus", "hier");
+            probe.Orchestrator.LearnPair("Haus", "hier");
+            TypeIntoTheBoundary(probe);
+            probe.Window.UpdatePredictions();
+            probe.Content.UpdateLayout();
+
+            // F17 caps the bar at 4 slots. A boundary reserves slot 0 for the LM's next word,
+            // so the three remaining slots carry the conventional words from slot 1 on and the
+            // reserved slot is still an empty placeholder.
+            var words = RenderedWords(probe.Window);
+            Check.WithCustomMessage($"bar: {string.Join("|", words)}")
+                .That(words).HasSize(4);
+            Check.WithCustomMessage($"bar: {string.Join("|", words)}")
+                .That(words[0]).IsEmpty();
+            Check.WithCustomMessage($"bar: {string.Join("|", words)}")
+                .That(words.Skip(1).Where(word => word.Length > 0).ToList()).HasSize(3);
         }
         finally { probe.Dispose(); }
     }

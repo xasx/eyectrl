@@ -13,6 +13,7 @@ using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Localization;
@@ -149,6 +150,11 @@ public class KeyboardPredictionLoadingHintTests
             var keyGridWidth = (double)p.Field("_keyGridWidth");
             Check.That(p.Hint().Width).IsEqualTo(keyGridWidth);
             Check.That(p.HintText().Text).IsEqualTo("Loading predictions…");
+            // F17 fixup-01: the hint text scales with its taller box, like the suggestion labels.
+            var expectedHintFont = 70 * ContainerRatio.Small * 1.6;
+            Check.WithCustomMessage(
+                    $"the hint font {p.HintText().FontSize} must scale with the {p.Hint().Height} DIP box")
+                .That(p.HintText().FontSize).IsCloseTo(expectedHintFont, 0.01);
         }
         finally { p.Dispose(); }
     }

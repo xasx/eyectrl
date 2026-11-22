@@ -42,6 +42,27 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     /// <summary>The dwell id of the close button.</summary>
     internal const string CloseTargetId = "restart_notice_close";
 
+    /// <summary>
+    /// The normal card width in DIP, matching the XAML's <c>Width="1000"</c>. A short card tries
+    /// this width first; if it cannot be placed clear of chrome, the wider pass may grow it up to
+    /// the work area's width minus the placement margins (F17 fixup: fewer wrapped lines, a
+    /// shorter card, before the card would ever cover the keyboard).
+    /// </summary>
+    internal const double PreferredWidth = 1000;
+
+    /// <summary>Which fallback pass placed the card (F17 fixup-01; read by the placement tests).</summary>
+    internal enum PlacementPass
+    {
+        DefaultWorkArea,
+        WiderCardWorkArea,
+        DefaultScreen,
+        WiderCardScreen,
+        Fallback,
+    }
+
+    /// <summary>The pass the last <see cref="Prepare"/> used.</summary>
+    internal PlacementPass LastPlacementPass { get; private set; }
+
     /// <summary>How often a gaze sample re-reads the chrome the card keeps clear of (microseconds).</summary>
     internal const long FollowCheckIntervalMicroseconds = 250_000;
 
@@ -55,6 +76,8 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     private readonly Func<IReadOnlyList<Rect>>? _keepClear;
     private readonly Action<RestartNoticeWindow>? _present;
     private IReadOnlyList<Rect> _placedAgainst = [];
+    private string _title = "";
+    private string _body = "";
     private long? _lastFollowCheckUs;
     private bool _isShowing;
     private DispatcherTimer? _holdTimer;
@@ -211,13 +234,15 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     /// nothing moved (moving the card restarts the button's dwell).
     /// </summary>
     /// <param name="workArea">The work area to place in, in DIP.</param>
+    /// <param name="screenArea">The full primary screen, in DIP; null reads it live. The fallback
+    /// pass may use the taskbar strip below/above the work area, never the keys.</param>
     /// <returns>True when the card was moved.</returns>
-    internal bool ReplaceIfChromeMoved(Rect workArea)
+    internal bool ReplaceIfChromeMoved(Rect workArea, Rect? screenArea = null)
     {
         var chrome = _keepClear?.Invoke() ?? [];
         if (chrome.SequenceEqual(_placedAgainst)) return false;
 
-        Prepare(workArea);
+        Prepare(workArea, screenArea);
         UpdateLayout();
         PlaceDwellTarget();
         return true;
@@ -231,9 +256,9 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     internal void SetText(string message)
     {
         var split = message.Split('\n', 2);
-        TitleText.Text = split[0];
-        BodyText.Text = split.Length > 1 ? split[1] : string.Empty;
-        BodyText.Visibility = split.Length > 1 ? Visibility.Visible : Visibility.Collapsed;
+        _title = split[0];
+        _body = split.Length > 1 ? split[1] : string.Empty;
+        ApplyText(reflowBody: false);
     }
 
     /// <inheritdoc />
@@ -262,25 +287,100 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     /// wide, growing in height only from a minimum, so no translation is clipped. The text change
     /// invalidates the chain to the window, because a hidden window runs no layout pass and
     /// <c>Measure</c> would otherwise report the previous message's height.
+    /// <para>
+    /// F17 fixup-01's fallback ladder, in order: the preferred card on the work area; a WIDER card
+    /// (the body's manual line breaks become spaces, so the same text wraps to fewer lines) on the
+    /// work area; the preferred card on the FULL SCREEN (the taskbar strip may be covered, never
+    /// the keys); the wider card on the full screen; only then the old top-edge fallback over the
+    /// chrome.
+    /// </para>
     /// </summary>
     /// <param name="workArea">The work area to place in, in DIP.</param>
-    internal void Prepare(Rect workArea)
+    /// <param name="screenArea">The full primary screen, in DIP; null reads it live.</param>
+    internal void Prepare(Rect workArea, Rect? screenArea = null)
     {
+        var chrome = _keepClear?.Invoke() ?? [];
+        _placedAgainst = chrome;
+        var screen = screenArea ?? FullScreenArea();
+        var wide = Math.Max(PreferredWidth,
+            workArea.Width - (2 * RestartNoticePlacement.MarginDip));
+
+        if (TryLayout(workArea, chrome, PreferredWidth, reflowBody: false,
+                PlacementPass.DefaultWorkArea))
+            return;
+
+        if (wide > PreferredWidth
+            && TryLayout(workArea, chrome, wide, reflowBody: true,
+                PlacementPass.WiderCardWorkArea))
+            return;
+
+        if (TryLayout(screen, chrome, PreferredWidth, reflowBody: false,
+                PlacementPass.DefaultScreen))
+            return;
+
+        if (wide > PreferredWidth
+            && TryLayout(screen, chrome, wide, reflowBody: true,
+                PlacementPass.WiderCardScreen))
+            return;
+
+        // The old behaviour, kept only for a chrome set that leaves no clear spot anywhere.
+        Width = PreferredWidth;
+        ApplyText(reflowBody: false);
+        var content = (FrameworkElement)Content;
+        content.Measure(new Size(Width, double.PositiveInfinity));
+        Height = Math.Max(MinHeight, content.DesiredSize.Height);
+        (Left, Top) = RestartNoticePlacement.Place(
+            workArea, new Size(Width, Height), chrome);
+        LastPlacementPass = PlacementPass.Fallback;
+    }
+
+    /// <summary>
+    /// One fallback-ladder rung: size the card at <paramref name="width"/>, lay its text out
+    /// (optionally with the body's manual breaks reflowed as spaces) and place it in
+    /// <paramref name="area"/>. False when no clear spot exists there; the caller tries the next
+    /// rung.
+    /// </summary>
+    private bool TryLayout(Rect area, IReadOnlyList<Rect> chrome, double width, bool reflowBody,
+        PlacementPass pass)
+    {
+        Width = width;
+        ApplyText(reflowBody);
+        var content = (FrameworkElement)Content;
+        content.Measure(new Size(Width, double.PositiveInfinity));
+        var height = Math.Max(MinHeight, content.DesiredSize.Height);
+        Height = height;
+
+        if (!RestartNoticePlacement.TryPlace(area, new Size(Width, height), chrome, out var position))
+            return false;
+
+        (Left, Top) = position;
+        LastPlacementPass = pass;
+        return true;
+    }
+
+    /// <summary>
+    /// Writes the stored title/body into the two TextBlocks. <paramref name="reflowBody"/> turns
+    /// the body's explicit line breaks into spaces for the wider-card pass — the same words, left
+    /// to wrap at the wider measure, so a short card is not forced to three lines. The title/body
+    /// split (the first newline) is never reflowed.
+    /// </summary>
+    private void ApplyText(bool reflowBody)
+    {
+        TitleText.Text = _title;
+        BodyText.Text = reflowBody ? _body.Replace('\n', ' ') : _body;
+        BodyText.Visibility = _body.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+
         for (DependencyObject? node = BodyText;
              node is not null && !ReferenceEquals(node, this);
              node = VisualTreeHelper.GetParent(node) ?? LogicalTreeHelper.GetParent(node))
         {
             (node as UIElement)?.InvalidateMeasure();
         }
-
-        var content = (FrameworkElement)Content;
-        content.Measure(new Size(Width, double.PositiveInfinity));
-        var height = Math.Max(MinHeight, content.DesiredSize.Height);
-        Height = height;
-
-        _placedAgainst = _keepClear?.Invoke() ?? [];
-        (Left, Top) = RestartNoticePlacement.Place(workArea, new Size(Width, height), _placedAgainst);
     }
+
+    /// <summary>The full primary screen in DIP (the work area plus the taskbar strip).</summary>
+    private static Rect FullScreenArea() => new(
+        0, 0, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
 
     internal void PlaceDwellTarget()
     {

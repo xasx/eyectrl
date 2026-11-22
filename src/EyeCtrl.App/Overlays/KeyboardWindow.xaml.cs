@@ -1343,7 +1343,8 @@ public partial class KeyboardWindow : OverlayWindow
             _predictionLoadingHintText.Text =
                 EyeCtrl.Core.Localization.StringTable.Current.T("overlays.keyboard.predictionsLoading");
             _predictionLoadingHintText.FontSize =
-                Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize);
+                Math.Max(_keySize * ContainerRatio.Small * SuggestionScale,
+                    Legibility.MinimumGlyphFontSize);
             _predictionLoadingHint.Visibility = Visibility.Visible;
             return;
         }
@@ -1451,6 +1452,9 @@ public partial class KeyboardWindow : OverlayWindow
         var predLabel = new TextBlock
         {
             Foreground = foreground,
+            // Board A (F17 fixup-01): the new part is SemiBold, the already-typed part Normal.
+            // The label's default weight is Normal; SetPredictionText gives only the added run
+            // the theme's SemiBold token (600).
             // Sized from the prediction cell, which is 1.6 key-heights tall (see the Border
             // below), clamped at Legibility.MinimumGlyphFontSize for the reason recorded at
             // the key-label site: KeySizeMultiplier's 0.5 floor would otherwise put this at
@@ -1535,12 +1539,25 @@ public partial class KeyboardWindow : OverlayWindow
             && typedLength <= word.Length
             && word.StartsWith(_viewModel!.CurrentInput, StringComparison.OrdinalIgnoreCase))
         {
-            label.Inlines.Add(new Run(word[..typedLength]) { Foreground = Tokens.BrushPredictionPrefix });
-            label.Inlines.Add(new Run(word[typedLength..]) { Foreground = foreground });
+            label.Inlines.Add(new Run(word[..typedLength])
+            {
+                Foreground = Tokens.BrushPredictionPrefix,
+                // Board A: the typed part is regular; the label's default (Normal) supplies it.
+            });
+            label.Inlines.Add(new Run(word[typedLength..])
+            {
+                Foreground = foreground,
+                FontWeight = Tokens.FontWeightMedium,
+            });
             return;
         }
 
-        label.Inlines.Add(new Run(word) { Foreground = foreground });
+        // A next-word suggestion (nothing typed) and every non-completion are wholly the new part.
+        label.Inlines.Add(new Run(word)
+        {
+            Foreground = foreground,
+            FontWeight = Tokens.FontWeightMedium,
+        });
     }
 
     private Border CreateEmptyPredictionCell(int index)

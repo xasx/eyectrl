@@ -270,6 +270,11 @@ public class KeyboardPredictionBarLayoutTests
                 .That(runs[0].Foreground).IsSameReferenceAs(Tokens.BrushPredictionPrefix);
             Check.WithCustomMessage("the added part must keep the type's normal colour")
                 .That(runs[1].Foreground).IsSameReferenceAs(Tokens.BrushTextPrimary);
+            // Board A separates the split by colour AND weight: typed regular, new SemiBold.
+            Check.WithCustomMessage("the typed part must be regular (400)")
+                .That(runs[0].FontWeight.ToOpenTypeWeight()).IsEqualTo(400);
+            Check.WithCustomMessage("the added part must be SemiBold (600)")
+                .That(runs[1].FontWeight.ToOpenTypeWeight()).IsEqualTo(600);
         }
         finally { probe.Dispose(); }
     }
@@ -303,6 +308,8 @@ public class KeyboardPredictionBarLayoutTests
             Check.WithCustomMessage("a next-word suggestion must be one run, all in its type colour")
                 .That(Runs(next)).HasSize(1);
             Check.That(Runs(next)[0].Foreground).IsSameReferenceAs(Tokens.BrushAccentSuccess);
+            Check.WithCustomMessage("a next-word suggestion is wholly the new part: SemiBold (600)")
+                .That(Runs(next)[0].FontWeight.ToOpenTypeWeight()).IsEqualTo(600);
         }
         finally { probe.Dispose(); }
     }
@@ -360,9 +367,10 @@ public class KeyboardPredictionBarLayoutTests
 
     /// <summary>
     /// The owner's screen is 3840x2400 at 200% (1920x1200 DIP) and the keyboard is docked Top and
-    /// Bottom. At 1.75x the four-row letters page measures 736 DIP and the five-row Fn page
-    /// 862.5 DIP (before F17 they were 662.5 / 789): both still fit, so the placement clamps are
-    /// not what keeps the window on screen.
+    /// Bottom; the work area is 1920x1152 DIP (the taskbar strip removed). At 1.75x the four-row
+    /// letters page measures 736 DIP and the five-row Fn page 862.5 DIP (before F17 they were
+    /// 662.5 / 789): both still fit, so the placement clamps are not what keeps the window on
+    /// screen.
     /// </summary>
     [StaTheory]
     [InlineData("letters")]
@@ -376,11 +384,11 @@ public class KeyboardPredictionBarLayoutTests
             Measure(probe.Content);
             var width = probe.Content.ActualWidth;
             var height = probe.Content.ActualHeight;
-            var workArea = new Rect(0, 0, 1920, 1200);
+            var workArea = new Rect(0, 0, 1920, 1152);
 
             Check.WithCustomMessage($"{page} at 1.75x: width {width} over the 1920 DIP work area")
                 .That(width).IsLessOrEqualThan(workArea.Width);
-            Check.WithCustomMessage($"{page} at 1.75x: height {height} over the 1200 DIP work area")
+            Check.WithCustomMessage($"{page} at 1.75x: height {height} over the 1152 DIP work area")
                 .That(height).IsLessOrEqualThan(workArea.Height);
             // The arithmetic the ticket states: chrome 22 + bar (196 + 6 margins + 6 grid gap) +
             // rows (4 * 126.5 or 5 * 126.5). Before F17 the bar was 134.5, so the window grew by
@@ -399,7 +407,7 @@ public class KeyboardPredictionBarLayoutTests
                     .That(probe.Window.Top).IsGreaterOrEqualThan(workArea.Top - 0.01);
                 Check.WithCustomMessage(
                         $"{page} at 1.75x/{edge}: bottom edge {probe.Window.Top + height} over the "
-                        + "1200 DIP work area")
+                        + "1152 DIP work area")
                     .That(probe.Window.Top + height).IsLessOrEqualThan(workArea.Bottom + 0.01);
                 Check.WithCustomMessage($"{page} at 1.75x/{edge}: why did the edge not take?")
                     .That(probe.Window.Top)
@@ -411,8 +419,9 @@ public class KeyboardPredictionBarLayoutTests
 
     /// <summary>
     /// F17 grows the window by 0.6 key-heights (73.5 DIP at 1.75x), so the toolbar yield and the
-    /// dock clamps must still keep it on screen. The yield is one toolbar extent toward centre;
-    /// the taller window still has room for it on both docks.
+    /// dock clamps must still keep it on screen. The yield is one toolbar extent (the owner's
+    /// 112 DIP) toward centre; the taller window still has room for it on both docks of the
+    /// 1920x1152 DIP work area.
     /// </summary>
     [StaTheory]
     [InlineData("top")]
@@ -423,8 +432,8 @@ public class KeyboardPredictionBarLayoutTests
         try
         {
             var height = probe.Content.ActualHeight;
-            var workArea = new Rect(0, 0, 1920, 1200);
-            const double toolbarExtent = 60;
+            var workArea = new Rect(0, 0, 1920, 1152);
+            const double toolbarExtent = 112;
 
             probe.Window.SetToolbarOccupancyState(true, edge, toolbarExtent);
             probe.Window.SetScreenEdge(edge);

@@ -47,7 +47,7 @@ internal static class RestartNoticePlacement
     /// <summary>
     /// The card's top-left. Without chrome in the way, bottom-centre. Otherwise the nearest spot
     /// to that which clears every zone by <see cref="KeepClearGapDip"/>: just above or just below
-    /// any of them, inside the work area; at worst the top of the work area.
+    /// any of them, inside the work area; at worst the top of the area.
     /// <para>
     /// F17: the 1.6x-tall prediction bar makes the 2.0x keyboard 834 DIP tall. Top-docked on the
     /// 1152 DIP work area (1920x1200 at 200% less the taskbar) only 318 DIP remain below it, 9
@@ -56,22 +56,34 @@ internal static class RestartNoticePlacement
     /// overlap, which is the invariant this placement exists for.
     /// </para>
     /// </summary>
-    /// <param name="workArea">The work area in DIP.</param>
+    /// <param name="area">The area to place in, in DIP (the work area, or the full screen).</param>
     /// <param name="card">The card's size in DIP.</param>
     /// <param name="keepClear">The chrome to keep clear of, in DIP (the shown keyboard, a docked toolbar, an open menu).</param>
-    /// <returns>The card's left and top in DIP.</returns>
-    internal static (double Left, double Top) Place(Rect workArea, Size card, IReadOnlyList<Rect> keepClear)
+    /// <returns>The card's left and top in DIP; the top of <paramref name="area"/> when nothing is clear.</returns>
+    internal static (double Left, double Top) Place(Rect area, Size card, IReadOnlyList<Rect> keepClear)
     {
-        var left = workArea.Left + (workArea.Width - card.Width) / 2;
-        var bottomTop = workArea.Bottom - card.Height - MarginDip;
+        TryPlace(area, card, keepClear, out var position);
+        return position;
+    }
+
+    /// <summary>
+    /// The clear-placement half of <see cref="Place"/>: true when a spot clear of every zone (by
+    /// the full gap, else the minimal one) was found. On false, <paramref name="position"/> is the
+    /// old fallback at the top of <paramref name="area"/>; the caller may still try another area.
+    /// </summary>
+    internal static bool TryPlace(Rect area, Size card, IReadOnlyList<Rect> keepClear,
+        out (double Left, double Top) position)
+    {
+        var left = area.Left + (area.Width - card.Width) / 2;
+        var bottomTop = area.Bottom - card.Height - MarginDip;
 
         bool Clear(double top, double gap)
         {
             var rect = new Rect(left, top, card.Width, card.Height);
             // A strict overlap: Rect.IntersectsWith counts touching edges, and "just above, a gap
             // clear" puts the card's edge exactly on the zone plus the gap.
-            return top >= workArea.Top
-                && rect.Bottom <= workArea.Bottom
+            return top >= area.Top
+                && rect.Bottom <= area.Bottom
                 && !keepClear.Any(zone =>
                     rect.Right > zone.Left - gap && rect.Left < zone.Right + gap
                     && rect.Bottom > zone.Top - gap && rect.Top < zone.Bottom + gap);
@@ -82,20 +94,29 @@ internal static class RestartNoticePlacement
                 .SelectMany(zone => new[] { zone.Top - gap - card.Height, zone.Bottom + gap })
                 .OrderBy(top => System.Math.Abs(top - bottomTop));
 
-        if (Clear(bottomTop, KeepClearGapDip)) return (left, bottomTop);
+        if (Clear(bottomTop, KeepClearGapDip))
+        {
+            position = (left, bottomTop);
+            return true;
+        }
 
         // Just above or just below each zone, nearest to the resting place first, with the full
         // clear gap. Only when no gapped spot fits does the minimal-separation pass run.
         foreach (var top in CandidateTops(KeepClearGapDip))
         {
-            if (Clear(top, KeepClearGapDip)) return (left, top);
+            if (!Clear(top, KeepClearGapDip)) continue;
+            position = (left, top);
+            return true;
         }
 
         foreach (var top in CandidateTops(MinimumClearGapDip))
         {
-            if (Clear(top, MinimumClearGapDip)) return (left, top);
+            if (!Clear(top, MinimumClearGapDip)) continue;
+            position = (left, top);
+            return true;
         }
 
-        return (left, workArea.Top);
+        position = (left, area.Top);
+        return false;
     }
 }

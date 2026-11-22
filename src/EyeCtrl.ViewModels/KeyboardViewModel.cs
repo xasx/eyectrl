@@ -185,6 +185,16 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // been touched since: re-committing it as it was is not new evidence, so it learns nothing.
     private bool _reopenedUnmodified;
 
+    // F16: true while a letter/digit has been typed since the last word boundary, so a word ended
+    // by Space, Enter, punctuation or a pick can report its bar hit. _wordText is that word as it
+    // sits at the end of CurrentInput (in memory only, never logged): a letter/digit appends, and a
+    // hyphen or apostrophe inside an open word continues it ("E-Mail", "geht's"). Every deletion
+    // re-reads it from CurrentInput, so a Backspace re-open or a deleted boundary cannot leave a
+    // parallel buffer behind what the bar predicts from. The words the bar showed live in the
+    // recorder (in memory only too); this flag says whether a word is being typed at all.
+    private bool _wordOpen;
+    private string _wordText = "";
+
     private const int RecentTextLimit = 100;
 
     /// <summary>The committed half of the text mirror: what precedes <see cref="CurrentInput"/>.</summary>
@@ -306,6 +316,37 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// <summary>Whether a password-like field has focus right now (the window reads it to keep the bar empty).</summary>
     internal bool IsSensitiveContext => SensitiveNow();
 
+    /// <summary>
+    /// F16: characters typed for the open word (0 at a word boundary). The bar renders are stamped
+    /// with this prefix, so a wordend line can say from which typed character a word was on offer.
+    /// Includes an inner hyphen/apostrophe, as the final word's length does ("E-M" = 3).
+    /// </summary>
+    internal int TypedLettersInOpenWord => _wordOpen ? _wordText.Length : 0;
+
+    /// <summary>
+    /// F16: the window rendered this list of bar words (index = slot). The recorder keeps them in
+    /// memory only for the open word, so the next wordend line can say whether the finished word
+    /// was already on offer. A logging fault must never break the render.
+    /// </summary>
+    internal void NoteBarRendered(IReadOnlyList<string?> words)
+    {
+        try { E1.NoteBarRender(words, TypedLettersInOpenWord); }
+        catch (Exception)
+        {
+            // Logging must never break the bar render.
+        }
+    }
+
+    /// <summary>F16: a late next-word fill of slot 0 counts as a render of that slot.</summary>
+    internal void NoteNextWordFilled(string word)
+    {
+        try { E1.NoteNextWordFilled(word); }
+        catch (Exception)
+        {
+            // Logging must never break the bar render.
+        }
+    }
+
     // What SensitiveNow() returned the last time an input reached the view-model. The detector has no
     // change event, so a change of sensitivity is only ever SEEN at the next input.
     private bool _wasSensitive;
@@ -396,6 +437,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         _e1LayoutToken++;
         ClearRearmLatch();
+        E1.ClearWordTracking();   // F16: a page reset drops the open word's in-memory bar words
     }
 
     partial void OnIsEmojiModeChanged(bool value)
@@ -403,6 +445,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _e1LayoutToken++;
         // The emoji surface replaces the key grid: same rebuild rule as a sub-layout swap.
         ClearRearmLatch();
+        E1.ClearWordTracking();   // F16: a mode reset drops the open word's in-memory bar words
         if (_e1Resetting) return;
         E1.RecordMode("emoji", value ? "text" : "emoji", value ? "emoji" : "text");
     }
@@ -428,6 +471,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         CurrentInput = "";
         _previousWord = null;
         _recentText = "";
+        _wordOpen = false;
+        _wordText = "";
+        E1.ClearWordTracking();
     }
 
     public void Receive(NoteEditingChangedMessage message)
@@ -1184,6 +1230,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // A rebuild replaces the grid: a fired key id may now name a DIFFERENT key, so the
         // leave-before-re-arm latch cannot survive it (the swap's D13 anchor guards the landing).
         ClearRearmLatch();
+        E1.ClearWordTracking();   // F16: a layout reload drops the open word's in-memory bar words
 
         // M7 (impl review M2), corrected r2 N1/N4: raised AFTER the assignment above, so a
         // raise landing before it would repaint the OLD grid. On the production reload path
@@ -1268,8 +1315,20 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // System modifier combos (Ctrl+C, Alt+F4, etc.) are shortcuts, not text input
         if (!HasSystemModifiers)
         {
+            // F16: a letter/digit continues the open word; a hyphen or apostrophe continues one
+            // already open ("E-Mail", "geht's"); anything else (other punctuation, a symbol, an
+            // emoji) ends the word being typed before it is appended. The word text mirrors what
+            // the bar predicts from, so no parallel buffer can say a different word.
+            var continuesWord = actualOutput.Length > 0
+                && (char.IsLetterOrDigit(actualOutput[0])
+                    || (_wordOpen && IsWordInterior(actualOutput[0])));
+            if (continuesWord)
+                _wordText = _wordOpen ? _wordText + actualOutput : actualOutput;
+            else
+                FinishWordE1();
             CurrentInput += actualOutput;
             _reopenedUnmodified = false;
+            _wordOpen = continuesWord;
         }
         else if (!IsCopyChord(_activeModifiers, actualOutput))
         {
@@ -1305,6 +1364,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             CurrentInput = TrimLastGrapheme(CurrentInput);
             _reopenedUnmodified = false;
+            // F16: the word that remains is whatever CurrentInput now ends with — a press that
+            // takes away a boundary comma re-opens the word before it, as the bar sees it.
+            SyncOpenWordFromCurrentInput();
         }
         else
         {
@@ -1335,6 +1397,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         {
             CurrentInput = TrimLastWord(CurrentInput);
             _reopenedUnmodified = false;
+            // F16: Wort löschen takes the trailing letter/digit run; a fragment before it ("E-")
+            // stays the open token, so the word is re-read from the mirror like any deletion.
+            SyncOpenWordFromCurrentInput();
         }
         else
         {
@@ -1371,7 +1436,68 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // A word that was re-opened (nothing was open before this press) is untouched until the user
         // edits it; any press that reaches into an already open word is an edit.
         _reopenedUnmodified = !hadOpenWord && CurrentInput.Length > 0;
+
+        // F16: the re-opened run is the open word, so the bar's renders are stamped with its length
+        // and a later Space/pick reports the whole word, not just what was typed after the re-open.
+        SyncOpenWordFromCurrentInput();
     }
+
+    /// <summary>
+    /// F16: finishes the open word for E1 and drops its bar words. A typed word ends with Space,
+    /// Enter or punctuation (<paramref name="pick"/> false); a pick ends it with the picked
+    /// suggestion. The final word is <see cref="CurrentInput"/>'s open token with leading and
+    /// trailing non-letters trimmed ("Hallo," → "Hallo", "E-" → "E"), because that token is what
+    /// the bar predicts from; it is compared against the bar's rendered words in memory and never
+    /// logged. A word that was REMOVED before it ended never reaches here — the ⌫/Wort löschen
+    /// paths re-read the word from the mirror instead, so a fully removed one writes no line.
+    /// </summary>
+    private void FinishWordE1(bool pick = false, string? pickedWord = null, int typedPrefix = 0)
+    {
+        if (!pick && !_wordOpen)
+        {
+            E1.ClearWordTracking();
+            return;
+        }
+        var finalWord = pick ? pickedWord : TrimWordBoundaries(_wordText);
+        _wordOpen = false;
+        _wordText = "";
+        if (finalWord is null)
+        {
+            E1.ClearWordTracking();
+            return;
+        }
+        // A pick has no key of its own: its wordend line is joined to the adjacent pick line.
+        E1.RecordWordEnd(pick ? 0 : LastKeySeq, pick, finalWord, typedPrefix);
+    }
+
+    /// <summary>
+    /// F16: re-reads the open word from <see cref="CurrentInput"/> after a deletion rewrote it —
+    /// the Backspace re-open, an in-place Backspace (which may take a boundary comma away), and
+    /// Wort löschen. The word is the trailing token of the mirror: letters, digits and word-inner
+    /// hyphens/apostrophes after the last other character ("E-Mail", "geht's", "don'r"), with a
+    /// leading non-letter dropped. It is open only while a letter or digit remains; a word that is
+    /// gone keeps nothing and writes nothing.
+    /// </summary>
+    private void SyncOpenWordFromCurrentInput()
+    {
+        var start = CurrentInput.Length;
+        while (start > 0 && IsWordTextChar(CurrentInput[start - 1])) start--;
+        while (start < CurrentInput.Length && !char.IsLetterOrDigit(CurrentInput[start])) start++;
+
+        _wordText = CurrentInput[start..];
+        _wordOpen = _wordText.Length > 0;
+        if (!_wordOpen) E1.ClearWordTracking();
+    }
+
+    /// <summary>
+    /// F16: a character that belongs to a word beside the letters and digits. A hyphen or
+    /// apostrophe typed while a word is open stays inside it ("E-Mail", "geht's"); typed at a
+    /// boundary it starts nothing.
+    /// </summary>
+    private static bool IsWordInterior(char ch) => ch is '-' or '\'' or '’';
+
+    /// <summary>The F16 word-character test: letters, digits and a word-inner hyphen/apostrophe.</summary>
+    private static bool IsWordTextChar(char ch) => char.IsLetterOrDigit(ch) || IsWordInterior(ch);
 
     /// <summary>
     /// The mirror stops being believed: Enter, hide, and every key that moves the caret, changes the
@@ -1383,6 +1509,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _previousWord = null;
         _recentText = "";
         _reopenedUnmodified = false;
+        _wordOpen = false;
+        _wordText = "";
+        E1.ClearWordTracking();   // F16: the open word is abandoned, never finished
         E1.ClearTaint();   // E1 only: the mirror no longer holds anything a password could have left
     }
 
@@ -1432,6 +1561,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     public void HandleEnter()
     {
         EndSessionOnSensitivityChange();
+        FinishWordE1();          // F16: Enter commits the open word
         EndEditingSession();
         Messenger.Send(new KeyActivatedMessage("\n", ModifiersSnapshot));
         ClearOneShotModifiers();
@@ -1442,6 +1572,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         EndSessionOnSensitivityChange();
         if (!HasSystemModifiers)
         {
+            FinishWordE1();   // F16: the Space commits the open word
             if (CurrentInput.Length > 0)
             {
                 // Re-committing a re-opened word the user never touched is not new evidence: no
@@ -2139,6 +2270,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     public void HandlePredictionSelected(string word)
     {
         EndSessionOnSensitivityChange();
+        // F16: a pick finishes the word too — the picked suggestion is the final word and the
+        // letters typed before it the prefix (0 for a next-word pick at the boundary). The prefix
+        // is CurrentInput.Length, the same length the pick line's prefixlen reports.
+        FinishWordE1(pick: true, word, CurrentInput.Length);
         // A pick is a look off the keyboard that proves the gaze left the fired key: re-arm it,
         // exactly as another key's fire does. This also discards a second-dwell run in progress
         // (the latched key may be under the bar's pick gesture).

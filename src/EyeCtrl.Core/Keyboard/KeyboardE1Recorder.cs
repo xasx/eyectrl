@@ -7,8 +7,9 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// E1: the keyboard's content-free event log. One <c>Information</c> line per EVENT (a key
-/// activation, an abandonment, a bar pick, a mode change, a show or hide) in the ordinary day
-/// log, every line starting <c>KB-E1 &lt;event&gt;</c> so <c>tools/kb_log_metrics.py</c> can find it.
+/// activation, an abandonment, a bar pick, a finished word, a mode change, a show or hide) in the
+/// ordinary day log, every line starting <c>KB-E1 &lt;event&gt;</c> so <c>tools/kb_log_metrics.py</c>
+/// can find it.
 ///
 /// <para>
 /// <b>Privacy is the contract, and it is the merge gate.</b> A line carries geometry, key
@@ -90,6 +91,16 @@ public sealed class KeyboardE1Recorder
     private long _shownAtMs = long.MinValue;
     private bool _inSensitive;
 
+    // F16: what the bar rendered while the open word was being typed, kept IN MEMORY ONLY so a
+    // finished word can be checked against it. One entry per word per render (its slot and the
+    // letters typed when it appeared); no word is ever logged, and the list is cleared at every
+    // word end, on hide, on a mode/page reset, when the editing session ends, and while a
+    // password field has focus.
+    private readonly List<BarWord> _barWords = new();
+    private int _barRenders;
+
+    private readonly record struct BarWord(string Word, int Slot, int TypedLetters);
+
     private readonly record struct ModeChange(string Kind, string From, string To, long AtMs);
 
     /// <param name="logger">The logger the lines go to; null makes every call a no-op.</param>
@@ -138,17 +149,34 @@ public sealed class KeyboardE1Recorder
     private static long MonotonicMs() => Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;
 
     /// <summary>
+    /// The sensitivity probe's verdict ALONE: no marker, no taint, no pick-undo or mode-undo
+    /// side effects. The render path (<see cref="NoteBarRender"/>, <see cref="NoteNextWordFilled"/>)
+    /// must keep nothing while a password field has focus, but a render is not an input: it must
+    /// not write the one <c>sensitive</c> marker, must not taint the mirror check and must not
+    /// drop a pending pick-undo. A throwing probe counts as not sensitive, as in <see cref="Muted"/>.
+    /// </summary>
+    private bool IsSensitiveNow()
+    {
+        try { return IsSensitive?.Invoke() == true; }
+        catch (Exception) { return false; }
+    }
+
+    /// <summary>
     /// True while a sensitive context has focus: callers (and every recorder method below) must then
     /// log nothing per key. The first call after entering drops the pending pick-undo and mode-undo
     /// state and writes ONE <c>KB-E1 sensitive</c> marker with no count.
     /// </summary>
     public bool Muted()
     {
-        bool sensitive;
-        try { sensitive = IsSensitive?.Invoke() == true; }
-        catch (Exception) { sensitive = false; }
+        var sensitive = IsSensitiveNow();
 
         if (sensitive) _tainted = true;
+
+        if (sensitive)
+        {
+            // F16: a password field keeps no words at all, not even in memory.
+            ClearWordTracking();
+        }
 
         if (sensitive && !_inSensitive)
         {
@@ -327,6 +355,111 @@ public sealed class KeyboardE1Recorder
     }
 
     /// <summary>
+    /// F16: the bar rendered these words (slot index = list position) while a word is open. They
+    /// are kept IN MEMORY ONLY, so <see cref="RecordWordEnd"/> can say whether the word the user
+    /// finished was already on offer; nothing here is ever logged. <paramref name="typedLetters"/>
+    /// is how many letters of the open word had been typed at this render, so a match can report
+    /// the prefix it first appeared at. A render in a sensitive context keeps nothing.
+    /// </summary>
+    public void NoteBarRender(IReadOnlyList<string?> words, int typedLetters)
+    {
+        // Side-effect-free probe (L1): a render in a password field keeps nothing, but it must not
+        // write the "sensitive" marker, taint the mirror check or drop a pending pick-undo.
+        if (IsSensitiveNow()) { ClearWordTracking(); return; }
+        if (!Enabled) { ClearWordTracking(); return; }
+        try
+        {
+            _barRenders++;
+            var typed = Math.Max(0, typedLetters);
+            for (var i = 0; i < words.Count; i++)
+                if (!string.IsNullOrEmpty(words[i]))
+                    _barWords.Add(new BarWord(words[i]!, i, typed));
+        }
+        catch (Exception)
+        {
+            // Logging must never break the bar render.
+        }
+    }
+
+    /// <summary>
+    /// F16: a late next-word fill of slot 0 (F7's <c>TryApplyNextWord</c>) counts as a render of
+    /// that slot. It only happens at a word boundary, so the typed prefix is 0.
+    /// </summary>
+    public void NoteNextWordFilled(string word)
+    {
+        // Side-effect-free probe (L2): a late fill in a password field keeps nothing and writes
+        // nothing; TryTakeNextWordSuggestions already returns null there, so this is defence in depth.
+        if (IsSensitiveNow()) { ClearWordTracking(); return; }
+        if (!Enabled || string.IsNullOrEmpty(word)) return;
+        try
+        {
+            _barRenders++;
+            _barWords.Add(new BarWord(word, 0, 0));
+        }
+        catch (Exception)
+        {
+            // Logging must never break the bar render.
+        }
+    }
+
+    /// <summary>
+    /// F16: the open word finished — by a boundary key (<paramref name="pick"/> false: Space,
+    /// Enter or punctuation) or by a bar pick. One <c>KB-E1 wordend</c> line says, in numbers
+    /// only, whether the final word was on the bar at any render since the word began, the typed
+    /// prefix at which it first appeared and in which slot, and how many renders the word saw;
+    /// the in-memory words are then dropped. <paramref name="finalWord"/> is compared
+    /// case-insensitively (the bar and the typed text differ only in capitalisation) and is NEVER
+    /// logged. A pick passes the picked suggestion as the final word and the letters typed before
+    /// it as <paramref name="typedLetters"/>; a typed word's <c>typed</c> is its own length.
+    /// </summary>
+    public void RecordWordEnd(long seq, bool pick, string finalWord, int typedLetters)
+    {
+        if (Muted()) { ClearWordTracking(); return; }
+        try
+        {
+            if (!Enabled || string.IsNullOrEmpty(finalWord)) return;
+            var len = finalWord.Length;
+            var typed = pick ? Math.Max(0, typedLetters) : len;
+            var index = -1;
+            for (var i = 0; i < _barWords.Count; i++)
+            {
+                if (!string.Equals(_barWords[i].Word, finalWord, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                // The FIRST render is the answer: that is when the word first appeared on offer.
+                index = i;
+                break;
+            }
+            var onbar = index >= 0;
+            Emit(
+                "KB-E1 wordend seq={Seq} how={How} len={Len} typed={Typed} onbar={OnBar} " +
+                "firstprefix={FirstPrefix} firstslot={FirstSlot} renders={Renders}",
+                seq, pick ? "pick" : "typed", len, typed, onbar ? 1 : 0,
+                onbar ? _barWords[index].TypedLetters : -1, onbar ? _barWords[index].Slot : -1, _barRenders);
+        }
+        catch (Exception)
+        {
+            // Logging must never throw into the keyboard.
+        }
+        finally
+        {
+            ClearWordTracking();
+        }
+    }
+
+    /// <summary>
+    /// F16: drops the in-memory bar words of the open word — at its end, on keyboard hide, on a
+    /// mode/page reset, when the editing session ends, and in a sensitive context. Never logs.
+    /// </summary>
+    public void ClearWordTracking()
+    {
+        _barWords.Clear();
+        _barRenders = 0;
+    }
+
+    /// <summary>Test seam: how many bar words the open word is holding (0 in a password field).</summary>
+    internal int TrackedBarWordCount => _barWords.Count;
+
+    /// <summary>
     /// A mode change: a sub-layout switch, emoji enter/exit, or a modifier toggle (explicit, not
     /// an auto-return or a one-shot consumed by a key). Detects a mode-undo.
     /// </summary>
@@ -404,6 +537,7 @@ public sealed class KeyboardE1Recorder
         _shownAtMs = long.MinValue;
         _lastMode = null;
         _pickAwaitingUndo = false;
+        ClearWordTracking();   // F16: a hidden keyboard keeps no words either
         FlushEdgeTally();   // right BEFORE the hidden line, so a tally never spans two shows
         if (!Enabled) return;
         Emit("KB-E1 hidden cause={Cause} visiblems={VisibleMs}", cause, visibleMs);

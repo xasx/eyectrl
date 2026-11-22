@@ -97,6 +97,9 @@ public class KeyboardE1PrivacyTests
         // E1 step 0b: a Wort löschen correction. Only keying, the gap and a length — no word,
         // no letters (n is the same order of fact as pick's prefixlen).
         ["wordcorr"] = ["Seq", "Ms", "N"],
+        // F16: a finished word. Lengths, the typed prefix, the bar-hit flag and slot, and the
+        // render count — never the word, a letter or a key id.
+        ["wordend"] = ["Seq", "How", "Len", "Typed", "OnBar", "FirstPrefix", "FirstSlot", "Renders"],
         ["pick"] = ["Slot", "Source", "PrefixLen", "InsLen", "SinceKeyMs", "SincePickMs", "RenderMs", "Visited"],
         ["pickundo"] = ["Ms", "By"],
         ["space"] = ["Seq", "Empty"],
@@ -134,6 +137,8 @@ public class KeyboardE1PrivacyTests
         ["Why"] = ["NearestChanged", "GazeLeft"],
         ["Source"] = ["dict", "fuzzy", "pair", "phrase", "sentence", "lm", "other"],
         ["By"] = ["backspace", "deleteword"],
+        // F16: a finished word ended by a boundary key, or by a bar pick.
+        ["How"] = ["typed", "pick"],
         ["Kind"] = ["sublayout", "emoji", "shift", "caps", "ctrl", "alt", "win", "flip"],
         ["From"] = ["letters", "numbers", "symbols", "accents", "function", "text", "emoji", "on", "off", "top", "bottom"],
         ["To"] = ["letters", "numbers", "symbols", "accents", "function", "text", "emoji", "on", "off", "top", "bottom"],
@@ -420,7 +425,7 @@ public class KeyboardE1PrivacyTests
         foreach (var expected in new[]
                  {
                      "key", "holdon", "abandon", "pick", "space", "mode", "modeundo", "edge", "shown", "hidden",
-                     "mirror", "pickundo", "slip", "corr", "wordcorr", "layout", "edgeq",
+                     "mirror", "pickundo", "slip", "corr", "wordcorr", "wordend", "layout", "edgeq",
                  })
         {
             Check.WithCustomMessage($"The typing session produced no '{expected}' line ({lines.Count} E1 lines in all).")
@@ -654,6 +659,79 @@ public class KeyboardE1PrivacyTests
             Check.WithCustomMessage("A password's keys were logged: " + string.Join(" | ", lines.Select(l => l.Message)))
                 .That(lines.Select(l => l.Message)).ContainsExactly("KB-E1 sensitive");
             Check.That(lines.Single().Props.Count).IsEqualTo(0);   // no count, no field at all
+        }
+        finally { p.Dispose(); }
+    }
+
+    /// <summary>
+    /// A word typed into a password field may leave nothing at all: no wordend line, and no copy of
+    /// the bar's words in the in-memory store (F16). The first letter is typed outside the field,
+    /// so the store genuinely holds words before the field takes focus — a test that started in
+    /// the field would pass over an empty store and prove nothing.
+    /// </summary>
+    [StaFact]
+    public void AWordTypedInASensitiveContext_WritesNoWordEndLine_AndKeepsNoBarWords()
+    {
+        var sensitive = new FakeSensitive();
+        var p = Open(sensitive: sensitive);
+        try
+        {
+            long ts = 1_000;
+            p.Vm.IsVisible = true;
+            Dwell(p, IdOf(p, "z"), ref ts);          // the bar renders this word's suggestions
+            Check.WithCustomMessage("arrange: the bar's words must be in the in-memory store")
+                .That(p.Vm.E1.TrackedBarWordCount).IsStrictlyGreaterThan(0);
+
+            // Entering the password field empties the bar; the store must not keep what was on it.
+            sensitive.IsSensitiveActive = true;
+            Gaze(p, new PhysicalPoint(0, 0), ts); ts += 1_000;
+            Check.WithCustomMessage("a password field kept the bar's words in memory")
+                .That(p.Vm.E1.TrackedBarWordCount).IsEqualTo(0);
+
+            // Finish the word inside the password field: no wordend, and nothing kept.
+            Dwell(p, IdOf(p, "e"), ref ts);
+            Dwell(p, SpecialId(p, "space"), ref ts);
+
+            Check.WithCustomMessage("a word typed in a password field wrote a wordend line: "
+                    + string.Join(" | ", p.Log.All().Select(l => l.Message)))
+                .That(p.Log.All().Where(l => l.Event == "wordend")).IsEmpty();
+            Check.That(p.Vm.E1.TrackedBarWordCount).IsEqualTo(0);
+        }
+        finally { p.Dispose(); }
+    }
+
+    /// <summary>
+    /// The reverse of the test above (F3): the word BEGINS in the password field and is still open
+    /// when the focus leaves by gaze (no key the keyboard sees ends the field). The next typed
+    /// word must start fresh — a surviving word text would make the Space log the password's
+    /// length. This is the reviewer's probe that mutant O1 (an editing-session end that keeps the
+    /// open word) must turn red.
+    /// </summary>
+    [StaFact]
+    public void AWordBegunInAPasswordField_FinishedOutside_LogsOnlyTheOutsideLetters()
+    {
+        var sensitive = new FakeSensitive { IsSensitiveActive = true };
+        var p = Open(sensitive: sensitive);
+        try
+        {
+            long ts = 1_000;
+            p.Vm.IsVisible = true;
+            foreach (var letter in "geheim")
+                Dwell(p, IdOf(p, letter.ToString()), ref ts);
+            Check.WithCustomMessage("a word was committed inside the password field")
+                .That(p.Log.All().Where(l => l.Event == "wordend")).IsEmpty();
+
+            sensitive.IsSensitiveActive = false;   // left by gaze: no key the keyboard sees
+            Dwell(p, IdOf(p, "x"), ref ts);
+            Dwell(p, SpecialId(p, "space"), ref ts);
+
+            var ends = p.Log.All().Where(l => l.Event == "wordend").ToList();
+            Check.WithCustomMessage("a word begun in the password field wrote no single outside word: "
+                    + string.Join(" | ", p.Log.All().Select(l => l.Message)))
+                .That(ends).HasSize(1);
+            Check.WithCustomMessage("the password's length reached the wordend line: " + ends[0].Message)
+                .That((int)ends[0].Props["Len"]!).IsEqualTo(1);
+            Check.That((string)ends[0].Props["How"]!).IsEqualTo("typed");
         }
         finally { p.Dispose(); }
     }

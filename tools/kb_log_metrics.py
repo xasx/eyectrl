@@ -15,14 +15,15 @@ parse: a half-written last line must not sink the whole report. The lines are co
 contract -- geometry, key CLASSES, timings, lengths, the foreground process NAME -- so this
 script never sees a typed character, and cannot print one.
 
-The events: key, holdon, abandon, corr, slip, wordcorr, pick, pickundo, space, mode, modeundo,
-edge, shown, layout, hidden, mirror, sensitive.
+The events: key, holdon, abandon, corr, slip, wordcorr, wordend, pick, pickundo, space, mode,
+modeundo, edge, shown, layout, hidden, mirror, sensitive.
 
 One day log holds every EyeCtrl session of that day. ``seq`` is a per-activation counter that
 restarts at 1 on each EyeCtrl start (KeyboardE1Recorder), and no E1 event marks a start, so a new
 session begins at the first ``key`` activation whose ``seq`` does not increase on the previous one
-(``<=``). ``corr``/``wordcorr``/``holdon``/``space`` repeat their activation's ``seq`` and never
-split a session. Every ``seq`` join below (the correction's ``corr``, the gesture split, the
+(``<=``). ``corr``/``wordcorr``/``holdon``/``space``/``wordend`` repeat their activation's ``seq``
+and never split a session (a pick's ``wordend`` has ``seq=0``: it is joined to the pick line just
+before it instead). Every ``seq`` join below (the correction's ``corr``, the gesture split, the
 ``wordcorr`` histogram) is scoped to the session, and the gesture is read from the pair itself.
 
 Privacy (the owner's rule, "all recommendations"): after a text key (class letter, digit,
@@ -135,6 +136,18 @@ Read-outs (steward's C2 rule, evidence-steward "C2/C2b/C2c")
                      blink; a longer gap ends it at the last inside sample.
 * pick-then-undo     ``pickundo`` events / picks
 * chain-picks        a pick < 1 s after the previous pick with no key activation in between
+* bar could have saved
+                     the F16 question the bar's contents could not answer: for every typed word
+                     (``wordend how=typed``), whether it was already on the bar while it was being
+                     typed (``onbar``), the typed prefix at which it first appeared (``firstprefix``,
+                     0 = offered at the word boundary as F7's next-word suggestion), its first slot,
+                     and the letters typed after that first appearance (the "savable" letters, the
+                     number a pick there would have saved). A hit needs ``firstprefix < len``: a
+                     word the bar only ever showed once it was complete (``firstprefix == len``, the
+                     predictor returns the typed word itself) could not have been saved, so it is
+                     counted on its own line and kept out of the share, the slots and the median.
+                     Typed words only: a pick (``wordend how=pick``) is the bar working, not a word
+                     typed past an offer.
 * near-move          activations within 1 s of a window move (``movems``)
 * bar empty          share of Spaces after which the bar was empty
 * mirror             verdicts (match / mismatch / unsupported / suppressed / empty), the
@@ -247,6 +260,8 @@ REQUIRED: dict[str, dict[str, type]] = {
     "key": {"seq": int, "ts": int, "cls": str, "penalty": bool, "bs": str, "movems": int},
     "corr": {"seq": int, "saccade": str, "restarts": int, "likely": bool, "start": bool, "nocont": bool},
     "wordcorr": {"seq": int, "ms": int, "n": int},
+    "wordend": {"seq": int, "how": str, "len": int, "typed": int, "onbar": int,
+                "firstprefix": int, "firstslot": int, "renders": int},
     "holdon": {"seq": int, "ms": int},
     "abandon": {"ts": int, "cls": str},
     "slip": {"adj": bool, "dir": str, "dist": int, "ms": int, "reg": str},
@@ -279,8 +294,8 @@ def _assign_sessions(events: list[dict[str, Any]]) -> None:
     ``seq`` is a per-recorder counter that restarts at 1 on every EyeCtrl start, and one day log
     holds every session of the day. No E1 event marks a start, so a new session begins at the first
     key ACTIVATION whose ``seq`` does not increase on the previous activation (``<=``). Only ``key``
-    lines are activations: ``corr``/``wordcorr``/``holdon``/``space`` repeat an activation's ``seq``,
-    so they take the session of the activation they follow and never split one.
+    lines are activations: ``corr``/``wordcorr``/``holdon``/``space``/``wordend`` repeat an
+    activation's ``seq``, so they take the session of the activation they follow and never split one.
     """
     session = 0
     last_seq: int | None = None
@@ -400,6 +415,56 @@ def stray_modes(events: list[dict[str, Any]]) -> int:
                 strays += 1                     # another page switch with nothing typed in between
                 break
     return strays
+
+
+def bar_hits(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """F16: of the words the owner TYPED, how many were already on the suggestion bar?
+
+    Reads the ``wordend`` lines. ``onbar`` is 1 when the finished word appeared at any render while
+    it was being typed; ``firstprefix`` is the typed prefix at which it first appeared (0 = offered
+    at the word boundary, as F7's next-word suggestion); ``firstslot`` its slot in that render;
+    ``renders`` how many renders the word saw. "Savable letters" are the letters typed after the
+    word first appeared, summed over the hits — what a pick at that point would have saved. The
+    section is over TYPED words only: a pick (``wordend how=pick``) is the bar working already.
+
+    A pick's wordend has no key of its own (``seq=0``); it is joined to the pick line immediately
+    before it in the same session. The count is reported so a dropped join is visible.
+    """
+    ends = [e for e in events if e["event"] == "wordend"]
+    typed = [e for e in ends if e.get("how") == "typed"]
+    picks = [e for e in ends if e.get("how") == "pick"]
+    # A bar match must have been offered BEFORE the word was complete: firstprefix == len means the
+    # bar only ever showed the finished word itself (the predictor returns the typed word too), which
+    # no pick could have saved (F2). It is counted on its own line, never as a hit.
+    hits = [e for e in typed if e.get("onbar") == 1 and 0 <= e["firstprefix"] < e["len"]]
+    finished = [e for e in typed if e.get("onbar") == 1 and e["firstprefix"] == e["len"]]
+    savable = sum(max(0, e["len"] - e["firstprefix"]) for e in hits)
+    slots = Counter(e["firstslot"] for e in hits)
+    prefixes = [e["firstprefix"] for e in hits]
+
+    joined = 0
+    for i, e in enumerate(events):
+        if e["event"] != "wordend" or e.get("how") != "pick":
+            continue
+        for j in range(i - 1, -1, -1):
+            if events[j]["session"] != e["session"]:
+                continue
+            if events[j]["event"] == "pick":
+                joined += 1
+            break
+
+    return {
+        "words": len(ends),
+        "typed_words": len(typed),
+        "pick_words": len(picks),
+        "picks_joined": joined,
+        "on_bar": len(hits),
+        "on_bar_share": _share(len(hits), len(typed)),
+        "shown_only_when_finished": len(finished),
+        "savable_letters": savable,
+        "first_slots": dict(sorted(slots.items())),
+        "median_firstprefix": statistics.median(prefixes) if prefixes else None,
+    }
 
 
 def layout_groups(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -670,6 +735,7 @@ def metrics(events: list[dict[str, Any]], edge: str | None = None,
         "pick_then_undo_rate": _share(len(pick_undos), len(picks)),
         "chain_picks": len(chain),
         "chain_picks_per_50_picks": None if not picks else 50 * len(chain) / len(picks),
+        "bar_hits": bar_hits(events),
         "activations_within_1s_of_move": len(near_move),
         "activations_within_1s_of_move_share": _share(len(near_move), len(keys)),
         "spaces": len(spaces),
@@ -752,6 +818,17 @@ def render(m: dict[str, Any]) -> str:
     add(f"chain-picks               {m['chain_picks']}   = "
         + ("n/a" if m["chain_picks_per_50_picks"] is None else f"{m['chain_picks_per_50_picks']:.2f}")
         + " per 50 picks")
+    b = m["bar_hits"]
+    add(f"bar could have saved      {b['on_bar']} of {b['typed_words']} typed words were already on the bar "
+        f"({_pct(b['on_bar_share'])})")
+    add(f"  shown only at the end   {b['shown_only_when_finished']}   "
+        f"(firstprefix == len: the bar showed the finished word itself, not an earlier offer)")
+    add(f"  savable letters         {b['savable_letters']}   (typed after the word first appeared)")
+    add(f"  first-appearance slots  {b['first_slots']}")
+    add(f"  median firstprefix      "
+        + ("n/a" if b["median_firstprefix"] is None else f"{b['median_firstprefix']:g}"))
+    add(f"  words logged            {b['words']}   (picks {b['pick_words']}, joined to their pick line "
+        f"{b['picks_joined']})")
     add(f"within 1 s of a move      {m['activations_within_1s_of_move']}   "
         f"share {_pct(m['activations_within_1s_of_move_share'])}")
     add(f"bar empty after Space     {_pct(m['bar_empty_after_space_share'])}   (of {m['spaces']} spaces)")

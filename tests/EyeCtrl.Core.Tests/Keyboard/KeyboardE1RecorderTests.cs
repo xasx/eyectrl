@@ -1028,7 +1028,202 @@ public class KeyboardE1RecorderTests
     {
         var recorder = new KeyboardE1Recorder(null);
         Fire(recorder, 30, "E");
+        recorder.NoteBarRender(["Hallo"], 1);
+        recorder.RecordWordEnd(1, pick: false, "Hallo", typedLetters: 0);
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);   // no logger: keep no words either
         recorder.FlushEdgeTalliesOnShutdown();
         recorder.RecordHidden("x");                              // must not throw
+    }
+
+    // ---- F16: wordend — was the finished word already on the bar? -------------------------------
+
+    [Fact]
+    public void AWordShownFromLetterTwoInSlotThree_LogsOnBarFirstPrefixAndFirstSlot()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Nein"], typedLetters: 0);
+        recorder.NoteBarRender(["Nein"], typedLetters: 1);
+        recorder.NoteBarRender(["Nein", "Haus", "Hallo", "Ziel"], typedLetters: 2);   // first appearance
+        recorder.NoteBarRender(["Nein", "Haus", "Hallo", "Ziel"], typedLetters: 3);
+        recorder.NoteBarRender(["Nein", "Haus", "Hallo", "Ziel"], typedLetters: 4);
+
+        recorder.RecordWordEnd(7, pick: false, "Ziel", typedLetters: 0);
+
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 wordend seq=7 how=typed len=4 typed=4 onbar=1 firstprefix=2 firstslot=3 renders=5");
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void AWordNeverShown_LogsOnBarZeroAndMinusOne()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Nein", "Haus"], typedLetters: 1);
+        recorder.NoteBarRender(["Nein", "Haus"], typedLetters: 2);
+
+        recorder.RecordWordEnd(3, pick: false, "Ziel", typedLetters: 0);
+
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 wordend seq=3 how=typed len=4 typed=4 onbar=0 firstprefix=-1 firstslot=-1 renders=2");
+    }
+
+    [Fact]
+    public void ANextWordSuggestionAtTheBoundary_CountsAsFirstPrefixZero()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteNextWordFilled("Ziel");                    // F7's late slot-0 fill, at the boundary
+        recorder.NoteBarRender(["Ziel"], typedLetters: 1);
+
+        recorder.RecordWordEnd(9, pick: false, "ziel", typedLetters: 0);
+
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 wordend seq=9 how=typed len=4 typed=4 onbar=1 firstprefix=0 firstslot=0 renders=2");
+    }
+
+    [Fact]
+    public void APick_LogsHowPickAndTheTypedPrefix()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Ziel"], typedLetters: 1);
+        recorder.NoteBarRender(["Ziel"], typedLetters: 2);
+
+        recorder.RecordWordEnd(0, pick: true, "Ziel", typedLetters: 2);
+
+        // A pick has no key of its own: seq 0. typed is the prefix, not the inserted word's length.
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 wordend seq=0 how=pick len=4 typed=2 onbar=1 firstprefix=1 firstslot=0 renders=2");
+    }
+
+    [Fact]
+    public void ACapitalisedBarWord_MatchesALowercaseFinalWord()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Hallo"], typedLetters: 1);
+
+        recorder.RecordWordEnd(1, pick: false, "hallo", typedLetters: 0);
+
+        Check.That(log.Lines[0]).Contains(" onbar=1 firstprefix=1 firstslot=0 ");
+    }
+
+    [Fact]
+    public void AFinishedWordsBarWords_DoNotCountForTheNextWord()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Hallo"], typedLetters: 1);
+        recorder.RecordWordEnd(1, pick: false, "Hallo", typedLetters: 0);
+
+        recorder.RecordWordEnd(2, pick: false, "Hallo", typedLetters: 0);   // no render for this word
+
+        Check.That(log.Lines[1]).Contains(" onbar=0 firstprefix=-1 firstslot=-1 renders=0");
+    }
+
+    [Fact]
+    public void ClearWordTracking_DropsTheWordsOfAModeOrPageReset()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Hallo"], typedLetters: 1);
+        recorder.ClearWordTracking();
+
+        recorder.RecordWordEnd(1, pick: false, "Hallo", typedLetters: 0);
+
+        Check.That(log.Lines).ContainsExactly(
+            "KB-E1 wordend seq=1 how=typed len=5 typed=5 onbar=0 firstprefix=-1 firstslot=-1 renders=0");
+    }
+
+    [Fact]
+    public void TheBarWords_AreClearedAtWordEndAndOnHide()
+    {
+        var (recorder, log, _) = New();
+        recorder.NoteBarRender(["Hallo"], typedLetters: 1);
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(1);
+        recorder.RecordWordEnd(1, pick: false, "Hallo", typedLetters: 0);
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
+
+        recorder.NoteBarRender(["Welt"], typedLetters: 1);
+        recorder.NoteBarRender(["Welt"], typedLetters: 2);
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(2);
+        recorder.RecordHidden("test");
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
+        Check.That(log.Lines.Count(l => l.StartsWith("KB-E1 wordend ", StringComparison.Ordinal))).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void InASensitiveContext_NoWordEndIsWritten_AndNoBarWordIsKept()
+    {
+        var sensitive = false;
+        var log = new Capture();
+        var recorder = new KeyboardE1Recorder(log, () => 0) { IsSensitive = () => sensitive };
+
+        recorder.NoteBarRender(["Hallo"], typedLetters: 2);
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(1);
+
+        sensitive = true;
+        recorder.RecordKey(Key(KeyE1.Letter));                   // the one entry marker; clears the store
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
+
+        recorder.NoteBarRender(["Hallo"], typedLetters: 2);      // a password field keeps nothing
+        recorder.RecordWordEnd(1, pick: false, "Hallo", typedLetters: 0);
+
+        Check.That(log.Lines).ContainsExactly("KB-E1 sensitive");
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ARenderPath_ReadsSensitivity_WithoutMarkerTaintOrUndoEffects()
+    {
+        // L1: F16 fed the bar renders into the recorder through Muted(), whose side effects are
+        // for an INPUT (one sensitive marker, taint, drop a pending pick-undo). A render must read
+        // the verdict alone: it keeps nothing in a password field, writes no marker, taints
+        // nothing, and leaves a pick's undo window open.
+        var sensitive = false;
+        var log = new Capture();
+        var recorder = new KeyboardE1Recorder(log, () => 0) { IsSensitive = () => sensitive };
+
+        recorder.RecordPick(0, "dict", 1, 3, 10, 0);              // a pick awaiting its possible undo
+        var afterPick = log.Lines.Count;
+
+        sensitive = true;
+        recorder.NoteBarRender(["Hallo"], typedLetters: 1);       // the bar in a password field
+        recorder.NoteNextWordFilled("Ziel");
+        Check.WithCustomMessage("a render kept a bar word in a password field")
+            .That(recorder.TrackedBarWordCount).IsEqualTo(0);
+        Check.WithCustomMessage("a render wrote a line itself (the sensitive marker)")
+            .That(log.Lines).HasSize(afterPick);
+        Check.WithCustomMessage("a render tainted the mirror check").That(recorder.Tainted).IsFalse();
+
+        sensitive = false;
+        recorder.RecordKey(Key(KeyE1.Backspace));                 // inside the 3 s window
+        Check.WithCustomMessage("a render in the password field dropped the pending pick-undo")
+            .That(log.Lines.Count(l => l.StartsWith("KB-E1 pickundo ", StringComparison.Ordinal))).IsEqualTo(1);
+        Check.That(log.Lines.Count(l => l == "KB-E1 sensitive")).IsEqualTo(0);
+
+        sensitive = true;
+        recorder.RecordKey(Key(KeyE1.Letter));                    // the first INPUT in the field
+        Check.That(log.Lines.Count(l => l == "KB-E1 sensitive")).IsEqualTo(1);
+        Check.That(recorder.Tainted).IsTrue();
+
+        // A render OUTSIDE the field then a fresh entry: no input happened in between, so the
+        // recorder is still in the same password context — exactly as before F16, when only
+        // inputs could change that state. The render must not fake an exit (and a second marker).
+        sensitive = false;
+        recorder.NoteBarRender(["Welt"], typedLetters: 1);
+        sensitive = true;
+        recorder.RecordKey(Key(KeyE1.Letter));
+        Check.That(log.Lines.Count(l => l == "KB-E1 sensitive")).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void ALateNextWordFillInASensitiveContext_KeepsNoBarWord()
+    {
+        // L2: the view-model already refuses to take a next-word answer in a password field; this
+        // pins the recorder's own guard, so a late fill can never enter the in-memory store.
+        var sensitive = true;
+        var log = new Capture();
+        var recorder = new KeyboardE1Recorder(log, () => 0) { IsSensitive = () => sensitive };
+
+        recorder.NoteNextWordFilled("Ziel");
+
+        Check.That(recorder.TrackedBarWordCount).IsEqualTo(0);
+        Check.That(log.Lines).IsEmpty();
     }
 }

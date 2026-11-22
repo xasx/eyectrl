@@ -1101,6 +1101,132 @@ class LetterRest(unittest.TestCase):
         self.assertEqual(lr["thresholds"]["900"]["upper"], 0.0)   # a measured 600 is a real value
 
 
+class BarHits(unittest.TestCase):
+    """F16's wordend read-out: was the word the owner typed already on the suggestion bar?"""
+
+    @staticmethod
+    def wordend(ms: int, seq: int = 0, how: str = "typed", length: int = 4, typed: int = 0,
+                onbar: int = 0, firstprefix: int = -1, firstslot: int = -1, renders: int = 0) -> str:
+        return stamp_line(ms, f"wordend seq={seq} how={how} len={length} typed={typed} "
+                              f"onbar={onbar} firstprefix={firstprefix} firstslot={firstslot} "
+                              f"renders={renders}")
+
+    def test_typed_words_on_the_bar_count_hits_and_savable_letters(self) -> None:
+        lines = [
+            stamp_line(0, "shown proc=WINWORD.exe edge=top"),
+            self.wordend(1_000, seq=3, length=5, typed=5, onbar=1, firstprefix=2, firstslot=3, renders=4),
+            self.wordend(2_000, seq=7, length=4, typed=4, onbar=0, renders=2),
+            self.wordend(3_000, seq=9, length=6, typed=6, onbar=1, firstprefix=0, firstslot=0, renders=7),
+        ]
+        b = kb.metrics(kb.parse(lines))["bar_hits"]
+
+        self.assertEqual(b["words"], 3)
+        self.assertEqual(b["typed_words"], 3)
+        self.assertEqual(b["pick_words"], 0)
+        self.assertEqual(b["on_bar"], 2)
+        self.assertAlmostEqual(b["on_bar_share"], 2 / 3)
+        # 5 - 2 (first shown after two letters) and 6 - 0 (offered at the boundary).
+        self.assertEqual(b["savable_letters"], 9)
+        self.assertEqual(b["first_slots"], {0: 1, 3: 1})
+        self.assertEqual(b["median_firstprefix"], 1.0)
+
+    def test_a_word_only_shown_when_finished_is_reported_but_not_a_hit(self) -> None:
+        # F2: the predictor returns the typed word itself, so after the last letter the bar shows a
+        # word that could never have been picked. firstprefix == len is honest raw data but not a
+        # bar hit: it must not inflate the share, the slots, the savable letters or the median.
+        lines = [
+            self.wordend(1_000, seq=3, length=5, typed=5, onbar=1, firstprefix=2, firstslot=3, renders=4),
+            self.wordend(2_000, seq=7, length=4, typed=4, onbar=1, firstprefix=4, firstslot=0, renders=3),
+            self.wordend(3_000, seq=9, length=6, typed=6, onbar=0, renders=2),
+        ]
+        b = kb.metrics(kb.parse(lines))["bar_hits"]
+
+        self.assertEqual(b["typed_words"], 3)
+        self.assertEqual(b["on_bar"], 1)
+        self.assertAlmostEqual(b["on_bar_share"], 1 / 3)
+        self.assertEqual(b["shown_only_when_finished"], 1)
+        self.assertEqual(b["savable_letters"], 3)                     # 5 - 2, not the finished word's 0
+        self.assertEqual(b["first_slots"], {3: 1})
+        self.assertEqual(b["median_firstprefix"], 2)
+
+    def test_the_text_report_names_the_words_only_shown_when_finished(self) -> None:
+        lines = [
+            self.wordend(1_000, seq=3, length=5, typed=5, onbar=1, firstprefix=2, firstslot=3, renders=4),
+            self.wordend(2_000, seq=7, length=4, typed=4, onbar=1, firstprefix=4),
+        ]
+        report = kb.render(kb.metrics(kb.parse(lines)))
+
+        self.assertIn("1 of 2 typed words were already on the bar", report)
+        self.assertIn("shown only at the end   1", report)
+
+    def test_picks_are_reported_but_not_counted_as_words_typed_past_an_offer(self) -> None:
+        lines = [
+            stamp_line(1_000, "pick slot=1 src=dict prefixlen=2 sincekey=-1 sincepick=-1 renderms=50 visited=0"),
+            self.wordend(1_000, seq=0, how="pick", length=5, typed=2, onbar=1, firstprefix=1,
+                         firstslot=1, renders=2),
+            self.wordend(2_000, seq=4, length=4, typed=4, onbar=0, renders=1),
+        ]
+        b = kb.metrics(kb.parse(lines))["bar_hits"]
+
+        self.assertEqual(b["typed_words"], 1)
+        self.assertEqual(b["pick_words"], 1)
+        self.assertEqual(b["on_bar"], 0)              # the pick is not a word typed past an offer
+        self.assertEqual(b["picks_joined"], 1)
+
+    def test_a_pick_wordend_not_next_to_its_pick_is_not_joined(self) -> None:
+        lines = [
+            stamp_line(1_000, "pick slot=0 src=dict prefixlen=0 sincekey=-1 sincepick=-1 renderms=1 visited=0"),
+            stamp_key(1_100, 1, "letter"),
+            self.wordend(1_200, seq=0, how="pick", length=5, typed=0, onbar=1, firstprefix=0,
+                         firstslot=0, renders=1),
+        ]
+        b = kb.metrics(kb.parse(lines))["bar_hits"]
+
+        self.assertEqual(b["pick_words"], 1)
+        self.assertEqual(b["picks_joined"], 0)
+
+    def test_no_typed_words_gives_no_hit_share(self) -> None:
+        lines = [self.wordend(1_000, seq=0, how="pick", length=5, typed=0, onbar=1,
+                              firstprefix=0, firstslot=0, renders=1)]
+        b = kb.metrics(kb.parse(lines))["bar_hits"]
+
+        self.assertIsNone(b["on_bar_share"])
+        self.assertIsNone(b["median_firstprefix"])
+        self.assertEqual(b["savable_letters"], 0)
+
+    def test_a_damaged_wordend_line_is_skipped(self) -> None:
+        damaged = stamp_line(1_000, "wordend seq=1 how=typed len=4 typed=4 onbar=1 firstprefix=1 firstslot=0")
+        lines = [damaged, self.wordend(2_000, seq=2, length=4, typed=4, onbar=1, firstprefix=1)]
+        b = kb.metrics(kb.parse(lines))["bar_hits"]
+
+        self.assertEqual(b["words"], 1)               # the line missing renders is not half-counted
+        self.assertEqual(b["on_bar"], 1)
+
+    def test_a_wordend_does_not_split_a_session(self) -> None:
+        # Its seq repeats the ending key's, exactly as corr/wordcorr/holdon/space do.
+        lines = [
+            stamp_key(1_000, 1, "letter"),
+            self.wordend(1_100, seq=1, length=1, typed=1, onbar=1, firstprefix=0),
+            stamp_key(2_000, 2, "letter"),
+        ]
+        events = kb.parse(lines)
+
+        self.assertEqual({e["session"] for e in events}, {0})
+
+    def test_the_text_report_names_the_bar_read_out(self) -> None:
+        lines = [
+            self.wordend(1_000, seq=3, length=5, typed=5, onbar=1, firstprefix=2, firstslot=3, renders=4),
+            self.wordend(2_000, seq=7, length=4, typed=4, onbar=0, renders=2),
+        ]
+        report = kb.render(kb.metrics(kb.parse(lines)))
+
+        self.assertIn("bar could have saved", report)
+        self.assertIn("1 of 2 typed words were already on the bar", report)
+        self.assertIn("savable letters         3", report)
+        self.assertIn("first-appearance slots  {3: 1}", report)
+        self.assertIn("median firstprefix      2", report)
+
+
 class CommandLine(unittest.TestCase):
     def test_text_report_names_the_c2_minimums(self) -> None:
         proc = run_cli(str(FIXTURE))

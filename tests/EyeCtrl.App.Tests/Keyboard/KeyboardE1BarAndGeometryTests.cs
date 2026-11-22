@@ -213,4 +213,41 @@ public class KeyboardE1BarAndGeometryTests
         }
         finally { probe.Dispose(); }
     }
+
+    private static Dictionary<string, string> Fields(string line) =>
+        line.Split(' ').Skip(2).Where(t => t.Contains('='))
+            .Select(t => t.Split('=', 2)).ToDictionary(p => p[0], p => p[1]);
+
+    /// <summary>
+    /// F16 end to end: the window's own render feeds the recorder, so a word typed while the bar
+    /// shows it produces a wordend line with the hit. "hello" is the dictionary's top word, and the
+    /// bar offers it from the first typed letter (the empty boundary renders nothing: with no
+    /// prefix and no previous word the orchestrator has no source), so firstprefix=1.
+    /// </summary>
+    [StaFact]
+    public void AWordTypedWhileTheBarShowsIt_LogsAWordEndWithItsBarHit()
+    {
+        var probe = Open();
+        try
+        {
+            foreach (var letter in "hello")
+            {
+                probe.Vm.ActivateKey(letter.ToString(), null);
+                probe.Window.UpdatePredictions();          // the real render the key path performs
+            }
+            probe.Vm.HandleSpace();
+
+            var f = Fields(probe.Log.Of("wordend").Single());
+            Check.That(f["how"]).IsEqualTo("typed");
+            Check.That(f["len"]).IsEqualTo("5");
+            Check.That(f["typed"]).IsEqualTo("5");
+            Check.That(f["onbar"]).IsEqualTo("1");
+            Check.That(f["firstprefix"]).IsEqualTo("1");
+            Check.That(f["firstslot"]).IsEqualTo("0");
+            Check.WithCustomMessage("the final word or a letter of it reached the line: "
+                    + probe.Log.Of("wordend").Single())
+                .That(probe.Log.Of("wordend").Single().ToLowerInvariant().Contains("hello")).IsFalse();
+        }
+        finally { probe.Dispose(); }
+    }
 }

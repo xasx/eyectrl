@@ -299,6 +299,45 @@ public class NoteKeyboardAvoidanceTests
     }
 
     [StaFact]
+    public void ASwitchToTheFnPageMidEdit_WritesTheApplyPathLine()
+    {
+        // Fixup-02 F8 (mutant N7: the log removed from ApplyPlacementToWindow so only the create
+        // path logs). This is the owner's flow exactly: create against the letters page, which
+        // leaves the full 24 DIP gap and writes nothing, then switch that same editor to the Fn
+        // page. The taller keyboard shrinks the band, the re-place gives way (gap 17.5, the 24
+        // DIP margin extra spent), and the applied placement is what the line reports. With the
+        // apply-path log gone this scenario writes NO line at all - the create-path-only
+        // survivor that AShrunkGap_WritesOneContentFreeNotePlaceLine left alive.
+        var lines = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = 36 },
+            placeInfoLog: lines.Add);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            // The letters page at 36 DIP: the card keeps the full gap and the margin, silent.
+            probe.RectsProvider = () => new[] { ToPhysical(OwnerKeyboardTop(OwnerLettersHeight)) };
+            manager.CreateNoteAt(Phys(960, 400));
+            Check.WithCustomMessage("creating on the letters page must write no line")
+                .That(lines).IsEmpty();
+
+            // The mid-Edit page switch: the probe now reports the Fn height, so the manager
+            // re-derives and APPLIES a different placement - the one that had to give way.
+            probe.RectsProvider = () => new[] { ToPhysical(OwnerKeyboardTop(OwnerFnHeight)) };
+            probe.RaiseChanged();
+
+            Check.WithCustomMessage("the page switch must write exactly the one apply-path line")
+                .That(lines).HasSize(1);
+            Check.That(lines[0]).IsEqualTo("NOTE-PLACE note=1 gap=17.5 overlap=0.0 margin=24.0 state=edit");
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
     public void ASpentMarginWithTheFullGap_StillWritesTheLine()
     {
         // The Fn page at 28 DIP: the gap stays the full 24 and only the margin yields (14.5 of

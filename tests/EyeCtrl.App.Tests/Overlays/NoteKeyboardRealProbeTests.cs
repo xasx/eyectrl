@@ -110,18 +110,34 @@ public class NoteKeyboardRealProbeTests
         // both on the way to Fn and back. Fixup-01 F1: the work area is the owner's fixed
         // 1920x1152 seam, not the host's, so a small CI screen (where both pages clamp to the
         // same spot) cannot turn the "it moved" asserts green-to-red.
+        // Fixup-02 F1b: the seam fixes the DERIVATION, not the real window. Win32 caps the
+        // window at about screen + 15-20 DIP, so a 1024x768 CI runner measures 788.0 for the
+        // 862.5 DIP Fn page. The exact owner heights are therefore asserted only on a host
+        // whose screen can hold the 1642x862.5 window; every host still pins the page switch
+        // itself through "Fn must be taller" and through the asserts that read the PROBE's
+        // measured rect against the fixed seam.
         using var rig = new Rig(() => new Rect(0, 0, 1920, 1152), keySizeMultiplier: 1.75);
         rig.CreateNote();
         var letters = rig.KeyboardRectDip;
         var lettersPlacement = rig.Placement;
 
-        Check.WithCustomMessage($"the owner's letters page is 736 DIP tall at 1.75 (measured {letters.Height:F1})")
-            .That(letters.Height).IsCloseTo(736, 1.0);
+        bool hostScreenHoldsTheOwnerWindow =
+            SystemParameters.PrimaryScreenWidth >= 1660 && SystemParameters.PrimaryScreenHeight >= 880;
+        if (hostScreenHoldsTheOwnerWindow)
+        {
+            Check.WithCustomMessage($"the owner's letters page is 736 DIP tall at 1.75 (measured {letters.Height:F1})")
+                .That(letters.Height).IsCloseTo(736, 1.0);
+        }
 
         AssertPageSwitchFollows(rig, "function", "letters -> Fn");
         var fn = rig.KeyboardRectDip;
-        Check.WithCustomMessage($"the Fn page is 862.5 DIP tall at 1.75 (measured {fn.Height:F1})")
-            .That(fn.Height).IsCloseTo(862.5, 1.0);
+        Check.WithCustomMessage("the Fn page must be taller - that is what makes this a re-place")
+            .That(fn.Height).IsStrictlyGreaterThan(letters.Height);
+        if (hostScreenHoldsTheOwnerWindow)
+        {
+            Check.WithCustomMessage($"the Fn page is 862.5 DIP tall at 1.75 (measured {fn.Height:F1})")
+                .That(fn.Height).IsCloseTo(862.5, 1.0);
+        }
         Check.WithCustomMessage("the taller keyboard must have MOVED the editing card")
             .That(rig.Placement.Window).IsNotEqualTo(lettersPlacement.Window);
 

@@ -1572,6 +1572,12 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
+      "Literal": "\"NOTE-PLACE note={0} gap={1:F1} overlap={2:F1} margin={3:F1} state=edit\"",
+      "Category": "log",
+      "Reason": "B's placement compromise line: the note's number, the achieved keyboard gap and overlap in DIP, the screen-edge margin yielded and the closed state id. Written to the log only, invariant culture, never any note text or anchor."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/NoteManager.cs",
       "Literal": "\"banner slot\"",
       "Category": "log",
       "Reason": "A log-only occluder source name (the fail-closed log once-per-episode), never shown; not text."

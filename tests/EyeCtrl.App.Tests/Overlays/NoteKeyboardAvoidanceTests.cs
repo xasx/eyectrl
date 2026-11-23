@@ -140,28 +140,32 @@ public class NoteKeyboardAvoidanceTests
         // one of them must beat the preferred clamp in this degenerate case.
         Check.WithCustomMessage($"the least-overlap placement ({clearance}) must beat the old clamp ({SignedClearance(old.Window, avoid[0])})")
             .That(clearance).IsStrictlyGreaterThan(SignedClearance(old.Window, avoid[0]));
-        Check.WithCustomMessage("and it stays inside the inset work area")
-            .That(placement.Window.Left >= Inset.Left && placement.Window.Top >= Inset.Top
-                && placement.Window.Right <= Inset.Right && placement.Window.Bottom <= Inset.Bottom)
-            .IsTrue();
+        // B: the avoid rect covers the whole work area, so there is no band to win - but the
+        // screen-edge margin itself is part of the yield, and the farthest legal spot is the
+        // 56 DIP floor, not A2's 80. The window stays inside the work area; the margin spends
+        // no more than its 24 DIP extra.
+        Check.WithCustomMessage("and it stays inside the work area")
+            .That(WorkArea.Contains(placement.Window)).IsTrue();
+        Check.WithCustomMessage("and spends no more than the margin's 24 DIP extra")
+            .That(NoteLayout.GapAndMarginYield(placement.Window, avoid, WorkArea).MarginYield)
+            .IsLessOrEqualThan(NoteLayout.Constants.EdgeMarginYieldDip + 1e-6);
     }
 
-    // ── T6 fixup-09 Part B: a tall card goes where it overlaps the keyboard least ──
+    // ── T6 fixup-09 Part B: a tall card spends the margin, then the gap, before it overlaps ──
 
     [Theory]
     [InlineData(300.0, 700.0, 28.0)]
     [InlineData(960.0, 760.0, 28.0)]
     [InlineData(960.0, 760.0, 48.0)]
-    public void ATallEditCard_SlidesToTheLeastOverlap_InsteadOfLandingInsideTheKeyboard(
+    public void ATallEditCard_UsesTheYieldedMarginBeforeItOverlaps(
         double x, double y, double textSize)
     {
-        // The owner's geometry, a SYNTHETIC 480 DIP card. K2a's real Edit card is about 194 DIP at
-        // 36, so this probe now exercises the fallback only for a card taller than the clear room
-        // — which A2's 80 DIP edge margin shrank to 1152 - 80 - 575 = 497 DIP (480 + the 24 gap
-        // no longer fits). The rule that matters is unchanged: the drawn window overlaps the
-        // keyboard LESS than the old preferred-side clamp did (the reviewer measured the clamp
-        // 70-130 DIP inside; the least-overlap slide was 18 DIP at (300, 700) before A2's margin
-        // and lands within the tag's protrusion of the edge now), and it stays inside the inset.
+        // The owner's geometry, a SYNTHETIC 480 DIP card (the old four-row column). B: the card
+        // is taller than the 80 DIP inset's band (1152 - 80 - 575 = 497), so it spends the
+        // screen-edge margin's 24 DIP extra first: at 28 the drawn 496 fits the 56 DIP floor's
+        // 521 DIP band with the full 24 gap, and at 48 the drawn 510 clears by 11. Either way it
+        // is strictly better than the pre-B clamp (which put the 28 card 1 DIP and the 48 card
+        // 13 DIP INSIDE the keyboard), and it stays inside the work area with the margin spent.
         var keyboard = new Rect(251, 0, 1418, 575);
         var card = new Size(NoteLayout.CardWidthDip(textSize), 480);
         var placement = NoteLayout.Place(
@@ -175,13 +179,14 @@ public class NoteKeyboardAvoidanceTests
 
         double clearance = SignedClearance(drawn.Window, keyboard);
         Check.WithCustomMessage(
-                $"a tall card at ({x}, {y}) and {textSize} DIP must overlap the keyboard less than the "
-                + $"old clamp (least overlap {clearance}, clamp {SignedClearance(oldDrawn.Window, keyboard)})")
+                $"a tall card at ({x}, {y}) and {textSize} DIP must beat the old clamp "
+                + $"(new {clearance}, clamp {SignedClearance(oldDrawn.Window, keyboard)})")
             .That(clearance).IsStrictlyGreaterThan(SignedClearance(oldDrawn.Window, keyboard));
-        Check.WithCustomMessage($"the least-overlap window {drawn.Window} must stay inside the inset")
-            .That(drawn.Window.Left >= Inset.Left && drawn.Window.Top >= Inset.Top
-                && drawn.Window.Right <= Inset.Right && drawn.Window.Bottom <= Inset.Bottom)
-            .IsTrue();
+        Check.WithCustomMessage($"the window {drawn.Window} must stay inside the work area")
+            .That(WorkArea.Contains(drawn.Window)).IsTrue();
+        Check.WithCustomMessage("and spend no more than the margin's 24 DIP extra")
+            .That(NoteLayout.GapAndMarginYield(drawn.Window, new[] { keyboard }, WorkArea).MarginYield)
+            .IsLessOrEqualThan(NoteLayout.Constants.EdgeMarginYieldDip + 1e-6);
     }
 
     [StaFact]
@@ -253,6 +258,167 @@ public class NoteKeyboardAvoidanceTests
             // grows the window upward by its protrusion.
             Check.That(GapFrom(placement.Card, KeyboardTop))
                 .IsGreaterOrEqualThan(NoteLayout.Constants.AvoidGapDip);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    // ── B: the NOTE-PLACE compromise line ──
+
+    [StaFact]
+    public void AShrunkGap_WritesOneContentFreeNotePlaceLine()
+    {
+        // The owner's Fn page at the 36 DIP default: the drawn 216 DIP card against the 209.5
+        // DIP band. B's answer is a 17.5 DIP gap with the 24 DIP margin extra spent — and one
+        // line recording the compromise, with no note text in it.
+        var lines = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = 36 },
+            placeInfoLog: lines.Add);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            probe.RectsProvider = () => new[] { ToPhysical(OwnerKeyboardTop(OwnerFnHeight)) };
+            manager.CreateNoteAt(Phys(960, 400));
+            manager.Apply(new NoteAppend("Zebra quokka"));
+            probe.RaiseChanged();
+
+            Check.WithCustomMessage("at least one placement compromise is reported")
+                .That(lines).Not.IsEmpty();
+            Check.WithCustomMessage("every line is the closed, content-free shape — the placement is unchanged")
+                .That(lines).ContainsOnlyElementsThatMatch(
+                    l => l == "NOTE-PLACE note=1 gap=17.5 overlap=0.0 margin=24.0 state=edit");
+            Check.WithCustomMessage("no draft text reaches the line")
+                .That(lines.Any(l => l.Contains("Zebra", StringComparison.Ordinal)
+                    || l.Contains("quokka", StringComparison.Ordinal))).IsFalse();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void ASwitchToTheFnPageMidEdit_WritesTheApplyPathLine()
+    {
+        // Fixup-02 F8 (mutant N7: the log removed from ApplyPlacementToWindow so only the create
+        // path logs). This is the owner's flow exactly: create against the letters page, which
+        // leaves the full 24 DIP gap and writes nothing, then switch that same editor to the Fn
+        // page. The taller keyboard shrinks the band, the re-place gives way (gap 17.5, the 24
+        // DIP margin extra spent), and the applied placement is what the line reports. With the
+        // apply-path log gone this scenario writes NO line at all - the create-path-only
+        // survivor that AShrunkGap_WritesOneContentFreeNotePlaceLine left alive.
+        var lines = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = 36 },
+            placeInfoLog: lines.Add);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            // The letters page at 36 DIP: the card keeps the full gap and the margin, silent.
+            probe.RectsProvider = () => new[] { ToPhysical(OwnerKeyboardTop(OwnerLettersHeight)) };
+            manager.CreateNoteAt(Phys(960, 400));
+            Check.WithCustomMessage("creating on the letters page must write no line")
+                .That(lines).IsEmpty();
+
+            // The mid-Edit page switch: the probe now reports the Fn height, so the manager
+            // re-derives and APPLIES a different placement - the one that had to give way.
+            probe.RectsProvider = () => new[] { ToPhysical(OwnerKeyboardTop(OwnerFnHeight)) };
+            probe.RaiseChanged();
+
+            Check.WithCustomMessage("the page switch must write exactly the one apply-path line")
+                .That(lines).HasSize(1);
+            Check.That(lines[0]).IsEqualTo("NOTE-PLACE note=1 gap=17.5 overlap=0.0 margin=24.0 state=edit");
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void ASpentMarginWithTheFullGap_StillWritesTheLine()
+    {
+        // The Fn page at 28 DIP: the gap stays the full 24 and only the margin yields (14.5 of
+        // the 24 DIP extra). A compromise worth seeing — the line says so.
+        var lines = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = 28 },
+            placeInfoLog: lines.Add);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            probe.RectsProvider = () => new[] { ToPhysical(OwnerKeyboardTop(OwnerFnHeight)) };
+            manager.CreateNoteAt(Phys(960, 400));
+
+            Check.That(lines).HasSize(1);
+            Check.That(lines[0]).IsEqualTo("NOTE-PLACE note=1 gap=24.0 overlap=0.0 margin=14.5 state=edit");
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void AFullGapAndMargin_WriteNothing()
+    {
+        // The letters page at 36 DIP: the 736 DIP keyboard leaves a 336 DIP band at the 80 DIP
+        // inset, so both the gap and the margin hold — no line at all.
+        var lines = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = 36 },
+            placeInfoLog: lines.Add);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            probe.RectsProvider = () => new[] { ToPhysical(OwnerKeyboardTop(OwnerLettersHeight)) };
+            manager.CreateNoteAt(Phys(960, 400));
+            Check.That(lines).IsEmpty();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void TypingThatLeavesThePlacementAlone_WritesNoFurtherLines()
+    {
+        // Fixup-01 F3: NOTE-PLACE is one line per APPLIED placement, not per derivation. On
+        // the yielded letters page at 36 every gaze-typed letter used to re-derive the SAME
+        // gap-4 placement and write another line (the reviewer measured 1 after create and 11
+        // after 10 letters). The line is now written only where a placement is applied, after
+        // ApplyPlacementToWindow's identical-placement skip.
+        var lines = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = 36 },
+            placeInfoLog: lines.Add);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            probe.RectsProvider = () => new[] { ToPhysical(OwnerKeyboardYieldedTop(OwnerLettersHeight)) };
+            manager.CreateNoteAt(Phys(960, 700));
+            var id = manager.ActiveNotes[0].Id;
+            var placed = manager.PlacementForTest(id)!;
+
+            Check.WithCustomMessage("the create writes exactly the one compromise line")
+                .That(lines).HasSize(1);
+
+            for (int i = 0; i < 10; i++)
+                manager.Apply(new NoteAppend("a"));
+
+            Check.WithCustomMessage("the 10 letters must really leave the card where it was")
+                .That(manager.PlacementForTest(id)).IsEqualTo(placed);
+            Check.WithCustomMessage("and must add no further line (one placement, one line)")
+                .That(lines).HasSize(1);
         }
         finally { DpiHelper.Initialize(1.0, 1.0); }
     }
@@ -604,19 +770,33 @@ public class NoteKeyboardAvoidanceTests
 
     // ── K1 (sitting 10): the OWNER's real keyboard geometry ──
 
-    /// <summary>The owner's real keyboard in DIP at key size 1.5 (sitting 10, 20.11): physical
-    /// (278, 0, 3284, 1325) at 2.0 = 1642 x 662.5 DIP at x 139 — 157 DIP wider and 87.5 DIP
-    /// taller than the 1418 x 575 the sweep modelled.</summary>
-    private static readonly Rect OwnerKeyboardTop = new(139, 0, 1642, 662.5);
+    /// <summary>F17 (#383): the owner's keyboard at key size 1.75, MEASURED from the real
+    /// window at 2.0 — 1642 x 736 DIP on the letters, 123, symbols and accents pages (it was
+    /// 662.5) and 1641.2 x 862.5 on the Fn page (it was 789). The sweep uses the letters
+    /// page's width for both pages (0.8 DIP wider than the Fn window, so the side strips are
+    /// never over-estimated).</summary>
+    private const double OwnerLettersHeight = 736.0;
 
-    /// <summary>The same keyboard docked at the bottom edge: top = 1152 - 662.5.</summary>
-    private static readonly Rect OwnerKeyboardBottom = new(139, 1152 - 662.5, 1642, 662.5);
+    private const double OwnerFnHeight = 862.5;
 
-    /// <summary>The owner's real top keyboard YIELDED below the 140 DIP top toolbar: y 140-802.5.</summary>
-    private static readonly Rect OwnerKeyboardYieldedTop = new(139, 140, 1642, 662.5);
+    private const double OwnerKeyboardX = 139.0;
 
-    /// <summary>The real-keyboard sweep: the three variants above, the anchor rows of the old
-    /// sweep plus y 100/150 (just under the toolbar), all four sides and the four text sizes.</summary>
+    private const double OwnerKeyboardWidth = 1642.0;
+
+    /// <summary>The owner's keyboard docked on the TOP edge, at either page's height.</summary>
+    private static Rect OwnerKeyboardTop(double height) => new(OwnerKeyboardX, 0, OwnerKeyboardWidth, height);
+
+    /// <summary>The same keyboard docked at the bottom edge: top = 1152 - height.</summary>
+    private static Rect OwnerKeyboardBottom(double height) =>
+        new(OwnerKeyboardX, 1152 - height, OwnerKeyboardWidth, height);
+
+    /// <summary>The owner's top keyboard YIELDED below the 140 DIP top toolbar.</summary>
+    private static Rect OwnerKeyboardYieldedTop(double height) =>
+        new(OwnerKeyboardX, 140, OwnerKeyboardWidth, height);
+
+    /// <summary>The real-keyboard sweep: the three placements above at BOTH F17 page heights,
+    /// the anchor rows of the old sweep plus y 100/150 (just under the toolbar), all four sides
+    /// and the four text sizes.</summary>
     public static TheoryData<string> OwnerRealGeometrySweep()
     {
         var data = new TheoryData<string>();
@@ -625,36 +805,39 @@ public class NoteKeyboardAvoidanceTests
         var sides = new[] { NoteSide.Right, NoteSide.Left, NoteSide.Below, NoteSide.Above };
         var sizes = new[] { 18.0, 28.0, 36.0, 48.0 };
         foreach (var variant in new[] { "top", "bottom", "yielded" })
-            foreach (var x in anchorsX)
-                foreach (var y in anchorsY)
-                    foreach (var side in sides)
-                        foreach (var size in sizes)
-                            data.Add($"{variant}|{x}|{y}|{side}|{size}");
+            foreach (var page in new[] { "letters", "fn" })
+                foreach (var x in anchorsX)
+                    foreach (var y in anchorsY)
+                        foreach (var side in sides)
+                            foreach (var size in sizes)
+                                data.Add($"{variant}|{page}|{x}|{y}|{side}|{size}");
         return data;
     }
 
     [Theory]
     [MemberData(nameof(OwnerRealGeometrySweep))]
-    public void InEdit_OnTheOwnerRealKeyboard_TheCardItsCellsAndItsTag_KeepTheClearance(string sweep)
+    public void InEdit_OnTheOwnerRealKeyboard_TheGapGivesWayInTheRightOrder(string sweep)
     {
-        // K1 part 2, K2a follow-up: the same three rules on the keyboard the owner actually has.
-        // The docked keyboards leave a 425.5 DIP band (1088 - 662.5) under/over them, and the
-        // yielded top keyboard leaves 285.5 DIP — which the COMPACT Edit card (about 194 DIP at
-        // the 36 DIP default, plus the tag's protrusion) now fits with its 24 DIP gap. The pinned
-        // known-gap branch this method used to carry for the yielded variant is gone: K2a's card
-        // cleared it, and the assertion below is the normal clearance rule.
+        // B: the F17 keyboard is 736 DIP (letters) / 862.5 DIP (Fn) and the owner's 36 DIP
+        // Edit card is 194 DIP + the tag's 22 = 216 drawn. The Fn dock leaves a 209.5 DIP band
+        // at the 80 DIP inset and the yielded letters dock 196 — so the 24 DIP gap and the
+        // 80 DIP margin cannot always both hold. The rule this pins: the margin yields first
+        // (down to 56), then the gap shrinks; only when nothing fits at gap 0 does the overlap
+        // appear, and then it is exactly the geometry's minimum.
         var parts = sweep.Split('|');
         var variant = parts[0];
-        double x = double.Parse(parts[1], CultureInfo.InvariantCulture);
-        double y = double.Parse(parts[2], CultureInfo.InvariantCulture);
-        var side = Enum.Parse<NoteSide>(parts[3]);
-        double textSize = double.Parse(parts[4], CultureInfo.InvariantCulture);
+        string page = parts[1];
+        double x = double.Parse(parts[2], CultureInfo.InvariantCulture);
+        double y = double.Parse(parts[3], CultureInfo.InvariantCulture);
+        var side = Enum.Parse<NoteSide>(parts[4]);
+        double textSize = double.Parse(parts[5], CultureInfo.InvariantCulture);
 
+        double height = page == "fn" ? OwnerFnHeight : OwnerLettersHeight;
         var keyboard = variant switch
         {
-            "top" => OwnerKeyboardTop,
-            "bottom" => OwnerKeyboardBottom,
-            _ => OwnerKeyboardYieldedTop,
+            "top" => OwnerKeyboardTop(height),
+            "bottom" => OwnerKeyboardBottom(height),
+            _ => OwnerKeyboardYieldedTop(height),
         };
         // K2a: an EDITING note places the compact card (text above, one row of controls below).
         var card = NoteLayout.EditCardSize(textSize, 0, WorkArea.Height);
@@ -666,38 +849,125 @@ public class NoteKeyboardAvoidanceTests
         Check.That(placement).IsNotNull();
         var drawn = NoteLayout.WithTagClearance(placement!, textSize);
 
-        AssertDrawnPlacementKeepsClearance(drawn, keyboard, textSize, sweep);
+        // The geometry's maximum achievable gap: the free band between the keyboard and the far
+        // work-area edge at the 56 DIP margin floor, minus the drawn window. On this screen the
+        // side strips are 83 DIP at the floor (too narrow for any card), so the band is the only
+        // candidate and the number below is the best any placement can do.
+        double bandAtFloor = BandAt(keyboard, NoteLayout.Constants.EdgeMarginFloorDip) - drawn.Window.Height;
+        double bandAt80 = BandAt(keyboard, NoteLayout.Constants.EdgeMarginDip) - drawn.Window.Height;
+        double best = Math.Min(NoteLayout.Constants.AvoidGapDip, bandAtFloor);
+        double gap = SignedClearance(drawn.Window, keyboard);
+        var (_, marginYield) = NoteLayout.GapAndMarginYield(drawn.Window, new[] { keyboard }, WorkArea);
+
+        string label = $"{sweep} (drawn {drawn.Window.Height:F1}, band at floor {bandAtFloor:F1}, best {best:F1}, gap {gap:F1})";
+        Check.WithCustomMessage($"{label}: the gap must be at least the geometry's best")
+            .That(gap).IsGreaterOrEqualThan(best - 1e-6);
+        if (best < 0)
+        {
+            // Nothing clears even at gap 0: the overlap must be EXACTLY the minimum.
+            Check.WithCustomMessage($"{label}: the overlap must be the minimum")
+                .That(gap).IsLessOrEqualThan(best + 1e-6);
+        }
+        Check.WithCustomMessage($"{label}: the drawn window must never leave the work area")
+            .That(drawn.Window.Left >= WorkArea.Left && drawn.Window.Top >= WorkArea.Top
+                && drawn.Window.Right <= WorkArea.Right && drawn.Window.Bottom <= WorkArea.Bottom)
+            .IsTrue();
+        Check.WithCustomMessage($"{label}: the margin may spend at most its 24 DIP extra")
+            .That(marginYield).IsLessOrEqualThan(NoteLayout.Constants.EdgeMarginYieldDip + 1e-6);
+
+        // Fixup-01 F2: every keyboard here is a full-width horizontal band, so the card can
+        // only ever need to move UP or DOWN. The yielding 56 DIP floor is a SHIFT-axis floor:
+        // the horizontal design margin (80 DIP) must hold on every one of these cases, whatever
+        // the vertical margin spends. Before the fix 768 of the 2880 placements sat at x = 56.
+        double designMargin = NoteLayout.Constants.EdgeMarginDip;
+        double horizontalYield = Math.Max(0, Math.Max(
+            designMargin - drawn.Window.Left, drawn.Window.Right - (WorkArea.Right - designMargin)));
+        Check.WithCustomMessage($"{label}: the horizontal margin (x) must never yield on a horizontal band")
+            .That(horizontalYield).IsLessOrEqualThan(1e-6);
+
+        // Fixup-01 F6: where the full 80 DIP margin and the 24 DIP gap BOTH fit, the old inset
+        // pin holds exactly - pass 1/2 must not be loosened by the yielding ladder.
+        if (bandAt80 >= NoteLayout.Constants.AvoidGapDip)
+            Check.WithCustomMessage($"{label}: at 80/24 the margin must stay at its design value")
+                .That(marginYield).IsEqualTo(0.0);
+
+        AssertDrawnKeepsItsGap(drawn, keyboard, textSize, label, gap);
     }
 
-    /// <summary>K2a's own pin: the compact Edit card plus the number tag fits the band the
-    /// owner's yielded top keyboard leaves under the 140 DIP toolbar, with the 24 DIP gap — the
-    /// exact geometry that used to have NO clear spot (the old 340 DIP column + tag needed
-    /// 386). Each text size's FLOOR card (no measured text) is checked, which is the card the
-    /// sweep places.
+    /// <summary>The free band between the keyboard and the far work-area edge with the screen-edge
+    /// margin at <paramref name="margin"/>: the most room any placement on that side can have.</summary>
+    private static double BandAt(Rect keyboard, double margin)
+    {
+        bool atTop = Math.Abs(keyboard.Top - WorkArea.Top) <= Math.Abs(keyboard.Bottom - WorkArea.Bottom);
+        return atTop ? WorkArea.Bottom - margin - keyboard.Bottom : keyboard.Top - WorkArea.Top - margin;
+    }
+
+    /// <summary>The card, every registered Edit control cell and the number tag keep at least
+    /// the window's own achieved keyboard gap (they are all inside the drawn window).</summary>
+    private static void AssertDrawnKeepsItsGap(
+        NotePlacement drawn, Rect keyboard, double textSize, string label, double gap)
+    {
+        Check.WithCustomMessage($"{label}: the card must keep the achieved gap")
+            .That(GapFrom(drawn.Card, keyboard)).IsGreaterOrEqualThan(gap - 1e-6);
+
+        foreach (var slot in NoteLayout.SlotsFor(NoteState.Edit))
+        {
+            var (cx, cy) = NoteLayout.ButtonCenter(drawn, slot, NoteState.Edit);
+            var cell = new Rect(
+                drawn.Window.X + cx - (LayoutConstants.NoteCellDip / 2),
+                drawn.Window.Y + cy - (LayoutConstants.NoteCellDip / 2),
+                LayoutConstants.NoteCellDip, LayoutConstants.NoteCellDip);
+            Check.WithCustomMessage($"{label}: control cell {slot} must keep the achieved gap")
+                .That(GapFrom(cell, keyboard)).IsGreaterOrEqualThan(gap - 1e-6);
+            Check.WithCustomMessage($"{label}: control cell {slot} must stay inside the work area")
+                .That(WorkArea.Contains(cell)).IsTrue();
+        }
+
+        var tag = TagRect(drawn, textSize);
+        Check.WithCustomMessage($"{label}: the number tag must keep the achieved gap")
+            .That(GapFrom(tag, keyboard)).IsGreaterOrEqualThan(gap - 1e-6);
+        Check.WithCustomMessage($"{label}: the number tag must stay inside the work area")
+            .That(WorkArea.Contains(tag)).IsTrue();
+    }
+
+    /// <summary>B's own pin: the compact Edit card under the yielded top keyboard, per size.
+    /// K2a's claim that the card fits the 24 DIP gap is gone after F17: the band at the 80 DIP
+    /// inset is 196 DIP, and only the 56 DIP floor's extra 24 lets the gap hold at 18 (a 9 DIP
+    /// margin spend). At 28/36 the gap itself gives way, and at 48 the card overlaps by 19 —
+    /// the exact minimum the geometry allows.
     /// <para>
-    /// A2 moved the band itself: the edge margin is derived from the cell's half-width
-    /// (<c>NoteCellDip / 2 + 24</c>), so 112 DIP cells widen it 64 → 80 DIP and the free band
-    /// under the yielded keyboard becomes 1152 − 2 × 80 − 802.5 = 269.5 DIP, not the findings'
-    /// 285.5 (which used the 64 DIP margin). The compact card still fits at every size.
+    /// The band: 1152 - 2 x 80 (A2's inset) - 140 (the toolbar) - 736 (F17's letters page)
+    /// = 196 DIP. At the 56 DIP floor it is 220 DIP.
     /// </para></summary>
     [Theory]
-    [InlineData(18.0)]
-    [InlineData(28.0)]
-    [InlineData(36.0)]
-    [InlineData(48.0)]
-    public void TheCompactEditCard_FitsUnderTheYieldedTopKeyboard(double textSize)
+    [InlineData(18.0, 24.0, 9.0)]
+    [InlineData(28.0, 20.0, 24.0)]
+    [InlineData(36.0, 4.0, 24.0)]
+    [InlineData(48.0, -19.0, 24.0)]
+    public void TheCompactEditCard_GivesWayToTheYieldedTopKeyboard(
+        double textSize, double expectedGap, double expectedMargin)
     {
-        double freeBand = Inset.Bottom - OwnerKeyboardYieldedTop.Bottom;
+        double freeBand = Inset.Bottom - OwnerKeyboardYieldedTop(OwnerLettersHeight).Bottom;
         Check.WithCustomMessage(
-                "A2's 80 DIP edge margin (cell half + 24) leaves 269.5 DIP under the yielded keyboard")
-            .That(freeBand).IsCloseTo(269.5, 1e-6);
+                "F17: the 80 DIP margin leaves 196 DIP under the yielded 736 DIP letters keyboard")
+            .That(freeBand).IsCloseTo(196, 1e-6);
 
-        var card = NoteLayout.EditCardSize(textSize, 0, WorkArea.Height);
-        double drawnHeight = card.Height + NoteLayout.TagProtrusionDip(textSize);
+        var placement = NoteLayout.Place(
+            Phys(960, 700), NoteSide.Right, NoteLayout.EditCardSize(textSize, 0, WorkArea.Height),
+            WorkArea, new[] { OwnerKeyboardYieldedTop(OwnerLettersHeight) }, Scale,
+            exclude: null, allowDisplaced: true,
+            topGrowthDip: NoteLayout.TagProtrusionDip(textSize))!;
+        var drawn = NoteLayout.WithTagClearance(placement, textSize);
+        var (gap, margin) = NoteLayout.GapAndMarginYield(
+            drawn.Window, new[] { OwnerKeyboardYieldedTop(OwnerLettersHeight) }, WorkArea);
+
         Check.WithCustomMessage(
-                $"the compact Edit card at {textSize} DIP ({drawnHeight:F1} DIP drawn, tag included) must fit "
-                + $"the {freeBand:F1} DIP band with the {NoteLayout.Constants.AvoidGapDip:F1} DIP gap")
-            .That(drawnHeight + NoteLayout.Constants.AvoidGapDip).IsLessOrEqualThan(freeBand);
+                $"{textSize} DIP: the achieved gap must be {expectedGap:F1} (overlap when negative)")
+            .That(gap).IsCloseTo(expectedGap, 1e-6);
+        Check.WithCustomMessage($"{textSize} DIP: the margin must yield {expectedMargin:F1} DIP")
+            .That(margin).IsCloseTo(expectedMargin, 1e-6);
+        Check.WithCustomMessage($"{textSize} DIP: the drawn card must stay inside the work area")
+            .That(WorkArea.Contains(drawn.Window)).IsTrue();
     }
 
     // ── R1 (T6 fixup-08): the side's own clamped window competes ──
@@ -759,11 +1029,14 @@ public class NoteKeyboardAvoidanceTests
     [Fact]
     public void TheLeastOverlapTie_GoesToTheCandidateClosestToTheAnchor()
     {
-        // Review-10: at (300, 700), 28 DIP, h480 two candidates tie at 18 DIP of clearance - the
-        // anchor's own Left side and the Right one about 272 DIP away. The closest-to-anchor
-        // tie-break keeps the note on its side; "ties go to the farthest" would jump it Right.
+        // Review-10's tie rule survives, on a card tall enough to reach it under B. The old 480
+        // DIP card now CLEARS (the margin yields 23 DIP to keep the full gap), so this probe
+        // uses 560 DIP: drawn 576 against the 56 DIP floor's 521 DIP band, nothing clears, and
+        // every candidate overlaps by the minimum 55. The anchor's own Left side (its window
+        // contains the anchor) beats the Right one 6 DIP away; "ties go to the farthest" would
+        // jump the note off its side.
         var keyboard = new Rect(251, 0, 1418, 575);
-        var card = new Size(NoteLayout.CardWidthDip(28), 480);
+        var card = new Size(NoteLayout.CardWidthDip(28), 560);
         var placement = NoteLayout.Place(
             Phys(300, 700), NoteSide.Right, card, WorkArea, new[] { keyboard }, Scale,
             exclude: null, allowDisplaced: true, topGrowthDip: NoteLayout.TagProtrusionDip(28))!;
@@ -773,8 +1046,8 @@ public class NoteKeyboardAvoidanceTests
             .That(placement.Side).IsEqualTo(NoteSide.Left);
         Check.WithCustomMessage("the drawn window must cover the anchor's x (300)")
             .That(drawn.Window.Left <= 300 && drawn.Window.Right >= 300).IsTrue();
-        Check.WithCustomMessage("and keep the clearance")
-            .That(SignedClearance(drawn.Window, keyboard)).IsGreaterOrEqualThan(0);
+        Check.WithCustomMessage("and its overlap is the minimum the 56 DIP floor leaves")
+            .That(SignedClearance(drawn.Window, keyboard)).IsCloseTo(-55, 1e-6);
     }
 
     // ── T6 fixup-11: the tail never runs through its own card ──

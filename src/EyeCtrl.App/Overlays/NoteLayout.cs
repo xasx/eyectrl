@@ -858,6 +858,18 @@ internal static class NoteLayout
     /// accepted candidate to the anchor wins, ties broken by the side order. With no accepted
     /// candidate the old clamp fallback stands, unchanged.
     /// </para>
+    /// <para>
+    /// B (sitting 12): when not even the 24 DIP gap fits at the 80 DIP screen-edge margin, the
+    /// note gives way in two steps. The margin yields first, down to the hit cell's own
+    /// half-width (56 DIP, so no control cell leaves the work area) - a docked card's controls
+    /// face the keyboard while its far edge faces the screen edge, so the keyboard gap is the
+    /// part worth keeping. Only then does the gap shrink, 24 down to 0, as far as the geometry
+    /// allows. The largest gap wins, the least margin yield breaks a tie, then the old side and
+    /// distance rules. Only when nothing clears even at gap 0 does the least-overlap fallback
+    /// take the candidate with the smallest possible overlap. Fixup-01 F2: the margin yields
+    /// only on the BLOCKING edge - a vertical shift spends the vertical margin, a horizontal
+    /// shift the horizontal one, never both.
+    /// </para>
     /// </summary>
     /// <param name="anchor">The anchor in physical pixels; converted to DIP once, here.</param>
     /// <param name="preferred">The side tried first.</param>
@@ -943,7 +955,7 @@ internal static class NoteLayout
                 // is accepted only when it clears every avoid rect by the gap, like any other
                 // candidate (a side that genuinely reaches the keyboard is still displaced).
                 var ownClamped = Ungrow(ClampInto(GrownUpward(window, topGrowthDip), inset), topGrowthDip);
-                foreach (var displaced in DisplacedCandidates(window, avoidDip, inset, topGrowthDip).Prepend(ownClamped))
+                foreach (var displaced in DisplacedCandidates(window, avoidDip, inset, inset, topGrowthDip).Prepend(ownClamped))
                 {
                     var candidate = GrownUpward(displaced, topGrowthDip);
                     if (!FitsInside(candidate, inset))
@@ -978,13 +990,109 @@ internal static class NoteLayout
         if (exclude is not null)
             return null; // P3 D2: null only when exclude removed the only fitting side
 
-        // T6 fixup-09 Part B (owner-approved): nothing clears the keyboard by the gap - an Edit
-        // card taller than the clear room. Take the candidate that overlaps it LEAST (any side's
-        // own clamp, or a displaced window), so a tall note slides just over the keyboard's edge
-        // instead of landing deep inside it. Ties go to the candidate closest to the anchor, so
-        // the answer is deterministic. Display, Move and the chips never reach here.
+        // B (sitting 12): no candidate keeps the full 24 DIP keyboard gap at the 80 DIP
+        // screen-edge margin, so the note gives way in two steps - the MARGIN first, then the
+        // GAP. A docked card's controls sit next to the keyboard while its far edge (tag and
+        // text) faces the screen edge, so the keyboard gap protects more than the design's
+        // 24 DIP edge extra: the extra yields first, down to the hit cell's own half-width
+        // (56 DIP, so no control cell leaves the work area), and only then does the gap shrink
+        // from 24 to 0. Within the same gap and margin the old tie-breaks stand (side order,
+        // distance to the anchor, the honest tail), so a placement that already cleared with
+        // margin 80 and gap 24 never changes.
+        // Fixup-01 F2: the floor applies only on the axis a candidate actually SHIFTS on - a
+        // docked band's card moves up/down to keep its gap, never sideways, so a vertical
+        // shift clamps y at the 56 floor and leaves x at the 80 design margin, and a sideways
+        // shift (a side rect) does the reverse. The own candidate is offered with BOTH mixed
+        // insets, so it can yield on whichever axis it overflows.
         if (allowDisplaced && avoidDip.Count > 0)
         {
+            var verticalYield = InsetOnAxis(workAreaDip, Constants.EdgeMarginDip, Constants.EdgeMarginFloorDip);
+            var horizontalYield = InsetOnAxis(workAreaDip, Constants.EdgeMarginFloorDip, Constants.EdgeMarginDip);
+            NotePlacement? best = null;
+            double bestGap = double.MinValue;
+            double bestMargin = double.MaxValue;
+            double bestDistance = double.MaxValue;
+            Rect bestRect = default;
+            bool bestTailFaces = false;
+
+            foreach (var side in Candidates(preferred, exclude))
+            {
+                var window = WindowFor(anchorDip, side, cardDip);
+                foreach (var ownInset in new[] { verticalYield, horizontalYield })
+                {
+                    var own = Ungrow(ClampInto(GrownUpward(window, topGrowthDip), ownInset), topGrowthDip);
+                    Consider(side, own, FixedGap(own), ownInset);
+                }
+
+                foreach (var family in DisplacedFamilies(window, avoidDip, verticalYield, horizontalYield, topGrowthDip))
+                {
+                    double gap = LargestClearingGap(family, avoidDip);
+                    if (gap >= 0)
+                        Consider(side, At(family, gap), gap, family.Inset);
+                }
+
+                // The gap an unshifted candidate keeps: its signed clearance, clamped into
+                // [0, 24]; anything under 0 overlaps and belongs to the fallback below.
+                double FixedGap(Rect candidate)
+                {
+                    double clearance = ClearanceFrom(GrownUpward(candidate, topGrowthDip), avoidDip);
+                    return clearance < 0 ? -1 : Math.Min(Constants.AvoidGapDip, clearance);
+                }
+
+                // One candidate for the race: the largest gap wins, then the least yield of the
+                // screen-edge margin, then today's tie-breaks. Fixup-01 F4: gaps within 1e-6
+                // count as equal, so an exact 24 reaches the margin, distance and side rules.
+                void Consider(NoteSide candidateSide, Rect candidate, double gap, Rect bounds)
+                {
+                    if (gap < 0)
+                        return;
+                    var drawn = GrownUpward(candidate, topGrowthDip);
+                    if (!FitsInside(drawn, bounds) || !ClearsEvery(drawn, avoidDip, gap))
+                        return;
+                    double margin = MarginYield(drawn, inset);
+                    double distance = DistanceToRect(anchorDip, candidate);
+                    bool tailFaces = AnchorBeyondTailEdge(candidateSide, CardFor(candidateSide, candidate, cardDip), anchorDip);
+                    if (best is not null && Ties(gap, bestGap) && Ties(margin, bestMargin)
+                        && candidate == bestRect && tailFaces != bestTailFaces)
+                    {
+                        // The same window offered by two sides at the same yield: keep the one
+                        // whose tail can honestly point at the anchor (T6 fixup-12's rule).
+                        if (!tailFaces)
+                            return;
+                    }
+                    else if (best is not null
+                        && (gap < bestGap - GapTieTolerance
+                            || (Ties(gap, bestGap)
+                                && (margin > bestMargin + GapTieTolerance
+                                    || (Ties(margin, bestMargin) && distance >= bestDistance)))))
+                    {
+                        return; // a tie keeps the earlier side
+                    }
+                    bestGap = gap;
+                    bestMargin = margin;
+                    bestDistance = distance;
+                    bestRect = candidate;
+                    bestTailFaces = tailFaces;
+                    best = Build(candidateSide, candidate, cardDip, anchorDip, clamped: true);
+                }
+            }
+            if (best is not null)
+                return best;
+        }
+
+        // T6 fixup-09 Part B (owner-approved): nothing clears the keyboard even at the yielded
+        // margin and gap 0 - an Edit card taller than the clear room. Take the candidate that
+        // overlaps it LEAST (any side's own clamp, or a displaced window), so a tall note slides
+        // just over the keyboard's edge instead of landing deep inside it. Ties go to the
+        // candidate closest to the anchor, so the answer is deterministic. Display, Move and the
+        // chips never reach here. B: the margin has yielded to its 56 DIP floor by this point,
+        // so the least overlap is measured against the farthest legal spot. Fixup-01 F2: every
+        // candidate yields only on its own shift axis, and the own window is offered with both
+        // mixed insets.
+        if (allowDisplaced && avoidDip.Count > 0)
+        {
+            var verticalYield = InsetOnAxis(workAreaDip, Constants.EdgeMarginDip, Constants.EdgeMarginFloorDip);
+            var horizontalYield = InsetOnAxis(workAreaDip, Constants.EdgeMarginFloorDip, Constants.EdgeMarginDip);
             NotePlacement? least = null;
             double bestClearance = double.MinValue;
             double bestDistance = double.MaxValue;
@@ -993,14 +1101,34 @@ internal static class NoteLayout
             foreach (var side in Candidates(preferred, exclude))
             {
                 var window = WindowFor(anchorDip, side, cardDip);
-                var own = Ungrow(ClampInto(GrownUpward(window, topGrowthDip), inset), topGrowthDip);
-                foreach (var candidate in DisplacedCandidates(window, avoidDip, inset, topGrowthDip).Prepend(own))
+                // The own clamped window, on either axis' mixed inset, competes like any other
+                // candidate (R1's "stay by the anchor near the far edge").
+                foreach (var ownInset in new[] { verticalYield, horizontalYield })
+                    Consider(side, Ungrow(ClampInto(GrownUpward(window, topGrowthDip), ownInset), topGrowthDip));
+
+                // Every displaced family through the OVERLAP range - gap 0 down to -24 in 0.25
+                // DIP steps. The least-overlap spot between two avoid rects is usually an
+                // intermediate negative gap (the shortfall split between them), and windows
+                // requested at the full 24 DIP only clamp onto one rect and miss it; the
+                // one-rect band the owner has is exact, because its optimum is the clamp at the
+                // margin floor. Nothing that CLEARS is weighed here: the ladder above owns
+                // every gap at or above 0, so this fallback cannot quietly replace the gap
+                // rule. The step keeps the found minimum within 0.125 DIP of the true one.
+                foreach (var family in DisplacedFamilies(window, avoidDip, verticalYield, horizontalYield, topGrowthDip))
+                {
+                    const double step = 0.25;
+                    for (double gap = 0; gap >= -Constants.AvoidGapDip; gap -= step)
+                        Consider(side, At(family, gap));
+                }
+
+                void Consider(NoteSide candidateSide, Rect candidate)
                 {
                     var drawn = GrownUpward(candidate, topGrowthDip);
-                    if (!FitsInside(drawn, inset))
-                        continue;
+                    // Every candidate was clamped into one of the two mixed yield insets.
+                    if (!FitsInside(drawn, verticalYield) && !FitsInside(drawn, horizontalYield))
+                        return;
                     double clearance = ClearanceFrom(drawn, avoidDip);
-                    bool tailFaces = AnchorBeyondTailEdge(side, CardFor(side, candidate, cardDip), anchorDip);
+                    bool tailFaces = AnchorBeyondTailEdge(candidateSide, CardFor(candidateSide, candidate, cardDip), anchorDip);
                     double distance = DistanceToRect(anchorDip, candidate);
                     if (least is not null && clearance == bestClearance && candidate == bestRect
                         && tailFaces != bestTailFaces)
@@ -1009,18 +1137,18 @@ internal static class NoteLayout
                         // honestly point at the anchor (T6 fixup-11). Distinct rects are still
                         // decided by the closest-to-anchor rule below.
                         if (!tailFaces)
-                            continue;
+                            return;
                     }
                     else if (least is not null
                         && (clearance < bestClearance || (clearance == bestClearance && distance >= bestDistance)))
                     {
-                        continue;
+                        return;
                     }
                     bestClearance = clearance;
                     bestDistance = distance;
                     bestRect = candidate;
                     bestTailFaces = tailFaces;
-                    least = Build(side, candidate, cardDip, anchorDip, clamped: true);
+                    least = Build(candidateSide, candidate, cardDip, anchorDip, clamped: true);
                 }
             }
             if (least is not null)
@@ -1063,45 +1191,159 @@ internal static class NoteLayout
     private static Rect Ungrow(Rect drawn, double growth) =>
         growth <= 0 ? drawn : new Rect(drawn.Left, drawn.Top + growth, drawn.Width, drawn.Height - growth);
 
-    /// <summary>
-    /// The windows that step clear of the avoid rects (T6 fixup-06 G2): for every rect the
+    /// <summary>The direction a displaced family steps away from its avoid rect (B).</summary>
+    private enum Shift
+    {
+        Below,
+        Above,
+        Right,
+        Left,
+    }
+
+    /// <summary>One displaced candidate family (B): a side's raw window, the avoid rect it
+    /// steps clear of, the direction, and the MIXED inset it clamps into (the 56 DIP floor only
+    /// on its shift axis, in the ladder; the 80 DIP inset on both axes in pass 2). The window at
+    /// any gap is <see cref="At"/>; at the 24 DIP gap in pass 2 it is today's candidate.</summary>
+    private readonly record struct DisplacedFamily(
+        Rect Window, Rect Rect, Shift Shift, Rect Inset, double Growth);
+
+    /// <summary>The windows that step clear of the avoid rects (T6 fixup-06 G2): for every rect the
     /// window hits, the same window shifted just outside it - below, above, right or left - by
-    /// the clearance gap, then clamped into the inset work area. A shift that does not clear
+    /// the clearance gap, then clamped into the family's inset. A shift that does not clear
     /// every rect is rejected by the caller.
     /// <para>
     /// T6 fixup-07 F2: the shift is computed on the DRAWN window - the one grown upward by the
     /// number tag's strip - so the tag comes with it and the clearance holds for the tag and the
     /// card alike. The "below" shift therefore starts the raw window the tag's growth lower.
     /// </para>
+    /// <para>
+    /// B: one family per rect and direction. The family is the same shift at ANY gap, which is
+    /// what the two-step ladder needs to find the largest gap a placement can keep.
+    /// </para>
+    /// <para>
+    /// Fixup-01 F2: each family is clamped into the MIXED yield inset for its shift axis - the
+    /// 56 DIP floor only on that axis, the 80 DIP design margin on the other - so a vertical
+    /// shift can never drift the card sideways just because its vertical margin is spent.
+    /// Pass 2 and pass 1 pass the 80 DIP inset for both axes, which is the pre-B behaviour.
+    /// </para>
     /// </summary>
-    private static IEnumerable<Rect> DisplacedCandidates(Rect window, IReadOnlyList<Rect> avoid, Rect inset, double growth)
+    private static IEnumerable<DisplacedFamily> DisplacedFamilies(
+        Rect window, IReadOnlyList<Rect> avoid, Rect verticalInset, Rect horizontalInset, double growth)
     {
-        double gap = Constants.AvoidGapDip;
         foreach (var rect in avoid)
+        {
+            yield return new DisplacedFamily(window, rect, Shift.Below, verticalInset, growth);
+            yield return new DisplacedFamily(window, rect, Shift.Above, verticalInset, growth);
+            yield return new DisplacedFamily(window, rect, Shift.Right, horizontalInset, growth);
+            yield return new DisplacedFamily(window, rect, Shift.Left, horizontalInset, growth);
+        }
+    }
+
+    /// <summary>One displaced family's window at a gap: the drawn window steps <paramref
+    /// name="gap"/> outside the rect on the family's side, then clamps into the family's mixed
+    /// inset (the yielding margin's floor only on the shift axis, in the ladder) and un-grows
+    /// back to the raw window.</summary>
+    private static Rect At(DisplacedFamily family, double gap)
+    {
+        var window = family.Window;
+        var rect = family.Rect;
+        Rect shifted = family.Shift switch
         {
             // Below the rect: the drawn window's top sits the gap below it, so the raw window's
             // top sits the gap AND the tag's growth lower.
-            yield return Ungrow(ClampInto(
-                GrownUpward(new Rect(window.Left, rect.Bottom + gap + growth, window.Width, window.Height), growth), inset), growth);
+            Shift.Below => new Rect(window.Left, rect.Bottom + gap + family.Growth, window.Width, window.Height),
             // Above the rect: the drawn window's BOTTOM clears it (the bottom never moves).
-            yield return Ungrow(ClampInto(
-                GrownUpward(new Rect(window.Left, rect.Top - gap - window.Height, window.Width, window.Height), growth), inset), growth);
-            // Right of the rect.
-            yield return Ungrow(ClampInto(
-                GrownUpward(new Rect(rect.Right + gap, window.Top, window.Width, window.Height), growth), inset), growth);
-            // Left of the rect.
-            yield return Ungrow(ClampInto(
-                GrownUpward(new Rect(rect.Left - gap - window.Width, window.Top, window.Width, window.Height), growth), inset), growth);
+            Shift.Above => new Rect(window.Left, rect.Top - gap - window.Height, window.Width, window.Height),
+            Shift.Right => new Rect(rect.Right + gap, window.Top, window.Width, window.Height),
+            _ => new Rect(rect.Left - gap - window.Width, window.Top, window.Width, window.Height),
+        };
+        return Ungrow(ClampInto(GrownUpward(shifted, family.Growth), family.Inset), family.Growth);
+    }
+
+    /// <summary>The windows that step clear of the avoid rects at the 24 DIP gap (G2's
+    /// pass-2 candidates): one per family, unchanged from the pre-B behaviour. Pass 2 has no
+    /// yielding margin, so both insets are the 80 DIP one.</summary>
+    private static IEnumerable<Rect> DisplacedCandidates(
+        Rect window, IReadOnlyList<Rect> avoid, Rect verticalInset, Rect horizontalInset, double growth)
+    {
+        foreach (var family in DisplacedFamilies(window, avoid, verticalInset, horizontalInset, growth))
+            yield return At(family, Constants.AvoidGapDip);
+    }
+
+    /// <summary>The largest gap in [0, 24] a displaced family can keep from every avoid rect
+    /// (B), or -1 when it cannot clear them even at gap 0. Feasibility is downward closed in
+    /// the gap - as the gap grows the family's window only moves further out, and clamping can
+    /// only stop that push at the inset - so a bounded bisection is exact to 1e-8 DIP.
+    /// <para>
+    /// Fixup-01 F4: the top of the range is tested FIRST. Bisecting [0, 24] only approaches 24
+    /// from below (24 * (1 - 2^-32)), and that rounding difference beat an exact 24 in the
+    /// ladder's gap comparison, so the margin and distance tie-breaks never ran. When the full
+    /// gap clears it is returned exactly.
+    /// </para></summary>
+    private static double LargestClearingGap(DisplacedFamily family, IReadOnlyList<Rect> avoid)
+    {
+        if (!ClearsAt(family, 0, avoid))
+            return -1;
+        if (ClearsAt(family, Constants.AvoidGapDip, avoid))
+            return Constants.AvoidGapDip;
+        double lo = 0;
+        double hi = Constants.AvoidGapDip;
+        for (int i = 0; i < 32; i++)
+        {
+            double mid = (lo + hi) / 2;
+            if (ClearsAt(family, mid, avoid))
+                lo = mid;
+            else
+                hi = mid;
         }
+        return lo;
+    }
+
+    private static bool ClearsAt(DisplacedFamily family, double gap, IReadOnlyList<Rect> avoid)
+    {
+        var drawn = GrownUpward(At(family, gap), family.Growth);
+        return FitsInside(drawn, family.Inset) && ClearsEvery(drawn, avoid, gap);
+    }
+
+    /// <summary>Fixup-01 F4: how close two gaps must be to count as equal. The bisection is
+    /// exact to 1e-8 DIP and a clearing 24 is returned exactly, so 1e-6 only absorbs floating
+    /// point noise and lets the margin, distance and side tie-breaks decide a genuine tie.</summary>
+    private const double GapTieTolerance = 1e-6;
+
+    private static bool Ties(double a, double b) => Math.Abs(a - b) < GapTieTolerance;
+
+    /// <summary>How far a DRAWN window reaches beyond the 80 DIP design inset, SUMMED over the
+    /// edges (Fixup-01 F2): 0 when the placement keeps the full margin. The mixed yield insets
+    /// let a candidate spend on one axis only, so the sum is the honest total; a max would let
+    /// a second axis' yield ride for free once the first was spent.</summary>
+    private static double MarginYield(Rect window, Rect inset) =>
+        Math.Max(0, inset.Left - window.Left)
+        + Math.Max(0, window.Right - inset.Right)
+        + Math.Max(0, inset.Top - window.Top)
+        + Math.Max(0, window.Bottom - inset.Bottom);
+
+    /// <summary>The achieved keyboard gap and screen-edge margin yield of a DRAWN window (B):
+    /// the gap is the signed clearance to the nearest avoid rect (24 when there is none), the
+    /// yield the SUMMED reach beyond the 80 DIP design inset over all four edges. The manager's
+    /// NOTE-PLACE line reads this one derivation, so the log cannot disagree with the
+    /// placement.</summary>
+    internal static (double Gap, double MarginYield) GapAndMarginYield(
+        Rect drawnWindow, IReadOnlyList<Rect> avoidDip, Rect workAreaDip)
+    {
+        double gap = avoidDip.Count == 0 ? Constants.AvoidGapDip : ClearanceFrom(drawnWindow, avoidDip);
+        return (gap, MarginYield(drawnWindow, Inset(workAreaDip, Constants.EdgeMarginDip)));
     }
 
     /// <summary>Whether the window keeps the clearance gap from EVERY avoid rect (G2): a note
     /// control never sits within a key's reach of the keyboard's edge.</summary>
-    private static bool ClearsEvery(Rect window, IReadOnlyList<Rect> avoid)
+    private static bool ClearsEvery(Rect window, IReadOnlyList<Rect> avoid) =>
+        ClearsEvery(window, avoid, Constants.AvoidGapDip);
+
+    private static bool ClearsEvery(Rect window, IReadOnlyList<Rect> avoid, double gap)
     {
         foreach (var rect in avoid)
         {
-            if (!KeepsGapFrom(window, rect, Constants.AvoidGapDip))
+            if (!KeepsGapFrom(window, rect, gap))
                 return false;
         }
         return true;
@@ -1328,11 +1570,16 @@ internal static class NoteLayout
         return false;
     }
 
-    private static Rect Inset(Rect workArea, double margin) => new(
-        workArea.Left + margin,
-        workArea.Top + margin,
-        Math.Max(0, workArea.Width - 2 * margin),
-        Math.Max(0, workArea.Height - 2 * margin));
+    private static Rect Inset(Rect workArea, double margin) => InsetOnAxis(workArea, margin, margin);
+
+    /// <summary>An inset with an independent screen-edge margin per axis (Fixup-01 F2): the
+    /// yielding floor applies only on the axis a candidate actually shifts on, so a vertical
+    /// move never spends the horizontal design margin as well.</summary>
+    private static Rect InsetOnAxis(Rect workArea, double horizontalMargin, double verticalMargin) => new(
+        workArea.Left + horizontalMargin,
+        workArea.Top + verticalMargin,
+        Math.Max(0, workArea.Width - 2 * horizontalMargin),
+        Math.Max(0, workArea.Height - 2 * verticalMargin));
 
     private static Rect ClampInto(Rect window, Rect bounds) => new(
         Clamp(window.X, bounds.Left, Math.Max(bounds.Left, bounds.Right - window.Width)),
@@ -1351,6 +1598,17 @@ internal static class NoteLayout
         public const double TipGapDip = 6.0;
         public const double TailHalfWidthDip = 18.0;
         public const double EdgeMarginDip = (LayoutConstants.NoteCellDip / 2) + 24.0;
+
+        /// <summary>How far the screen-edge margin may yield when the full gap cannot fit
+        /// (B): the A2 design's extra 24 DIP on top of the hit cell's half-width.</summary>
+        public const double EdgeMarginYieldDip = 24.0;
+
+        /// <summary>The floor the yielding screen-edge margin stops at (B): the cell's own
+        /// half-width (<see cref="LayoutConstants.NoteCellDip"/> / 2, 56 DIP), so a note's
+        /// control cells never leave the work area. The note's CONTROLS sit next to the
+        /// keyboard and its far edge (tag and text) faces the screen edge, so the keyboard gap
+        /// protects more than the design's 24 DIP edge extra: the extra yields first.</summary>
+        public const double EdgeMarginFloorDip = EdgeMarginDip - EdgeMarginYieldDip;
 
         /// <summary>The clearance an avoid rect keeps around a note (T6 fixup-06 G2): a
         /// displaced note stops this far outside the keyboard's edge, so a gaze on the key at

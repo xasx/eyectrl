@@ -255,8 +255,8 @@
     "src": "8a888f50"
   },
   "guide.calibrate.body": {
-    "text": "Die Kalibrierung zeigt dem Eyetracker, wohin Ihre Augen gerichtet sind. Sie können später auch über Einstellungen oder die Symbolleiste kalibrieren.",
-    "src": "015eb125"
+    "text": "Die Kalibrierung von EyeCtrl sorgt dafür, dass der Cursor Ihren Augen folgt. Sie können auch später über die Einstellungen oder die Symbolleiste kalibrieren.",
+    "src": "68650a13"
   },
   "guide.calibrate.now": {
     "text": "Kalibrieren",
@@ -275,11 +275,11 @@
     "src": "2c1b85b8"
   },
   "guide.done.body": {
-    "text": "Der angedockte Rand ruft die Symbolleiste auf — Ihr Hauptmenü. Darüber öffnet sich die Bildschirmtastatur, und jede Einstellung findet sich in den Einstellungen.",
+    "text": "Ein Blick zum angedockten Rand ruft die Symbolleiste auf – Ihr Hauptmenü. Von dort öffnen Sie die Tastatur, und alle Optionen finden Sie unter „Einstellungen“.",
     "src": "130e1f8b"
   },
   "guide.done.finish": {
-    "text": "Fertigstellen",
+    "text": "Fertig",
     "src": "16254a6d"
   },
   "guide.done.title": {
@@ -287,7 +287,7 @@
     "src": "94b304e4"
   },
   "guide.dwell.body": {
-    "text": "Lassen Sie den Blick auf dem Kreis ruhen und halten Sie still: Der Ring füllt sich, und wenn er voll ist, löst das Ziel aus. Probieren Sie es jetzt aus.",
+    "text": "Lassen Sie den Blick auf dem Kreis ruhen, ohne ihn zu bewegen: Der Kreis füllt sich, und wenn er voll ist, löst er aus. Probieren Sie es jetzt aus.",
     "src": "5eabdb9e"
   },
   "guide.dwell.skip": {
@@ -295,12 +295,12 @@
     "src": "c00cef89"
   },
   "guide.dwell.title": {
-    "text": "Verweilen — Ihr Klick",
+    "text": "Verweilen – Ihr Klick",
     "src": "cb6f8ff5"
   },
   "guide.dwelltime.body": {
-    "text": "Die Karten − und + legen fest, wie lange ein Desktop-Klick dauert — das Verweilen des Cursors, das klickt. Probieren Sie Werte am Kreis aus; die eigenen Schaltflächen der Anleitung behalten die übliche Verweilzeit der Oberfläche.",
-    "src": "9b63ec08"
+    "text": "Mit den Karten − und + stellen Sie ein, wie lange ein Klick auf dem Desktop dauert. In den Einstellungen heißt das „Aktivator (ms)“. Probieren Sie Werte am Kreis aus; die Schaltflächen dieser Einführung behalten ihre eigene Verweilzeit.",
+    "src": "025641c0"
   },
   "guide.dwelltime.continue": {
     "text": "Weiter",
@@ -319,7 +319,7 @@
     "src": "631b8b3e"
   },
   "guide.safety.body": {
-    "text": "Fünf kurze Fragen richten den automatischen Neustart nach einem Absturz, den Start und den Ton bei einer Auslösung für Sie ein.",
+    "text": "Fünf kurze Fragen richten den automatischen Neustart nach Absturz, den Start bei der Windows-Anmeldung und den Ton bei Auslösung für Sie ein.",
     "src": "6667c833"
   },
   "guide.safety.title": {
@@ -327,7 +327,7 @@
     "src": "147fcaae"
   },
   "guide.theme.body": {
-    "text": "Wählen Sie ein Farbschema — es wird nach einem Neustart wirksam; die Karte hier zeigt Ihre Wahl als Vorschau.",
+    "text": "Wählen Sie ein Farbschema. Es gilt nach einem Neustart; die Karte hier zeigt es schon als Vorschau.",
     "src": "3190ee8f"
   },
   "guide.theme.continue": {
@@ -355,7 +355,7 @@
     "src": "30601cbb"
   },
   "guide.toolbar.body": {
-    "text": "Schauen Sie zum {0} Rand des Bildschirms, um die Symbolleiste aufzurufen — Tastatur, Einstellungen und alles Weitere öffnen sich von dort. Probieren Sie es jetzt aus.",
+    "text": "Schauen Sie zum {0} Rand des Bildschirms, um die Symbolleiste aufzurufen. Von dort öffnen sich Tastatur, Einstellungen und alles Weitere. Probieren Sie es jetzt aus.",
     "src": "39cca262"
   },
   "guide.toolbar.continue": {
@@ -383,7 +383,7 @@
     "src": "c00cef89"
   },
   "guide.toolbar.success": {
-    "text": "Aufgerufen! Die Symbolleiste blendet sich von selbst wieder aus. Machen Sie weiter, wenn Sie bereit sind.",
+    "text": "Geschafft! Die Symbolleiste blendet sich von selbst wieder aus. Machen Sie weiter, wenn Sie bereit sind.",
     "src": "55962806"
   },
   "guide.toolbar.title": {
@@ -391,11 +391,11 @@
     "src": "e14ac4fb"
   },
   "guide.welcome.body": {
-    "text": "Mit EyeCtrl steuern Sie diesen PC mit Ihren Augen. Diese kurze Anleitung zeigt Ihnen die Grundlagen — etwa 2 Minuten. Jede Übungsaufgabe können Sie überspringen.",
+    "text": "Mit EyeCtrl steuern Sie diesen PC mit Ihren Augen. Diese kurze Einführung zeigt Ihnen in etwa 2 Minuten die Grundlagen. Jede Übungsaufgabe können Sie überspringen.",
     "src": "9b407c92"
   },
   "guide.welcome.start": {
-    "text": "Start",
+    "text": "Starten",
     "src": "ff81db63"
   },
   "guide.welcome.title": {

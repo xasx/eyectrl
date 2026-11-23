@@ -482,7 +482,7 @@
     "args": []
   },
   "guide.calibrate.body": {
-    "text": "EyeCtrl's calibration makes sure the cursor follows your eyes. You can also calibrate later from Settings or the toolbar.",
+    "text": "EyeCtrl's calibration makes sure the cursor follows your eyes. You can also calibrate later in Settings.",
     "who": "user",
     "where": "guide",
     "fit": "prose",

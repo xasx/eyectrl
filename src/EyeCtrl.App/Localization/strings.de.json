@@ -255,8 +255,8 @@
     "src": "8a888f50"
   },
   "guide.calibrate.body": {
-    "text": "Die Kalibrierung von EyeCtrl sorgt dafür, dass der Cursor Ihren Augen folgt. Sie können auch später über die Einstellungen oder die Symbolleiste kalibrieren.",
-    "src": "68650a13"
+    "text": "Die Kalibrierung von EyeCtrl sorgt dafür, dass der Cursor Ihren Augen folgt. Sie können auch später in den Einstellungen kalibrieren.",
+    "src": "3f39f3f4"
   },
   "guide.calibrate.now": {
     "text": "Kalibrieren",

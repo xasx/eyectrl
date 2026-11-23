@@ -614,12 +614,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             topGrowthDip: avoidKeyboard ? NoteLayout.TagProtrusionDip(textSizeDip) : 0.0);
         var result = placement ?? throw new InvalidOperationException(
             "NoteLayout.Place returned a null placement without exclude — the clamped fallback guarantees a placement");
-        if (avoidKeyboard && avoid.Count > 0)
-            LogPlacementCompromise(note, result, avoid, textSizeDip);
         return result;
     }
 
-    // ── the placement compromise line (B): one content-free line per Edit placement ──
+    // ── the placement compromise line (B): one content-free line per APPLIED Edit placement ──
 
     /// <summary>The line format. Invariant culture by construction (the formatter below passes
     /// <see cref="CultureInfo.InvariantCulture"/>), DIP at one decimal, the note's number and
@@ -631,11 +629,17 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
 
     /// <summary>One line per Edit placement that had to give way: the keyboard gap below 24
     /// DIP, or any of the 80 DIP screen-edge margin spent (B). A placement that keeps both is
-    /// silent, so an ordinary Edit produces no line at all.</summary>
+    /// silent, so an ordinary Edit produces no line at all. Fixup-01 F3: it is called from the
+    /// two places that APPLY a placement (create and <see cref="ApplyPlacementToWindow"/>, the
+    /// latter only after its identical-placement skip), never from <see cref="PlaceFor"/> —
+    /// every keystroke re-derives the same placement, and logging there wrote one line per
+    /// character.</summary>
     private void LogPlacementCompromise(
-        NoteData note, NotePlacement placement, IReadOnlyList<Rect> avoid, double textSizeDip)
+        NoteData note, NotePlacement placement, IReadOnlyList<Rect> avoid)
     {
-        var drawn = NoteLayout.WithTagClearance(placement, textSizeDip);
+        if (avoid.Count == 0)
+            return; // no keyboard on screen: nothing gave way
+        var drawn = NoteLayout.WithTagClearance(placement, _noteSettings.TextSizeDip);
         var (gap, margin) = NoteLayout.GapAndMarginYield(drawn.Window, avoid, WorkAreaDip());
         if (gap >= NoteLayout.Constants.AvoidGapDip && margin <= 0)
             return;
@@ -686,6 +690,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (_placements.TryGetValue(note.Id, out var current) && current == placement)
             return;
         _placements[note.Id] = placement;
+        // Fixup-01 F3: the applied placement is the unit the line reports - a keystroke that
+        // re-derives the identical placement returned above and writes nothing.
+        if (note.State == NoteState.Edit)
+            LogPlacementCompromise(note, placement, AvoidRectsDip(avoidKeyboard: true));
         if (Window(note.Id) is not { } window)
             return;
         window.ApplyPlacement(placement);
@@ -932,6 +940,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // card stays under the keyboard until an unrelated keyboard move re-derives it.
         _placements[data.Id] = NoteLayout.WithTagClearance(
             PlaceFor(data, avoidKeyboard: true), _noteSettings.TextSizeDip);
+        // Fixup-01 F3: the FIRST placement is applied right below, not through
+        // ApplyPlacementToWindow, so the compromise line is written here too - once.
+        LogPlacementCompromise(data, _placements[data.Id], AvoidRectsDip(avoidKeyboard: true));
 
         // Set the initial state before Show() so the first render builds the editor layout. The
         // placement the window renders first is the one its position comes from (P3 D2): apply

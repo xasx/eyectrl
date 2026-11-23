@@ -347,6 +347,44 @@ public class NoteKeyboardAvoidanceTests
     }
 
     [StaFact]
+    public void TypingThatLeavesThePlacementAlone_WritesNoFurtherLines()
+    {
+        // Fixup-01 F3: NOTE-PLACE is one line per APPLIED placement, not per derivation. On
+        // the yielded letters page at 36 every gaze-typed letter used to re-derive the SAME
+        // gap-4 placement and write another line (the reviewer measured 1 after create and 11
+        // after 10 letters). The line is now written only where a placement is applied, after
+        // ApplyPlacementToWindow's identical-placement skip.
+        var lines = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger, hitTester: InactiveNoteHitTester.Instance,
+            workAreaDip: () => WorkArea, noteSettings: new NoteSettings { TextSizeDip = 36 },
+            placeInfoLog: lines.Add);
+        var probe = new NoteManagerTests.FakeKeyboardProbe { IsVisible = true };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            probe.RectsProvider = () => new[] { ToPhysical(OwnerKeyboardYieldedTop(OwnerLettersHeight)) };
+            manager.CreateNoteAt(Phys(960, 700));
+            var id = manager.ActiveNotes[0].Id;
+            var placed = manager.PlacementForTest(id)!;
+
+            Check.WithCustomMessage("the create writes exactly the one compromise line")
+                .That(lines).HasSize(1);
+
+            for (int i = 0; i < 10; i++)
+                manager.Apply(new NoteAppend("a"));
+
+            Check.WithCustomMessage("the 10 letters must really leave the card where it was")
+                .That(manager.PlacementForTest(id)).IsEqualTo(placed);
+            Check.WithCustomMessage("and must add no further line (one placement, one line)")
+                .That(lines).HasSize(1);
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
     public void Done_PutsTheNoteBackNextToItsAnchor()
     {
         var messenger = new WeakReferenceMessenger();
@@ -776,9 +814,11 @@ public class NoteKeyboardAvoidanceTests
         // work-area edge at the 56 DIP margin floor, minus the drawn window. On this screen the
         // side strips are 83 DIP at the floor (too narrow for any card), so the band is the only
         // candidate and the number below is the best any placement can do.
-        double bandAtFloor = BandAtTheMarginFloor(keyboard) - drawn.Window.Height;
+        double bandAtFloor = BandAt(keyboard, NoteLayout.Constants.EdgeMarginFloorDip) - drawn.Window.Height;
+        double bandAt80 = BandAt(keyboard, NoteLayout.Constants.EdgeMarginDip) - drawn.Window.Height;
         double best = Math.Min(NoteLayout.Constants.AvoidGapDip, bandAtFloor);
         double gap = SignedClearance(drawn.Window, keyboard);
+        var (_, marginYield) = NoteLayout.GapAndMarginYield(drawn.Window, new[] { keyboard }, WorkArea);
 
         string label = $"{sweep} (drawn {drawn.Window.Height:F1}, band at floor {bandAtFloor:F1}, best {best:F1}, gap {gap:F1})";
         Check.WithCustomMessage($"{label}: the gap must be at least the geometry's best")
@@ -794,19 +834,33 @@ public class NoteKeyboardAvoidanceTests
                 && drawn.Window.Right <= WorkArea.Right && drawn.Window.Bottom <= WorkArea.Bottom)
             .IsTrue();
         Check.WithCustomMessage($"{label}: the margin may spend at most its 24 DIP extra")
-            .That(NoteLayout.GapAndMarginYield(drawn.Window, new[] { keyboard }, WorkArea).MarginYield)
-            .IsLessOrEqualThan(NoteLayout.Constants.EdgeMarginYieldDip + 1e-6);
+            .That(marginYield).IsLessOrEqualThan(NoteLayout.Constants.EdgeMarginYieldDip + 1e-6);
+
+        // Fixup-01 F2: every keyboard here is a full-width horizontal band, so the card can
+        // only ever need to move UP or DOWN. The yielding 56 DIP floor is a SHIFT-axis floor:
+        // the horizontal design margin (80 DIP) must hold on every one of these cases, whatever
+        // the vertical margin spends. Before the fix 768 of the 2880 placements sat at x = 56.
+        double designMargin = NoteLayout.Constants.EdgeMarginDip;
+        double horizontalYield = Math.Max(0, Math.Max(
+            designMargin - drawn.Window.Left, drawn.Window.Right - (WorkArea.Right - designMargin)));
+        Check.WithCustomMessage($"{label}: the horizontal margin (x) must never yield on a horizontal band")
+            .That(horizontalYield).IsLessOrEqualThan(1e-6);
+
+        // Fixup-01 F6: where the full 80 DIP margin and the 24 DIP gap BOTH fit, the old inset
+        // pin holds exactly - pass 1/2 must not be loosened by the yielding ladder.
+        if (bandAt80 >= NoteLayout.Constants.AvoidGapDip)
+            Check.WithCustomMessage($"{label}: at 80/24 the margin must stay at its design value")
+                .That(marginYield).IsEqualTo(0.0);
 
         AssertDrawnKeepsItsGap(drawn, keyboard, textSize, label, gap);
     }
 
-    /// <summary>The free band between the keyboard and the far work-area edge with the margin
-    /// at its 56 DIP floor: the most room any placement on that side can have.</summary>
-    private static double BandAtTheMarginFloor(Rect keyboard)
+    /// <summary>The free band between the keyboard and the far work-area edge with the screen-edge
+    /// margin at <paramref name="margin"/>: the most room any placement on that side can have.</summary>
+    private static double BandAt(Rect keyboard, double margin)
     {
-        double floor = NoteLayout.Constants.EdgeMarginFloorDip;
         bool atTop = Math.Abs(keyboard.Top - WorkArea.Top) <= Math.Abs(keyboard.Bottom - WorkArea.Bottom);
-        return atTop ? WorkArea.Bottom - floor - keyboard.Bottom : keyboard.Top - WorkArea.Top - floor;
+        return atTop ? WorkArea.Bottom - margin - keyboard.Bottom : keyboard.Top - WorkArea.Top - margin;
     }
 
     /// <summary>The card, every registered Edit control cell and the number tag keep at least

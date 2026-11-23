@@ -107,8 +107,10 @@ public class NoteKeyboardRealProbeTests
         // swap: KeyboardWindow rebuilds the grid, SizeToContent re-lays the window out, its own
         // SizeChanged re-anchors it and the KeyboardProbe queues its raise at Background
         // (KeyboardProbe.cs:87-93). The editing note must be re-placed against the NEW height -
-        // both on the way to Fn and back.
-        using var rig = new Rig(keySizeMultiplier: 1.75);
+        // both on the way to Fn and back. Fixup-01 F1: the work area is the owner's fixed
+        // 1920x1152 seam, not the host's, so a small CI screen (where both pages clamp to the
+        // same spot) cannot turn the "it moved" asserts green-to-red.
+        using var rig = new Rig(() => new Rect(0, 0, 1920, 1152), keySizeMultiplier: 1.75);
         rig.CreateNote();
         var letters = rig.KeyboardRectDip;
         var lettersPlacement = rig.Placement;
@@ -135,22 +137,51 @@ public class NoteKeyboardRealProbeTests
     {
         // The same page-switch essence on the CI runner's ~768 DIP stage: the card may have no
         // clear spot at either height (the placement is clamped to the inset at both), so the
-        // assertion is the EQUALITY with the derivation against the new rect - not movement.
+        // assertion is the EQUALITY with the derivation against the new rect - not movement
+        // (fixup-01 F1: on a 1024x768 CI stage the letters and Fn placements are the same spot).
+        // It also pins the FIXTURE itself: after each switch the real keyboard window must sit on
+        // the rig's 1366 DIP seam (x = -25.5 at this rig's 1417 DIP width), not on the host's
+        // real work area.
         using var rig = new Rig(() => new Rect(0, 0, 1366, 768));
         rig.CreateNote();
         var letters = rig.KeyboardRectDip;
 
-        AssertPageSwitchFollows(rig, "function", "small: letters -> Fn");
+        AssertPageSwitchFollows(rig, "function", "small: letters -> Fn", assertMove: false);
         Check.WithCustomMessage("the Fn page must be taller, small stage included")
             .That(rig.KeyboardRectDip.Height).IsStrictlyGreaterThan(letters.Height);
-        AssertPageSwitchFollows(rig, "letters", "small: Fn -> letters");
+        AssertKeyboardSitsOnTheSeam(rig, "small: Fn");
+        AssertPageSwitchFollows(rig, "letters", "small: Fn -> letters", assertMove: false);
+        AssertKeyboardSitsOnTheSeam(rig, "small: letters");
+    }
+
+    /// <summary>Fixup-01 F1: the rig's work-area seam must own the real keyboard window too. Its
+    /// own <c>SizeChanged</c> re-anchors against <c>SystemParameters.WorkArea</c>
+    /// (KeyboardWindow.xaml.cs:407), so on a CI runner the seam and the host disagree; the
+    /// page switch's explicit re-place is what keeps the keyboard (and the note derived against
+    /// it) on the same stage the rig asserts. Top-docked means x = seam-centred, y = seam top.</summary>
+    private static void AssertKeyboardSitsOnTheSeam(Rig rig, string when)
+    {
+        var seam = rig.WorkAreaDip;
+        var keyboard = rig.KeyboardRectDip;
+        double expectedLeft = seam.Left + ((seam.Width - keyboard.Width) / 2);
+        Check.WithCustomMessage(
+                $"{when}: the real keyboard {keyboard} must be centred on the rig's seam {seam} "
+                + $"(expected x {expectedLeft:F1}), not re-anchored to the host work area")
+            .That(Math.Abs(keyboard.Left - expectedLeft) <= 1.0).IsTrue();
+        Check.WithCustomMessage($"{when}: a top-docked keyboard must start at the seam's top")
+            .That(Math.Abs(keyboard.Top - seam.Top) <= 1.0).IsTrue();
     }
 
     /// <summary>The page-switch essence: after the sub-layout swap the published placement IS the
     /// one derived against the keyboard's NEW rect, through the manager's own Edit inputs. The
     /// keyboard's height must have changed (that is what makes this a re-place), and where the
-    /// derivation genuinely moved, the clearance rule is checked too.</summary>
-    private static void AssertPageSwitchFollows(Rig rig, string page, string when)
+    /// derivation genuinely moved, the clearance rule is checked too.
+    /// <para>
+    /// Fixup-01 F1: the small-stage twin passes <paramref name="assertMove"/> false - on a
+    /// screen where both pages clamp to the same spot, "it moved" is a host-screen claim, not a
+    /// rule, and the real CI runner is exactly such a screen.
+    /// </para></summary>
+    private static void AssertPageSwitchFollows(Rig rig, string page, string when, bool assertMove = true)
     {
         var oldProbe = rig.ProbeRects;
         var oldExpected = rig.Derive(oldProbe);
@@ -169,8 +200,9 @@ public class NoteKeyboardRealProbeTests
 
         if (expected.Window != oldExpected.Window)
         {
-            Check.WithCustomMessage($"{when}: the derivation changed, so the card must have moved")
-                .That(rig.Placement.Window).IsNotEqualTo(oldExpected.Window);
+            if (assertMove)
+                Check.WithCustomMessage($"{when}: the derivation changed, so the card must have moved")
+                    .That(rig.Placement.Window).IsNotEqualTo(oldExpected.Window);
             if (HasClearBand(rig.WorkAreaDip, rig.KeyboardRectDip, rig.Placement.Window.Height))
                 AssertClearOfTheKeyboard(rig.Placement, rig.KeyboardRectDip, when);
         }
@@ -397,11 +429,18 @@ public class NoteKeyboardRealProbeTests
         }
 
         /// <summary>The production page switch (the Fn/ABC keys): the VM's sub-layout swap, which
-        /// rebuilds the grid. The window is SizeToContent, re-anchors on its own SizeChanged, and
-        /// the probe's SizeChanged subscription queues its raise at Background - Pump drains it.</summary>
+        /// rebuilds the grid. The window is SizeToContent, re-anchors on its own SizeChanged
+        /// (against the REAL work area), and the probe's SizeChanged subscription queues its raise
+        /// at Background. Fixup-01 F1: after that layout the window is re-placed against the rig's
+        /// work area the way <see cref="FlipTo"/> does - otherwise the window (and the note
+        /// derived from its rect) would follow the host's screen while the rig's seam says
+        /// otherwise, exactly the #382 class of CI failure. The second pump drains the
+        /// LocationChanged raise of that re-place.</summary>
         public void SwitchPage(string subLayoutId)
         {
             _vm.SwitchSubLayout(subLayoutId);
+            Pump();
+            _window.Place(WorkAreaDip, _window.ActualWidth, _window.ActualHeight, KeyboardMove.Keep);
             Pump();
         }
 

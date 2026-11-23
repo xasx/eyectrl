@@ -214,6 +214,29 @@ public class NoteGapLadderTests
     }
 
     [Fact]
+    public void AtTheExactFullGap_TheLeastMarginBreaksTheTie()
+    {
+        // Fixup-01 F4: the owner's Fn page at 28 DIP. The band at the 56 DIP floor fits the
+        // drawn 200 DIP card AND the full 24 gap (233.5 >= 224), so the band's Below family
+        // keeps exactly 24 with a 14.5 DIP margin, while the anchor's own clamped window keeps
+        // 24 too but spends 20. The ladder must spend the LEAST margin (14.5). Before the
+        // exact-24 return, the family's bisected 24*(1-2^-32) lost to the own window's exact 24,
+        // so the margin rule never ran and M7 (least margin disabled) survived every test.
+        var keyboard = new Rect(139, 0, 1642, 862.5);
+        var card = NoteLayout.EditCardSize(28, 0, WorkArea.Height);
+        var placement = NoteLayout.Place(new PhysicalPoint(100 * 2, 1000 * 2), NoteSide.Right,
+            card, WorkArea, new[] { keyboard }, 2.0, exclude: null, allowDisplaced: true,
+            topGrowthDip: NoteLayout.TagProtrusionDip(28))!;
+        var drawn = NoteLayout.WithTagClearance(placement, 28);
+        var (gap, margin) = NoteLayout.GapAndMarginYield(drawn.Window, new[] { keyboard }, WorkArea);
+
+        Check.WithCustomMessage($"the gap must be exactly the full 24 (got {gap})")
+            .That(gap).IsCloseTo(NoteLayout.Constants.AvoidGapDip, 1e-6);
+        Check.WithCustomMessage($"the least margin (14.5) must win at the full gap (got {margin})")
+            .That(margin).IsCloseTo(14.5, 1e-6);
+    }
+
+    [Fact]
     public void TheExposedMeasure_MatchesThePlacement()
     {
         // The manager's NOTE-PLACE line reads GapAndMarginYield; it must answer the placement's

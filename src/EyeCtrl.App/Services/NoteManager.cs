@@ -265,6 +265,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     private int _moveHolds;
     private int _moveMoves;
     private readonly Action<string> _settleInfo;
+    // B: the NOTE-PLACE line's sink — one pre-formatted, content-free line per Edit placement
+    // whose 24 DIP keyboard gap or 80 DIP screen-edge margin had to give way. Serilog's
+    // Information in production, a capturing list in the headless tests.
+    private readonly Action<string> _placeInfo;
     // The Place-here window (P3 D4): one per manager, created lazily, never in DI. It is NOT
     // click-through, so the own-window conjunct can resolve it; Dispose closes it.
     private NotePlaceHereWindow? _placeWindow;
@@ -378,7 +382,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         Func<long>? clockMs = null, INoteUndoTimer? undoTimer = null,
         Func<Rect>? workAreaDip = null, NoteSettings? noteSettings = null,
         Action<string>? settleInfoLog = null,
-        ILogger<NoteManager>? logger = null)
+        ILogger<NoteManager>? logger = null,
+        Action<string>? placeInfoLog = null)
     {
         _messenger = messenger;
         _logger = logger;
@@ -402,6 +407,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // M3 (sitting 10): the settle/move-end log lines' sink. A pre-formatted line per call —
         // the formats are invariant-culture const strings (see SettleShownLine and friends).
         _settleInfo = settleInfoLog ?? (static line => Serilog.Log.Information(line));
+        // B: the placement compromise line's sink (§B3), the same shape as the settle one.
+        _placeInfo = placeInfoLog ?? (static line => Serilog.Log.Information(line));
         _undoTimer = undoTimer;
         // P2 D2's production default (fixup 01 M2): null means "the real tester", never "none" —
         // the inactive case is the explicit sentinel, so it is visible at every call site.
@@ -592,8 +599,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
     /// chip's captured size).</summary>
     private NotePlacement PlaceFor(NoteData note, bool avoidKeyboard, double textSizeDip)
     {
+        var avoid = AvoidRectsDip(avoidKeyboard);
         var placement = NoteLayout.Place(
-            note.Anchor, note.Side, CardSizeFor(note, textSizeDip), WorkAreaDip(), AvoidRectsDip(avoidKeyboard),
+            note.Anchor, note.Side, CardSizeFor(note, textSizeDip), WorkAreaDip(), avoid,
             DpiHelper.ScaleX, exclude: null,
             // T6 fixup-06 G2: the displaced candidates are the EDIT state's alone. A note whose
             // anchor lies under the keyboard steps clear of it instead of landing on it; Display,
@@ -604,9 +612,45 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
             // keyboard, let alone overlaps it. Zero everywhere else, so those placements stay
             // byte-identical.
             topGrowthDip: avoidKeyboard ? NoteLayout.TagProtrusionDip(textSizeDip) : 0.0);
-        return placement ?? throw new InvalidOperationException(
+        var result = placement ?? throw new InvalidOperationException(
             "NoteLayout.Place returned a null placement without exclude — the clamped fallback guarantees a placement");
+        return result;
     }
+
+    // ── the placement compromise line (B): one content-free line per APPLIED Edit placement ──
+
+    /// <summary>The line format. Invariant culture by construction (the formatter below passes
+    /// <see cref="CultureInfo.InvariantCulture"/>), DIP at one decimal, the note's number and
+    /// nothing else: no text, no anchor, no side. `gap` is the achieved keyboard clearance
+    /// (0 when it shrank), `overlap` the part of the card that still covers keys, `margin` how
+    /// far the screen-edge margin yielded from its 80 DIP design value.</summary>
+    private const string PlacementLineFormat =
+        "NOTE-PLACE note={0} gap={1:F1} overlap={2:F1} margin={3:F1} state=edit";
+
+    /// <summary>One line per Edit placement that had to give way: the keyboard gap below 24
+    /// DIP, or any of the 80 DIP screen-edge margin spent (B). A placement that keeps both is
+    /// silent, so an ordinary Edit produces no line at all. Fixup-01 F3: it is called from the
+    /// two places that APPLY a placement (create and <see cref="ApplyPlacementToWindow"/>, the
+    /// latter only after its identical-placement skip), never from <see cref="PlaceFor"/> —
+    /// every keystroke re-derives the same placement, and logging there wrote one line per
+    /// character.</summary>
+    private void LogPlacementCompromise(
+        NoteData note, NotePlacement placement, IReadOnlyList<Rect> avoid)
+    {
+        if (avoid.Count == 0)
+            return; // no keyboard on screen: nothing gave way
+        var drawn = NoteLayout.WithTagClearance(placement, _noteSettings.TextSizeDip);
+        var (gap, margin) = NoteLayout.GapAndMarginYield(drawn.Window, avoid, WorkAreaDip());
+        if (gap >= NoteLayout.Constants.AvoidGapDip && margin <= 0)
+            return;
+        _placeInfo(PlacementLine(note.Number, gap, margin));
+    }
+
+    /// <summary>The NOTE-PLACE line (B): content-free by contract — the note's number, the
+    /// achieved gap and the screen-edge margin yield only. A negative gap is the overlap.</summary>
+    internal static string PlacementLine(int noteNumber, double gap, double marginYield) =>
+        string.Format(CultureInfo.InvariantCulture, PlacementLineFormat,
+            noteNumber, Math.Max(0, gap), Math.Max(0, -gap), marginYield);
 
     /// <summary>Applies a note's derived placement to its window and caches it: resize, redraw
     /// (the column follows the side, the tail appears) and position the window from the same
@@ -646,6 +690,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         if (_placements.TryGetValue(note.Id, out var current) && current == placement)
             return;
         _placements[note.Id] = placement;
+        // Fixup-01 F3: the applied placement is the unit the line reports - a keystroke that
+        // re-derives the identical placement returned above and writes nothing.
+        if (note.State == NoteState.Edit)
+            LogPlacementCompromise(note, placement, AvoidRectsDip(avoidKeyboard: true));
         if (Window(note.Id) is not { } window)
             return;
         window.ApplyPlacement(placement);
@@ -892,6 +940,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>,
         // card stays under the keyboard until an unrelated keyboard move re-derives it.
         _placements[data.Id] = NoteLayout.WithTagClearance(
             PlaceFor(data, avoidKeyboard: true), _noteSettings.TextSizeDip);
+        // Fixup-01 F3: the FIRST placement is applied right below, not through
+        // ApplyPlacementToWindow, so the compromise line is written here too - once.
+        LogPlacementCompromise(data, _placements[data.Id], AvoidRectsDip(avoidKeyboard: true));
 
         // Set the initial state before Show() so the first render builds the editor layout. The
         // placement the window renders first is the one its position comes from (P3 D2): apply

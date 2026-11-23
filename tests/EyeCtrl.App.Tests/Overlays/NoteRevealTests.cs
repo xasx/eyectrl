@@ -408,16 +408,24 @@ public class NoteRevealTests
     [InlineData(48.0)]
     public void TheOwnerKeyboardSweep_HoldsForTheReservedAndTheAtRestRect(double size)
     {
-        // The owner's real keyboard (K1, sitting 10: 1642 x 662.5 DIP), the 140 DIP toolbar's
-        // yield and the plain top/bottom docks, over the anchor grid the old sweep used. The
-        // placement is derived from the RESERVED card; the at-rest rect is its top part and can
-        // only be more clear. Both are checked.
+        // The owner's real keyboard at F17's 1.75 key size — MEASURED from the real window:
+        // 1642 x 736 DIP on the letters page, 1641.2 x 862.5 on Fn (the sweep uses 1642 for
+        // both, 0.8 DIP conservative) — the 140 DIP toolbar's yield and the plain top/bottom
+        // docks, over the anchor grid the old sweep used.
+        // Display NEVER reads the keyboard: the avoid list is passed here only to prove that the
+        // placement stays the pre-ladder derivation inside the 80 DIP inset (B's yielding margin
+        // and gap are the Edit state's alone), and the at-rest rect is its top part.
+        const double lettersHeight = 736.0;
+        const double fnHeight = 862.5;
         var work = new Rect(0, 0, 1920, 1152);
         Rect[] keyboards =
         [
-            new(139, 0, 1642, 662.5),
-            new(139, 1152 - 662.5, 1642, 662.5),
-            new(139, 140, 1642, 662.5),
+            new(139, 0, 1642, lettersHeight),
+            new(139, 1152 - lettersHeight, 1642, lettersHeight),
+            new(139, 140, 1642, lettersHeight),
+            new(139, 0, 1642, fnHeight),
+            new(139, 1152 - fnHeight, 1642, fnHeight),
+            new(139, 140, 1642, fnHeight),
         ];
         double[] anchorsX = [100, 300, 960, 1600, 1820];
         double[] anchorsY = [100, 150, 300, 520, 746, 1000];
@@ -436,7 +444,7 @@ public class NoteRevealTests
                 new PhysicalPoint(x * 2, y * 2), side, reserved, work, new[] { keyboard }, 2.0)!;
             var drawn = NoteLayout.WithTagClearance(placement, size);
             var restCard = NoteLayout.RestCardRect(drawn, rest);
-            string label = $"{size} @ ({x},{y}) {side} kb {keyboard.Top}";
+            string label = $"{size} @ ({x},{y}) {side} kb {keyboard.Top}/{keyboard.Height}";
 
             Check.WithCustomMessage($"{label}: the reserved placement must stay inside the inset")
                 .That(placement.Window.Left >= inset.Left && placement.Window.Top >= inset.Top
@@ -452,12 +460,24 @@ public class NoteRevealTests
                 .That(GapFrom(restCard, keyboard)).IsGreaterOrEqualThan(GapFrom(drawn.Card, keyboard) - 1e-6);
         }
 
-        // The yielded top keyboard leaves 269.5 DIP of free band (K2a's number); the reserved
-        // Display card plus its tag and the clearance fits at every size.
-        double freeBand = inset.Bottom - 802.5;
-        Check.WithCustomMessage($"{size}: the reserved Display card, tag and gap fit the yielded band")
-            .That(reserved.Height + NoteLayout.TagProtrusionDip(size)
-                + NoteLayout.Constants.AvoidGapDip).IsLessOrEqualThan(freeBand);
+        // F17 shrank the yielded letters band to 1152 - 160 (A2's inset) - 140 (toolbar) - 736
+        // = 196 DIP. The AT-REST Display card plus tag still fits it with the full 24 DIP gap at
+        // every size (a shown note is short); the RESERVED (revealed) footprint does not at 36
+        // and 48 - the reveal is a deliberate look at a note the owner put there, and Display
+        // never consumes the keyboard rects, so this is a recorded outcome, not a fit rule.
+        double freeBand = inset.Bottom - (140 + lettersHeight);
+        Check.WithCustomMessage($"F17: the yielded letters keyboard (736) leaves a 196 DIP band")
+            .That(freeBand).IsCloseTo(196, 1e-6);
+        double restDrawn = rest.Height + NoteLayout.TagProtrusionDip(size);
+        Check.WithCustomMessage(
+                $"{size}: the AT-REST Display card + tag + the 24 gap must fit the {freeBand:F1} DIP band")
+            .That(restDrawn + NoteLayout.Constants.AvoidGapDip).IsLessOrEqualThan(freeBand);
+
+        double reservedDrawn = reserved.Height + NoteLayout.TagProtrusionDip(size);
+        bool reservedFits = reservedDrawn <= freeBand;
+        Check.WithCustomMessage(
+                $"{size}: the RESERVED Display card + tag ({reservedDrawn:F1} DIP) vs the {freeBand:F1} DIP band")
+            .That(reservedFits).IsEqualTo(size < 36);
     }
 
     private static double GapFrom(Rect a, Rect b)

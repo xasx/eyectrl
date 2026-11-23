@@ -58,10 +58,11 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
 
     /// <summary>
     /// Only the work the UI thread does: the stopwatch starts and stops INSIDE the invoked
-    /// delegate, so queueing on a saturated host cannot inflate it (main run 45065530230 read
-    /// 1550 ms against a 1000 ms bound with a free UI thread — that was round-trip queueing, not
-    /// blockage). A UI thread that waited on the hung App spends the whole ack bound inside the
-    /// delegate; one that never waits returns in microseconds.
+    /// delegate, so queueing on a saturated host is excluded from the measurement (main run
+    /// 45065530230 read 1550 ms against a 1000 ms bound with a free UI thread — most likely
+    /// round-trip queueing; a starvation-stretched delegate is the residual, review-01 F2).
+    /// A UI thread that waited on the hung App spends the whole ack bound inside the delegate;
+    /// one that never waits returns in milliseconds.
     /// </summary>
     private TimeSpan TimeOnUi(Action action) =>
         _ui.Dispatcher.Invoke(() =>
@@ -104,13 +105,21 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
         var server = Serve(FakeAppPipe.Behaviour.Hang);
         var delivery = CreateDelivery(connect: TimeSpan.FromSeconds(2), ack: ackBound);
 
+        // Warm the serializer path (first SerializeToElement + JIT) off the clock, so it is not
+        // inside the timed delegate (review-01 F2).
+        _ = SettingRequest.SetStartOnBoot(true);
+
         var started = Stopwatch.StartNew();
         var requestTook = TimeOnUi(() => delivery.Request(true));
+        var pumpTook = TimeUntilUiPumps();
+
         Check.That(await server.WaitForRequestAsync(Settle)).IsTrue();
 
-        // The App holds the request; the UI thread is free the whole time.
+        // The App holds the request; the UI thread is free the whole time. The pump above was
+        // queued right behind the request, while it was still in flight — a UI thread that
+        // waited the hung App out would have been caught THERE: this later State round-trip
+        // would otherwise absorb the block before pumpTook could see it (review-01 F1).
         Check.That(_ui.Dispatcher.Invoke(() => delivery.State)).IsEqualTo(SettingDeliveryState.Sending);
-        var pumpTook = TimeUntilUiPumps();
 
         await WaitForStateAsync(delivery, SettingDeliveryState.Parked);
         started.Stop();

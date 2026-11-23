@@ -162,8 +162,8 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     /// fullscreen scale, wrapping, in the approved boxes. The gates stay UNCHANGED (modal170's
     /// measurer is the shared Settings modal geometry, not this card), so the guide simply
     /// renders larger than the class it borrows. The geometry carries it easily: a 320-wide card
-    /// wraps at 320 DIP, where the longest shipped labels ("Fertigstellen", "Überspringen",
-    /// "Mitternacht") stay one to two lines — far inside the 190-DIP card height.
+    /// wraps at 320 DIP, where the longest shipped labels ("Überspringen", "Mitternacht")
+    /// stay one to two lines — far inside the 190-DIP card height.
     /// </para>
     ///
     /// <para>

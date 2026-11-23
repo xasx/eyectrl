@@ -482,7 +482,7 @@
     "args": []
   },
   "guide.calibrate.body": {
-    "text": "Calibration teaches the eye tracker where your eyes point. You can also calibrate later from Settings or the toolbar.",
+    "text": "EyeCtrl's calibration makes sure the cursor follows your eyes. You can also calibrate later in Settings.",
     "who": "user",
     "where": "guide",
     "fit": "prose",
@@ -559,7 +559,7 @@
     "args": []
   },
   "guide.dwelltime.body": {
-    "text": "The − and + cards set how long a desktop click takes — the cursor dwell that clicks. Try values on the circle; the guide's own buttons keep the standard UI dwell.",
+    "text": "The − and + cards set how long a desktop click takes. In Settings this is “Activation Button (ms)”. Try values on the circle; the guide's own buttons keep their own dwell time.",
     "who": "user",
     "where": "guide",
     "fit": "prose",

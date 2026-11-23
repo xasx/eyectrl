@@ -56,11 +56,31 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
         _ui.Dispatcher.Invoke(delivery.OnAppHeartbeat);
     }
 
-    private TimeSpan TimeOnUi(Action action)
+    /// <summary>
+    /// Only the work the UI thread does: the stopwatch starts and stops INSIDE the invoked
+    /// delegate, so queueing on a saturated host cannot inflate it (main run 45065530230 read
+    /// 1550 ms against a 1000 ms bound with a free UI thread — that was round-trip queueing, not
+    /// blockage). A UI thread that waited on the hung App spends the whole ack bound inside the
+    /// delegate; one that never waits returns in microseconds.
+    /// </summary>
+    private TimeSpan TimeOnUi(Action action) =>
+        _ui.Dispatcher.Invoke(() =>
+        {
+            var watch = Stopwatch.StartNew();
+            action();
+            return watch.Elapsed;
+        });
+
+    /// <summary>
+    /// How long a queued no-op WAITED before the UI thread ran it — dispatcher backlog measured
+    /// up to the moment the pump starts, excluding the round-trip's return half (host load, not
+    /// UI-thread state). A UI thread blocked on the hung App starts the no-op only after the
+    /// block, so it reads ≥ the ack bound; a free one runs it at once.
+    /// </summary>
+    private TimeSpan TimeUntilUiPumps()
     {
-        var watch = Stopwatch.StartNew();
-        _ui.Dispatcher.Invoke(action);
-        return watch.Elapsed;
+        var queuedAt = Stopwatch.GetTimestamp();
+        return _ui.Dispatcher.Invoke(() => Stopwatch.GetElapsedTime(queuedAt));
     }
 
     private async Task WaitForStateAsync(SettingDelivery<bool> delivery, SettingDeliveryState state)
@@ -90,7 +110,7 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
 
         // The App holds the request; the UI thread is free the whole time.
         Check.That(_ui.Dispatcher.Invoke(() => delivery.State)).IsEqualTo(SettingDeliveryState.Sending);
-        var pumpTook = TimeOnUi(() => { });
+        var pumpTook = TimeUntilUiPumps();
 
         await WaitForStateAsync(delivery, SettingDeliveryState.Parked);
         started.Stop();

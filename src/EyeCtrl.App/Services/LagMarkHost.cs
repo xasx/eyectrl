@@ -40,6 +40,7 @@ public sealed class LagMarkHost : IDisposable
     private readonly Func<bool> _isSettingsOpen;
     private readonly Func<bool> _isProbeOpen;
     private readonly Func<bool>? _isGuideOpen;
+    private readonly Func<bool>? _isBackstageOpen;
     private readonly Func<DateTime> _now;
     private readonly Action<Action> _postToUi;
     private readonly Action<string> _log;
@@ -56,6 +57,8 @@ public sealed class LagMarkHost : IDisposable
     /// <param name="log">Writes one line to the session log.</param>
     /// <param name="isGuideOpen">Whether the first-run guide holds the screen; while it does, the
     /// button hides and returns when the guide closes, like Settings (r3 F4).</param>
+    /// <param name="isBackstageOpen">Whether the fullscreen Backstage menu owns the screen; while it
+    /// does, the button hides and returns when it closes, like Settings and the guide.</param>
     public LagMarkHost(
         IMessenger messenger,
         ILagMarkPresenter presenter,
@@ -66,7 +69,8 @@ public sealed class LagMarkHost : IDisposable
         Func<DateTime> now,
         Action<Action> postToUi,
         Action<string> log,
-        Func<bool>? isGuideOpen = null)
+        Func<bool>? isGuideOpen = null,
+        Func<bool>? isBackstageOpen = null)
     {
         _messenger = messenger;
         _presenter = presenter;
@@ -75,6 +79,7 @@ public sealed class LagMarkHost : IDisposable
         _isSettingsOpen = isSettingsOpen;
         _isProbeOpen = isProbeOpen;
         _isGuideOpen = isGuideOpen;
+        _isBackstageOpen = isBackstageOpen;
         _now = now;
         _postToUi = postToUi;
         _log = log;
@@ -146,8 +151,22 @@ public sealed class LagMarkHost : IDisposable
             _postToUi(ShowButtonAndZone);
     }
 
+    /// <summary>The fullscreen Backstage menu opened or closed — the button hides and returns like
+    /// Settings does (it is a session fixture, not a transient notice).</summary>
+    /// <param name="open">True when the Backstage menu opened. The current flag is read as well:
+    /// <c>ModalInteractionState.BackstageOpenChanged</c>'s contract says the argument can be stale.</param>
+    public void OnBackstageOpenChanged(bool open)
+    {
+        if (open || (_isBackstageOpen?.Invoke() ?? false))
+            _postToUi(HideButtonAndZone);
+        else if (CanShow())
+            _postToUi(ShowButtonAndZone);
+    }
+
     /// <summary>The surfaces that own the screen when open, and the instrument's live gate.</summary>
-    private bool CanShow() => _isInstrumentOn() && !_isSettingsOpen() && !_isProbeOpen() && (_isGuideOpen?.Invoke() ?? false) == false;
+    private bool CanShow() => _isInstrumentOn() && !_isSettingsOpen() && !_isProbeOpen()
+        && (_isGuideOpen?.Invoke() ?? false) == false
+        && (_isBackstageOpen?.Invoke() ?? false) == false;
 
     private void OnGaze(GazeCursorMovedMessage message)
     {
@@ -162,9 +181,10 @@ public sealed class LagMarkHost : IDisposable
         }
 
         // A held (gap) sample must not accumulate dwell; and no gaze reaches the button under an
-        // open Settings window or the probe. Paused does NOT gate this: a mark injects no input, and
-        // the launcher starts the app paused.
-        if (!message.IsInGap && !_isSettingsOpen() && !_isProbeOpen())
+        // open Settings window, the probe or the Backstage menu. Paused does NOT gate this: a mark
+        // injects no input, and the launcher starts the app paused.
+        if (!message.IsInGap && !_isSettingsOpen() && !_isProbeOpen()
+            && !(_isBackstageOpen?.Invoke() ?? false))
             _presenter.OnGaze(message.Position, message.TimestampMicroseconds);
     }
 

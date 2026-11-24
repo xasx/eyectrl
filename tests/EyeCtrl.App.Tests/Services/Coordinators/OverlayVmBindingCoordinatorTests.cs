@@ -691,6 +691,28 @@ public class OverlayVmBindingCoordinatorTests
     }
 
     [Fact]
+    public void RingMayReshow_IsFalse_WhileBackstageOpen()
+    {
+        // The fullscreen Backstage menu is a hard stop, like the guide without any of the guide's
+        // exceptions: no reactive path may paint the ring over another surface's screen. Mutation:
+        // drop the `!_modal.BackstageOpen` term → the first assertion goes red.
+        var modal = new ModalInteractionState();
+        var vmBinding = new OverlayVmBindingCoordinator(modal);
+
+        modal.BackstageOpen = true;
+        Check.That(vmBinding.RingMayReshow).IsFalse();
+        modal.BackstageOpen = false;
+        Check.That(vmBinding.RingMayReshow).IsTrue();
+
+        // A guide that still wants its step-5 ring does not override another surface's screen.
+        modal.GuideOpen = true;
+        modal.GuideRingWanted = true;
+        modal.BackstageOpen = true;
+        Check.WithCustomMessage("the guide's step-5 exception must not paint the ring over Backstage.")
+            .That(vmBinding.RingMayReshow).IsFalse();
+    }
+
+    [Fact]
     public void RingMayReshow_IsTrue_WhileTheGuidesStepWantsTheRing_EvenGuideOpen()
     {
         // S3-4: step 5 (ToolbarTask) shows the ring so the owner can summon the toolbar; a

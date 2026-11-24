@@ -63,6 +63,15 @@ public static class ToolbarIcons
             + "L4.59,10.29 L5.55,7.97 L3.52,6.7 L6.7,3.52 L7.97,5.55 L10.29,4.59 "
             + "L9.75,2.26 L14.25,2.26 L13.71,4.59 L16.03,5.55 L17.3,3.52 L20.48,6.7 "
             + "L18.45,7.97 L19.41,10.29 Z M12,8.4 A3.6,3.6 0 1 1 12,15.6 A3.6,3.6 0 1 1 12,8.4 Z"),
+        // Calibration's crosshair: the shared ring with four cardinal ticks that CROSS it, plus a
+        // small centre dot. SelectionManual is the SAME ring with four ticks and a centre dot, so
+        // the two must stay distinguishable at toolbar size: its ticks stop short of the ring
+        // (1.8..5.2 against the ring edge at 5) and its dot is the larger 1.7 radius. Keep at least
+        // one of those two differences — a retouch that moves these ticks out to SelectionManual's
+        // range, or grows the dot to 1.7, collapses the two icons into one.
+        [ToolbarIconKey.Calibrate] = IconGeometry.FromPathData(
+            Ring + " M12,2.6 L12,8.6 M12,15.4 L12,21.4 M2.6,12 L8.6,12 M15.4,12 L21.4,12",
+            "M12,10.8 A1.2,1.2 0 1 1 12,13.2 A1.2,1.2 0 1 1 12,10.8 Z"),
         [ToolbarIconKey.TaskSwitcher] = IconGeometry.FromPathData(
             "M4.8,4.6 L13.2,4.6 A2.2,2.2 0 0 1 15.4,6.8 L15.4,12 A2.2,2.2 0 0 1 13.2,14.2 "
             + "L4.8,14.2 A2.2,2.2 0 0 1 2.6,12 L2.6,6.8 A2.2,2.2 0 0 1 4.8,4.6 Z "
@@ -73,6 +82,15 @@ public static class ToolbarIcons
         [ToolbarIconKey.Modes] = IconGeometry.FromPathData(
             "M4.6,12 L19.4,12 M4.6,19.4 L19.4,19.4",
             "M4.6,3.4 L19.4,3.4 L19.4,6.2 L4.6,6.2 Z"),
+        // Four equal squares in a 2x2 grid — the app-launcher/app-menu glyph. Deliberately NOT a
+        // power symbol: on this disc a power glyph reads "shut down now", which is only one item
+        // inside it (and the destructive one), while the grid reads "the app's own controls". Also
+        // distinct from Modes' three bars and TaskSwitcher's two overlapping windows.
+        [ToolbarIconKey.Backstage] = IconGeometry.FromPathData(
+            "M3.4,3.4 L9.4,3.4 L9.4,9.4 L3.4,9.4 Z "
+            + "M14.6,3.4 L20.6,3.4 L20.6,9.4 L14.6,9.4 Z "
+            + "M3.4,14.6 L9.4,14.6 L9.4,20.6 L3.4,20.6 Z "
+            + "M14.6,14.6 L20.6,14.6 L20.6,20.6 L14.6,20.6 Z"),
         // Locked-action mode states on the Modes button (D30): the same mouse glyphs the
         // action ring uses, so the toolbar button shows WHAT is locked, not just that.
         [ToolbarIconKey.ModeLeftClick] = Icons.ActionIcons.For(Core.Models.ActionIcon.LeftClick),

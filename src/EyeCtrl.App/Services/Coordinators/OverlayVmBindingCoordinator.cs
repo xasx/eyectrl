@@ -64,9 +64,16 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
     /// <see cref="OverlayMessageCoordinator"/> (via this instance — the message side holds no
     /// modal state of its own). The show/hide lifecycle around the guide itself lives in the
     /// guide wiring.
+    ///
+    /// <para>
+    /// The Backstage menu is the hard stop: it is a fullscreen surface that owns the screen, so no
+    /// reactive path may paint the ring over it — the guide's step-5 and calibration exceptions do
+    /// not apply to another surface's screen.
+    /// </para>
     /// </summary>
     internal bool RingMayReshow =>
-        !_modal.GuideOpen || _modal.GuideRingWanted || _modal.GuideCalibrationActive;
+        !_modal.BackstageOpen
+        && (!_modal.GuideOpen || _modal.GuideRingWanted || _modal.GuideCalibrationActive);
 
     protected override void OnInitialize()
     {

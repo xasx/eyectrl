@@ -69,6 +69,7 @@ public class AppLaunchTests
             "Toolbar_Button_Pause",
             "Toolbar_Button_SelectionMode",
             "Toolbar_Button_Modes",
+            "Toolbar_Button_Backstage",
             "Toolbar_Button_Keyboard",
             "Toolbar_Button_Settings",
             "Toolbar_Button_TaskSwitcher"

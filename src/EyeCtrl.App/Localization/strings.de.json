@@ -1038,6 +1038,10 @@
     "text": "Weitere Fenster: {0}",
     "src": "0a66b1f8"
   },
+  "overlays.toolbar.backstage": {
+    "text": "EyeCtrl verwalten",
+    "src": "67e16e74"
+  },
   "overlays.toolbar.keyboard": {
     "text": "Tastatur",
     "src": "1010edb8"

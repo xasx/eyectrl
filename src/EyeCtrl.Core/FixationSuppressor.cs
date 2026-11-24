@@ -24,4 +24,7 @@ public enum FixationSuppressor
 
     /// <summary>The first-run guide, while its fullscreen card is up.</summary>
     Guide,
+
+    /// <summary>The Backstage menu, while its fullscreen surface is up.</summary>
+    Backstage,
 }

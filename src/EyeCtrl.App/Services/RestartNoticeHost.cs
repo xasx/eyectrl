@@ -29,6 +29,14 @@ using Serilog;
 /// is taken down — through the explicit <c>isProbeOpen</c> seam rather than folding the flag into
 /// the Settings predicate, so the name stays honest.
 /// </para>
+///
+/// <para>
+/// The fullscreen Backstage menu is the third (same rule, same reasoning): it owns the screen, so a
+/// floating card must not appear over it and must not keep a live close button underneath. It gets
+/// its own <c>isBackstageOpen</c> seam and hides without replaying, exactly like Settings — the
+/// Backstage surface shows its own restart notices (tickets 2-3), so a replay here would be the
+/// duplicate this host exists to prevent.
+/// </para>
 /// </summary>
 public sealed class RestartNoticeHost : IDisposable
 {
@@ -60,6 +68,7 @@ public sealed class RestartNoticeHost : IDisposable
     private readonly Func<UiLanguage> _targetLanguage;
     private readonly Action<Action> _postToUi;
     private readonly Func<bool>? _isGuideOpen;
+    private readonly Func<bool>? _isBackstageOpen;
     private Action? _pendingOnGuideClosed;
 
     /// <summary>Registers the host on the messenger.</summary>
@@ -73,6 +82,9 @@ public sealed class RestartNoticeHost : IDisposable
     /// <param name="postToUi">Runs work on the UI thread.</param>
     /// <param name="isGuideOpen">Whether the first-run guide holds the screen; while it does, a
     /// show is deferred and replayed when the guide closes (the newest wins — r3 F4).</param>
+    /// <param name="isBackstageOpen">Whether the fullscreen Backstage menu owns the screen; while it
+    /// does, no notice shows, no gaze is fed, and a card that is up is taken down — like Settings,
+    /// with no replay on close (Backstage shows its own).</param>
     public RestartNoticeHost(
         IMessenger messenger,
         IRestartNoticePresenter presenter,
@@ -80,7 +92,8 @@ public sealed class RestartNoticeHost : IDisposable
         Func<bool> isProbeOpen,
         Func<UiLanguage> targetLanguage,
         Action<Action> postToUi,
-        Func<bool>? isGuideOpen = null)
+        Func<bool>? isGuideOpen = null,
+        Func<bool>? isBackstageOpen = null)
     {
         _messenger = messenger;
         _presenter = presenter;
@@ -89,6 +102,7 @@ public sealed class RestartNoticeHost : IDisposable
         _targetLanguage = targetLanguage;
         _postToUi = postToUi;
         _isGuideOpen = isGuideOpen;
+        _isBackstageOpen = isBackstageOpen;
 
         messenger.Register<RestartInProgressMessage>(this, (_, _) => _postToUi(ShowInProgress));
         messenger.Register<RestartUnavailableMessage>(this, (_, m) => _postToUi(() => ShowRefused(m.Reason)));
@@ -96,7 +110,8 @@ public sealed class RestartNoticeHost : IDisposable
         // injects no input, so, like the toolbar band, the close button stays dwellable while paused.
         messenger.Register<GazeCursorMovedMessage>(this, (_, m) =>
         {
-            if (_presenter.IsShowing && !m.IsInGap && !_isSettingsOpen() && !_isProbeOpen())
+            if (_presenter.IsShowing && !m.IsInGap && !_isSettingsOpen() && !_isProbeOpen()
+                && !(_isBackstageOpen?.Invoke() ?? false))
                 _presenter.OnGaze(m.Position, m.TimestampMicroseconds);
         });
     }
@@ -106,9 +121,14 @@ public sealed class RestartNoticeHost : IDisposable
     /// re-deriving it: the host is the card's only App-level owner.</summary>
     public IRestartNoticePresenter Presenter => _presenter;
 
+    /// <summary>The surfaces that own the screen when they are up: Settings, the sub-pixel probe and
+    /// the fullscreen Backstage menu. While any of them is open the card neither shows nor eats gaze.</summary>
+    private bool ScreenOwnedElsewhere() =>
+        _isSettingsOpen() || _isProbeOpen() || (_isBackstageOpen?.Invoke() ?? false);
+
     private void ShowInProgress()
     {
-        if (_isSettingsOpen() || _isProbeOpen()) return; // the open surface owns the screen
+        if (ScreenOwnedElsewhere()) return; // the open surface owns the screen
         if (_isGuideOpen?.Invoke() == true)
         {
             _pendingOnGuideClosed = () => ShowInProgress(); // defer-newest replay (r3 F4)
@@ -125,7 +145,7 @@ public sealed class RestartNoticeHost : IDisposable
 
     private void ShowRefused(string reason)
     {
-        if (_isSettingsOpen() || _isProbeOpen()) return;
+        if (ScreenOwnedElsewhere()) return;
         if (_isGuideOpen?.Invoke() == true)
         {
             _pendingOnGuideClosed = () => ShowRefused(reason); // defer-newest replay (r3 F4)
@@ -139,16 +159,16 @@ public sealed class RestartNoticeHost : IDisposable
 
     /// <summary>
     /// N2 (fixup-01 F3): the sub-pixel probe's start-failure notice, through the same card and the
-    /// same guard as the restart notices: while Settings or the probe is open, the open surface
-    /// owns the screen and the card stays down. Unreachable today — reopening Settings retires the
-    /// failed start before either N2 path can fire — but this is the host's own rule, so the
-    /// notice goes through it instead of around it.
+    /// same guard as the restart notices: while Settings, the probe or the Backstage menu is open,
+    /// the open surface owns the screen and the card stays down. Unreachable today — reopening
+    /// Settings retires the failed start before either N2 path can fire — but this is the host's own
+    /// rule, so the notice goes through it instead of around it.
     /// </summary>
     /// <param name="message">The notice text, already localized.</param>
     /// <param name="closeLabel">The close button's label, in the same language.</param>
     public void ShowProbeStartFailed(string message, string closeLabel)
     {
-        if (_isSettingsOpen() || _isProbeOpen()) return;
+        if (ScreenOwnedElsewhere()) return;
         if (_isGuideOpen?.Invoke() == true)
         {
             _pendingOnGuideClosed = () => ShowProbeStartFailed(message, closeLabel); // defer-newest replay (r3 F4)
@@ -184,6 +204,19 @@ public sealed class RestartNoticeHost : IDisposable
     public void OnProbeOpenChanged(bool open)
     {
         if (open || _isProbeOpen()) _presenter.HideNotice();
+    }
+
+    /// <summary>
+    /// The fullscreen Backstage menu opened or closed. Opening takes a notice that is up down — the
+    /// menu covers the card, whose close button would otherwise stay live underneath (the Settings
+    /// and probe rule). Closing does NOT replay a suppressed notice: the Backstage surface shows its
+    /// own restart notices, so a replay would be the duplicate this host exists to prevent.
+    /// </summary>
+    /// <param name="open">True when the Backstage menu opened. The current flag is read as well:
+    /// <c>ModalInteractionState.BackstageOpenChanged</c>'s contract says the argument can be stale.</param>
+    public void OnBackstageOpenChanged(bool open)
+    {
+        if (open || (_isBackstageOpen?.Invoke() ?? false)) _presenter.HideNotice();
     }
 
     /// <summary>Guide opened or closed. Opening takes a notice down (it covers the card);

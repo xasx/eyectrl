@@ -168,14 +168,15 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
                 // geometry-only
                 // (target placement) and are fed regardless. Paused samples are skipped for the same
                 // reason: input must not leave EyeCtrl while the user believes pause released it.
-                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap, _modal.ProbeOpen, _exerciseActive, _modal.GuideOpen))
+                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap, _modal.ProbeOpen, _exerciseActive, _modal.GuideOpen, _modal.BackstageOpen))
                     keyboard.UpdateGaze(point, timestamp);
 
                 // Route the sample to the settings window iff it is open (the visibility check lives
                 // inside UpdateSettingsGazeIfVisible, which is a no-op when no window is constructed).
                 // B7 fixup-03: an exercise owns the screen, so the Settings window's own detectors
-                // (tabs/controls/pages/modals — not DwellOverlayViewModelBase) get no samples.
-                if (ShouldFeedSettingsSample(_exerciseActive, _modal.GuideOpen))
+                // (tabs/controls/pages/modals — not DwellOverlayViewModelBase) get no samples. The
+                // fullscreen Backstage menu is the same rule.
+                if (ShouldFeedSettingsSample(_exerciseActive, _modal.GuideOpen, _modal.BackstageOpen))
                     _settingsUi?.UpdateSettingsGazeIfVisible(point, timestamp);
             });
         };
@@ -186,25 +187,26 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     /// <summary>
     /// The keyboard-feed gate, extracted so it is unit-testable headlessly: the keyboard is OS text
     /// injection, so it must be fed only when unpaused AND the modal state says the keyboard is open
-    /// AND the window is visible AND the sample is a real measurement (not gap-held) AND neither the
-    /// probe, an eye-care exercise, nor the first-run guide owns the screen (build plan C9; B7
-    /// fixup-01 F1).
+    /// AND the window is visible AND the sample is a real measurement (not gap-held) AND none of the
+    /// probe, an eye-care exercise, the first-run guide or the fullscreen Backstage menu owns the
+    /// screen (build plan C9; B7 fixup-01 F1).
     /// Review found the inline version had zero test coverage — neutralizing it broke no test.
     /// </summary>
     internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible,
-        bool isInGap, bool probeOpen, bool exerciseActive, bool guideOpen) =>
-        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen && !exerciseActive && !guideOpen;
+        bool isInGap, bool probeOpen, bool exerciseActive, bool guideOpen, bool backstageOpen) =>
+        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen && !exerciseActive && !guideOpen && !backstageOpen;
 
     /// <summary>
     /// The Settings window's per-sample feed gate (B7 fixup-03). The Settings VM keeps its own four
     /// detectors (tabs, controls, pagination, modals), so the shared DwellOverlayViewModelBase hold
-    /// cannot reach them; while an eye-care exercise or the first-run guide owns the screen, no
-    /// sample may be forwarded. Pure, so the gate is pinned headlessly; the call site passes
-    /// <c>_exerciseActive</c> and <c>_modal.GuideOpen</c> and is pinned at source in
+    /// cannot reach them; while an eye-care exercise, the first-run guide or the fullscreen Backstage
+    /// menu owns the screen, no sample may be forwarded. Pure, so the gate is pinned headlessly; the
+    /// call site passes <c>_exerciseActive</c>, <c>_modal.GuideOpen</c> and <c>_modal.BackstageOpen</c>
+    /// and is pinned at source in
     /// <c>ToolbarLifecycleCoordinatorTests.ProbeGateWiring_IsPinnedAtTheSource</c>.
     /// </summary>
-    internal static bool ShouldFeedSettingsSample(bool exerciseActive, bool guideOpen) =>
-        !exerciseActive && !guideOpen;
+    internal static bool ShouldFeedSettingsSample(bool exerciseActive, bool guideOpen, bool backstageOpen) =>
+        !exerciseActive && !guideOpen && !backstageOpen;
 
     /// <summary>
     /// The auto-hide controller's gaze gate (build plan C9): while the probe is open no auto-hide or

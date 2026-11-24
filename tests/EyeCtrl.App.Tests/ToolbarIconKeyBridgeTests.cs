@@ -78,6 +78,25 @@ public class ToolbarIconKeyBridgeTests
     }
 
     /// <summary>
+    /// The Backstage disc and the (off-band) Calibrate entry carry keys that name their OWN icons,
+    /// not the Settings gear Calibrate used to borrow as a placeholder: a wrong-but-valid key (for
+    /// example "Settings") would pass the totality check above and draw the wrong glyph on a
+    /// control surface. Backstage's key also has to exist at all — it is the disc's only face.
+    /// </summary>
+    [Fact]
+    public void BackstageAndCalibrate_MapToTheirOwnIcons()
+    {
+        var vm = new ToolbarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+
+        Check.WithCustomMessage("Backstage no longer names its own icon.")
+            .That(Enum.Parse<ToolbarIconKey>(vm.Buttons.Single(b => b.Id == "Backstage").IconKey))
+            .IsEqualTo(ToolbarIconKey.Backstage);
+        Check.WithCustomMessage("Calibrate fell back to the Settings gear placeholder.")
+            .That(Enum.Parse<ToolbarIconKey>(vm.Buttons.Single(b => b.Id == "Calibrate").IconKey))
+            .IsEqualTo(ToolbarIconKey.Calibrate);
+    }
+
+    /// <summary>
     /// Totality check over every button's constructor-time key. Uses <see cref="Enum.GetNames"/>
     /// membership rather than <see cref="Enum.TryParse{TEnum}(string, out TEnum)"/> — TryParse also
     /// accepts numeric text ("7") and comma-separated flag lists, so it does not strictly prove

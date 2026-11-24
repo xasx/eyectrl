@@ -365,6 +365,20 @@ public record RepeatActionChangedMessage(InteractionAction? Action);
 /// <summary>Sent by the toolbar Modes button to toggle the modes menu overlay.</summary>
 public record ModesMenuToggledMessage;
 
+/// <summary>
+/// Sent by the toolbar Backstage button: raise the fullscreen Backstage menu. Nothing handles it
+/// yet — the window and its coordinator arrive in the Backstage tickets that follow this one, and
+/// the message being sent into a void is the deliberate contract-first state, not a missing wire.
+/// </summary>
+public record BackstageRequestedMessage;
+
+/// <summary>
+/// Sent by the Backstage surface when the user closes it (the Close disc, Esc or a card that hands
+/// the screen back). Separate from <see cref="BackstageRequestedMessage"/> so the request and the
+/// teardown cannot be confused by a toggle-shaped handler; no handler exists yet (tickets 2-3).
+/// </summary>
+public record CloseBackstageMessage;
+
 // Task Switcher messages
 /// <summary>Sent by the toolbar Task Switcher button to toggle the overlay.</summary>
 public record TaskSwitcherToggledMessage;

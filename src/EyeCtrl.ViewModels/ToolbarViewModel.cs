@@ -203,12 +203,14 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             ("Pause", "Pause"),
             ("SelectionMode", SelectionModeIcons.None),
             ("Keyboard", "Keyboard"),
-            // Calibrate is never rendered (ReachableElsewhere) and ToolbarIconKey has no crosshair
-            // member of its own; this is a placeholder pending a real icon, not a considered choice.
-            ("Calibrate", "Settings"),
+            // Calibrate is never rendered on the band (ToolbarButtonDriftTests.ReachableElsewhere);
+            // its entry here keeps the Calibrate button alive for the surfaces that reach it (the
+            // Settings window's Calibration page), and it now carries the real crosshair icon.
+            ("Calibrate", "Calibrate"),
             ("Settings", "Settings"),
             ("TaskSwitcher", "TaskSwitcher"),
             ("Modes", "Modes"),
+            ("Backstage", "Backstage"),
             // QuickActions is never rendered (ReachableElsewhere) and ToolbarIconKey has no lightning-
             // bolt member of its own; this is a placeholder pending a real icon, not a considered choice.
             ("QuickActions", "Settings"),
@@ -574,6 +576,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             case "Settings": Messenger.Send(new SettingsRequestedMessage()); break;
             case "TaskSwitcher": Messenger.Send(new TaskSwitcherToggledMessage()); break;
             case "Modes": Messenger.Send(new ModesMenuToggledMessage()); break;
+            case "Backstage": Messenger.Send(new BackstageRequestedMessage()); break;
             case "QuickActions": Messenger.Send(new QuickActionsToggledMessage()); break;
             case "ResetAdaptation": Messenger.Send(new ResetAdaptationMessage()); break;
         }

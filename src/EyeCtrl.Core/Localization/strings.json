@@ -1905,6 +1905,13 @@
       "count"
     ]
   },
+  "overlays.toolbar.backstage": {
+    "text": "Manage EyeCtrl",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.toolbar.keyboard": {
     "text": "Keyboard",
     "who": "user",

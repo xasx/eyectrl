@@ -93,6 +93,20 @@ public class EventCoordinator : IEventCoordinator
         remove => _modal.GuideOpenChanged -= value;
     }
 
+    /// <summary>Whether the fullscreen Backstage menu owns the screen (forwards
+    /// <see cref="ModalInteractionState.BackstageOpen"/>).</summary>
+    internal bool IsBackstageOpen => _modal.BackstageOpen;
+
+    /// <summary>Raised after <see cref="IsBackstageOpen"/> flips; subscribers read
+    /// <see cref="IsBackstageOpen"/>, not the argument (a re-entrant flip delivers a stale value).
+    /// Always <c>+=</c> / <c>-=</c> through here, never assign: the backing event has other
+    /// subscribers.</summary>
+    internal event Action<bool> BackstageOpenChanged
+    {
+        add => _modal.BackstageOpenChanged += value;
+        remove => _modal.BackstageOpenChanged -= value;
+    }
+
     /// <summary>Whether the sub-pixel probe window is up (SP-8 fixup 01 F1: the restart notice
     /// host treats it exactly like Settings).</summary>
     internal bool IsProbeOpen => _modal.ProbeOpen;
@@ -199,18 +213,21 @@ public class EventCoordinator : IEventCoordinator
 
         // The note gate (P2 D1). Pause is POLLED, not subscribed: pause is entered and left only by
         // TogglePause on the UI thread, so a per-sample read is exact and simpler than a state-change
-        // event that fires on every fixation edge. The suspend predicate ORs three cheap UI-thread
+        // event that fires on every fixation edge. The suspend predicate ORs cheap UI-thread
         // reads: the activation-offer coordinator's modal flag (null-safe — the coordinator is
         // constructed further below, so the flag reads false until then), the interaction states
-        // whose surfaces own the screen, and the modes menu's visibility. The eye-care exercise and
-        // calibration flags reach the manager as messages instead (EyeCareService /
-        // CalibrationStateChangedMessage), so they are not part of this lambda.
+        // whose surfaces own the screen, the modes menu's visibility, and the fullscreen Backstage
+        // menu (which owns the screen exactly like the first-run guide does, and has no note surface
+        // of its own). The eye-care exercise and calibration flags reach the manager as messages
+        // instead (EyeCareService / CalibrationStateChangedMessage), so they are not part of this
+        // lambda.
         context.NoteManager.SetPausePoll(
             () => context.InteractionManager.CurrentState == InteractionState.Paused);
         context.NoteManager.SetSuspendPredicate(() =>
             (_activationOffers?.ModalSuspended ?? false)
             || NoteManager.InteractionStateSuspendsNotes(context.InteractionManager.CurrentState)
-            || context.ModesMenuVM.IsVisible);
+            || context.ModesMenuVM.IsVisible
+            || _modal.BackstageOpen);
 
         // The notes' keyboard probe (P1 D5), wired once like the suspend predicate above: the
         // summon/release of the keyboard around Edit, the ⌨ control, the keyboard-gate on note

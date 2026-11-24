@@ -112,6 +112,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         _modal.SettingsOpenChanged += OnSettingsOpenChanged;
         _modal.ProbeOpenChanged += OnProbeOpenChanged;
         _modal.GuideOpenChanged += OnGuideOpenChanged;
+        _modal.BackstageOpenChanged += OnBackstageOpenChanged;
         _modal.GuideCalibrationActiveChanged += OnGuideCalibrationActiveChanged;
         context.TaskSwitcherVM.PropertyChanged += OnTaskSwitcherVMPropertyChanged;
         context.QuickActionsGridVM.PropertyChanged += OnQuickActionsGridVMPropertyChanged;
@@ -209,6 +210,8 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
 
     private void OnGuideOpenChanged(bool _) => RecomputeSuspension();
 
+    private void OnBackstageOpenChanged(bool _) => RecomputeSuspension();
+
     private void OnGuideCalibrationActiveChanged(bool _) => RecomputeSuspension();
 
     private void OnTaskSwitcherVMPropertyChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e)
@@ -233,11 +236,15 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         if (Context is null)
             return;
 
-        var reasons = new List<string>(8);
+        var reasons = new List<string>(10);
         if (_modal.SettingsOpen)
             reasons.Add("Settings");
         if (_modal.ProbeOpen)
             reasons.Add("probe");
+        // The fullscreen Backstage menu owns the screen: no offer may be placed on it, and a live
+        // unfired one is cleared on the rise (the ordinary request path).
+        if (_modal.BackstageOpen)
+            reasons.Add("backstage");
         // D3 (PR-review n1): while a calibration the guide started is up — through the result
         // card, whose Retry/Accept a gaze user reaches through this very activation path — the
         // guide reason stands down, exactly as in a normal calibration run (which has NEVER
@@ -379,6 +386,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         _modal.SettingsOpenChanged -= OnSettingsOpenChanged;
         _modal.ProbeOpenChanged -= OnProbeOpenChanged;
         _modal.GuideOpenChanged -= OnGuideOpenChanged;
+        _modal.BackstageOpenChanged -= OnBackstageOpenChanged;
         _modal.GuideCalibrationActiveChanged -= OnGuideCalibrationActiveChanged;
         Context.TaskSwitcherVM.PropertyChanged -= OnTaskSwitcherVMPropertyChanged;
         Context.QuickActionsGridVM.PropertyChanged -= OnQuickActionsGridVMPropertyChanged;

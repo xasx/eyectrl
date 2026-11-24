@@ -552,6 +552,30 @@ public class ActivationOfferCoordinatorTests
             .That(Settle(s, 700, 700)).IsNotNull();
     }
 
+    [StaFact]
+    public void BackstageOpen_AloneSuspendsOffers_AndResumesOnClose()
+    {
+        // The fullscreen Backstage menu owns the screen: an offer halo drawn under it would be an
+        // invisible, uncountable target and a taken offer would click the menu beneath. Mutation:
+        // drop the `if (_modal.BackstageOpen)` term from RecomputeSuspension, or drop the
+        // BackstageOpenChanged subscription → the settle under the menu offers → red.
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        Check.That(Settle(s, 500, 500)).IsNotNull();
+
+        s.Modal.BackstageOpen = true;   // raises BackstageOpenChanged → RecomputeSuspension
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("opening Backstage must clear the live offer")
+            .That(s.Engine.CurrentOffer).IsNull();
+        Check.WithCustomMessage("no offer may be made while Backstage is open")
+            .That(Settle(s, 600, 600)).IsNull();
+
+        s.Modal.BackstageOpen = false;  // raises again → offers resume
+        Check.WithCustomMessage("once Backstage closes, settles must offer again")
+            .That(Settle(s, 700, 700)).IsNotNull();
+    }
+
     /// <summary>
     /// T15 review R1: the restart notice card carries its own dwell target and is click-through, so a
     /// taken offer would click the window beneath it. While the card is up no offer is made, and a

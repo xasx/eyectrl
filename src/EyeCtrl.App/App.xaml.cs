@@ -545,6 +545,7 @@ public partial class App : Application
                 isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
                 isProbeOpen: () => _eventCoordinator.IsProbeOpen,
                 isGuideOpen: () => _eventCoordinator.IsGuideOpen,
+                isBackstageOpen: () => _eventCoordinator.IsBackstageOpen,
                 targetLanguage: () => RestartNotices.TargetLanguage(settings.General.UiLanguage),
                 postToUi: work => Dispatcher.Invoke(work));
             // D17 (T15 merge): the card is a gaze consumer (its own close-button dwell target), so
@@ -570,6 +571,10 @@ public partial class App : Application
             // The first-run guide is the third: a show during the guide is deferred and replayed
             // once when it closes (the newest wins — Task 11).
             _eventCoordinator.GuideOpenChanged += _restartNoticeHost.OnGuideOpenChanged;
+            // The fullscreen Backstage menu is the fourth: it owns the screen, so a card that is up
+            // is taken down and no new one shows while it holds — no replay on close, because the
+            // Backstage surface shows its own restart notices (tickets 2-3).
+            _eventCoordinator.BackstageOpenChanged += _restartNoticeHost.OnBackstageOpenChanged;
 
             // N2 (fixup-01): a resumed sub-pixel start that fails AFTER the resume — the
             // resume-landing timeout, or a gate that refuses once the queued start runs — used to
@@ -645,6 +650,7 @@ public partial class App : Application
                     isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
                     isProbeOpen: () => _eventCoordinator.IsProbeOpen,
                     isGuideOpen: () => _eventCoordinator.IsGuideOpen,
+                    isBackstageOpen: () => _eventCoordinator.IsBackstageOpen,
                     now: () => DateTime.Now,
                     postToUi: work => Dispatcher.Invoke(work),
                     log: line => Log.Information("{LagMark}", line));
@@ -666,6 +672,8 @@ public partial class App : Application
                 _eventCoordinator.ProbeOpenChanged += _lagMarkHost.OnProbeOpenChanged;
                 // The guide hides the button and brings it back on close (Task 11).
                 _eventCoordinator.GuideOpenChanged += _lagMarkHost.OnGuideOpenChanged;
+                // The fullscreen Backstage menu hides the button and brings it back on close.
+                _eventCoordinator.BackstageOpenChanged += _lagMarkHost.OnBackstageOpenChanged;
                 _lagMarkHost.Start();
             }
 

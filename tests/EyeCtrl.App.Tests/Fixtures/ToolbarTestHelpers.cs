@@ -33,9 +33,9 @@ internal static class ToolbarTestHelpers
     /// default. Tests that need the Reset button pass <c>true</c> DIRECTLY (fixture policy
     /// R2-M3) rather than flipping <c>AdaptationSettings.Enabled</c>, which in the launched app
     /// starts the whole adaptation runtime and is not what a band-layout test means to turn on.
-    /// Defaulting to the six-button band also makes a forgotten flag fail LOUDLY —
+    /// Defaulting to the seven-button band also makes a forgotten flag fail LOUDLY —
     /// <c>ButtonForTest("ResetAdaptation")</c> throws on the absent id — instead of silently
-    /// testing a seven-button band the default app never shows.
+    /// testing an eight-button band the default app never shows.
     /// </para>
     /// </summary>
     // NOTE: the ToolbarViewModel ctor reads DpiHelper, so every caller of this helper is a

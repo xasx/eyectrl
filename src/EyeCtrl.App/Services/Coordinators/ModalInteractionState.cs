@@ -120,6 +120,60 @@ internal sealed class ModalInteractionState
         }
     }
 
+    // volatile: read on the gaze thread (RingMayReshow, the keyboard/settings feed gates, the note
+    // gate's polled predicate), written on the UI thread by the Backstage coordinator.
+    private volatile bool _backstageOpen;
+
+    /// <summary>
+    /// True while the fullscreen Backstage menu owns the screen (Quit / Restart / Calibrate and the
+    /// install-maintenance cards). Like <see cref="GuideOpen"/> it is a surface behind which the
+    /// gaze side defers: the cursor ring may not re-show, activation offers suspend, the
+    /// keyboard/Settings per-sample feeds close, the floating restart and lag-mark cards stand
+    /// down, and the note gate's suspend predicate holds. Assigning raises
+    /// <see cref="BackstageOpenChanged"/>.
+    /// <para>
+    /// Known exception, and NOT covered by that list: <c>SetupNoticeWatch</c> gates on
+    /// <see cref="GuideOpen"/> only — it never gated on Settings or the probe either, so this
+    /// predates Backstage. It can show a setup notice through the presenter directly while the menu
+    /// is up; the notice host's gaze guard is what keeps that card inert (see its own
+    /// <c>isBackstageOpen</c> term). Closing the gap is a later ticket, not a claim of this one.
+    /// </para>
+    /// </summary>
+    public bool BackstageOpen
+    {
+        get => _backstageOpen;
+        set
+        {
+            if (_backstageOpen == value) return;
+            _backstageOpen = value;
+            RaiseBackstageOpenChanged(value);
+        }
+    }
+
+    /// <summary>Raised after <see cref="BackstageOpen"/> flips, on the UI thread. Per-subscriber
+    /// try/catch like <see cref="GuideOpenChanged"/>: one gate's recompute throwing must not leave
+    /// the rest holding a stale half-armed state. Subscribers read <see cref="BackstageOpen"/>, not
+    /// the argument (a re-entrant flip inside this raise delivers a stale value to later subscribers).</summary>
+    public event Action<bool>? BackstageOpenChanged;
+
+    private void RaiseBackstageOpenChanged(bool open)
+    {
+        var subscribers = BackstageOpenChanged;
+        if (subscribers is null) return;
+
+        foreach (var subscriber in subscribers.GetInvocationList())
+        {
+            try
+            {
+                ((Action<bool>)subscriber)(open);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "A BackstageOpenChanged subscriber threw; the remaining subscribers still run");
+            }
+        }
+    }
+
     // volatile: read on the gaze thread (the ring's re-show predicates — RingMayReshow and the
     // cursor-visibility binding), written on the UI thread by the guide wiring. Task 1's pattern:
     // a plain volatile field, no event, no property — the wiring sets it directly.

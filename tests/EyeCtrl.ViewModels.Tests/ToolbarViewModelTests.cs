@@ -14,13 +14,13 @@ public class ToolbarViewModelTests
     private readonly EyeCtrlSettings _settings = new();
 
     [Fact]
-    public void InitializesWithTheNineCoreButtons()
+    public void InitializesWithTheTenCoreButtons()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
 
         Check.That(vm.Buttons.Select(b => b.Id)).ContainsExactly(
             "Pause", "SelectionMode", "Keyboard", "Calibrate",
-            "Settings", "TaskSwitcher", "Modes", "QuickActions", "ResetAdaptation");
+            "Settings", "TaskSwitcher", "Modes", "Backstage", "QuickActions", "ResetAdaptation");
     }
 
     [Fact]
@@ -47,9 +47,9 @@ public class ToolbarViewModelTests
         Check.That(received).IsTrue();
     }
 
-    // The nine activations are the gaze-only user's primary navigation: a case deleted from the
+    // The ten activations are the gaze-only user's primary navigation: a case deleted from the
     // switch, an id typo'd, or two messages swapped turns the button into a no-op (a dead Settings
-    // button locks a gaze-only user out of configuration entirely). Probes on ALL nine message
+    // button locks a gaze-only user out of configuration entirely). Probes on ALL ten message
     // types pin that exactly one fires — no cross-wiring into the sibling buttons either, which
     // the three older single-button facts below cannot see (review r1 F11).
     [Theory]
@@ -60,6 +60,7 @@ public class ToolbarViewModelTests
     [InlineData("Settings")]
     [InlineData("TaskSwitcher")]
     [InlineData("Modes")]
+    [InlineData("Backstage")]
     [InlineData("QuickActions")]
     [InlineData("ResetAdaptation")]
     public void ActivatingAButton_SendsExactlyItsOwnMessage(string buttonId)
@@ -68,8 +69,8 @@ public class ToolbarViewModelTests
         var sent = new Dictionary<string, int>
         {
             ["Pause"] = 0, ["SelectionMode"] = 0, ["Keyboard"] = 0, ["Calibrate"] = 0,
-            ["Settings"] = 0, ["TaskSwitcher"] = 0, ["Modes"] = 0, ["QuickActions"] = 0,
-            ["ResetAdaptation"] = 0,
+            ["Settings"] = 0, ["TaskSwitcher"] = 0, ["Modes"] = 0, ["Backstage"] = 0,
+            ["QuickActions"] = 0, ["ResetAdaptation"] = 0,
         };
         void Count(string key) => sent[key]++;
 
@@ -80,6 +81,7 @@ public class ToolbarViewModelTests
         _messenger.Register<SettingsRequestedMessage>(_messenger, (_, _) => Count("Settings"));
         _messenger.Register<TaskSwitcherToggledMessage>(_messenger, (_, _) => Count("TaskSwitcher"));
         _messenger.Register<ModesMenuToggledMessage>(_messenger, (_, _) => Count("Modes"));
+        _messenger.Register<BackstageRequestedMessage>(_messenger, (_, _) => Count("Backstage"));
         _messenger.Register<QuickActionsToggledMessage>(_messenger, (_, _) => Count("QuickActions"));
         _messenger.Register<ResetAdaptationMessage>(_messenger, (_, _) => Count("ResetAdaptation"));
 
@@ -402,12 +404,12 @@ public class ToolbarViewModelTests
         Check.That(seen[count]).IsEqualTo(seen[0]);
     }
 
-    // The View (ToolbarWindow) renders five buttons — Pause, SelectionMode, Keyboard, Settings,
-    // ResetAdaptation — and reports each one's real on-screen center via UpdateButtonScreenPosition.
-    // The remaining three logical buttons (Calibrate, TaskSwitcher, QuickActions) are never
-    // rendered and never positioned, so they must never become live gaze targets. Regression
-    // guard for the "(0,0) placeholder" orphan bug: a gaze target created at the origin lets a
-    // user whose gaze rests in the top-left screen corner dwell-activate an invisible button.
+    // The View (ToolbarWindow) renders the band's buttons — the default seven without Reset — and
+    // reports each one's real on-screen center via UpdateButtonScreenPosition. This test reports a
+    // subset; the remaining logical buttons Calibrate and QuickActions are never rendered and never
+    // positioned, so they must never become live gaze targets. Regression guard for the
+    // "(0,0) placeholder" orphan bug: a gaze target created at the origin lets a user whose gaze
+    // rests in the top-left screen corner dwell-activate an invisible button.
     [Fact]
     public void GazeAtScreenOrigin_AfterRenderedButtonsPositioned_DoesNotActivateUnrenderedButtons()
     {

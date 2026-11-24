@@ -32,10 +32,18 @@ public enum ToolbarIconKey
     Keyboard,
     /// <summary>Gear.</summary>
     Settings,
+    /// <summary>
+    /// Crosshair: the shared ring with four cardinal ticks that CROSS it, plus a small centre dot —
+    /// calibration. Deliberately distinct from <see cref="SelectionManual"/> (same ring, ticks that
+    /// stop short of it, larger dot); see the registry's comment for the rule that keeps them apart.
+    /// </summary>
+    Calibrate,
     /// <summary>Two offset windows.</summary>
     TaskSwitcher,
     /// <summary>Three stacked bars with the top one filled — a chosen mode among options; opens the modes menu.</summary>
     Modes,
+    /// <summary>Four squares in a grid — the app's own control menu; opens the fullscreen Backstage.</summary>
+    Backstage,
     /// <summary>Mouse with its left button popped out of the outline — locked-action dwell mode, Left click (reuses the ActionIcons glyph).</summary>
     ModeLeftClick,
     /// <summary>Mouse with its right button popped out of the outline — locked-action dwell mode, Right click.</summary>

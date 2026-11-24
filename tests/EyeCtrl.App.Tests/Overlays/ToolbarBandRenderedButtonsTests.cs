@@ -150,7 +150,7 @@ public class ToolbarBandRenderedButtonsTests
             .That(resets).IsEqualTo(0);
         Check.That(ResetButton(vm).DwellProgress).IsEqualTo(0.0);
 
-        // Re-enable: the rebuild reports the seven-button band, and the NEXT position report must
+        // Re-enable: the rebuild reports the eight-button band, and the NEXT position report must
         // take the AddTarget branch (the set entry went with the target) — proven by the dwell
         // response below: without a recreated target, progress cannot move at all.
         window.Initialize(ToolbarTestHelpers.ButtonSize, 700, includeReset: true);

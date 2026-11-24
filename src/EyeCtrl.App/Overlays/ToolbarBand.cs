@@ -182,6 +182,7 @@ internal sealed class ToolbarBand
             ("Settings",        "Settings"),
             ("TaskSwitcher",    "TaskSwitcher"),
             ("Modes",           "Modes"),
+            ("Backstage",       "Backstage"),
             ("ResetAdaptation", "ResetAdaptation"),
         };
 
@@ -346,6 +347,7 @@ internal sealed class ToolbarBand
         ("Settings", _) => StringTable.Current.T("overlays.toolbar.settings"),
         ("TaskSwitcher", _) => StringTable.Current.T("overlays.toolbar.taskSwitcher"),
         ("Modes", _) => StringTable.Current.T("overlays.toolbar.modes"),
+        ("Backstage", _) => StringTable.Current.T("overlays.toolbar.backstage"),
         (ResetId, _) => StringTable.Current.T("overlays.toolbar.resetAdaptation"),
         _ => id,
     };

@@ -36,6 +36,37 @@ public class ModalInteractionStateTests
     }
 
     [Fact]
+    public void BackstageOpen_RaisesChanged_OncePerRealFlip()
+    {
+        var modal = new ModalInteractionState();
+        var flips = new List<bool>();
+        modal.BackstageOpenChanged += flips.Add;
+
+        modal.BackstageOpen = true;
+        modal.BackstageOpen = true;   // no change: no event
+        modal.BackstageOpen = false;
+
+        Check.That(flips).HasSize(2);
+        Check.That(flips[0]).IsTrue();
+        Check.That(flips[1]).IsFalse();
+    }
+
+    [Fact]
+    public void BackstageOpen_AThrowingSubscriber_DoesNotStopTheOthers()
+    {
+        // Acceptance criterion: a gate whose recompute throws must not leave the remaining peers
+        // holding a stale half-armed state while Backstage owns the screen.
+        var modal = new ModalInteractionState();
+        var seen = new List<bool>();
+        modal.BackstageOpenChanged += _ => throw new InvalidOperationException("boom");
+        modal.BackstageOpenChanged += seen.Add;
+
+        modal.BackstageOpen = true;
+
+        Check.That(seen).HasSize(1);
+    }
+
+    [Fact]
     public void GuideCalibrationActive_RaisesChanged_OncePerRealFlip()
     {
         // D3 (PR-review n1): the guide's calibration flag raises like GuideOpen — the

@@ -306,6 +306,12 @@
     },
     {
       "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
+      "Literal": "\"Backstage\"",
+      "Category": "id",
+      "Reason": "A toolbar button id or icon key; the button's name comes from an overlays key."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
       "Literal": "\"Keyboard\"",
       "Category": "id",
       "Reason": "A toolbar button id or icon key; the button's name comes from an overlays key."

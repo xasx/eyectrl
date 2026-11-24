@@ -285,10 +285,48 @@ public class NoticeHostGuideGateTests
         Check.That(presenter.HideCalls).IsEqualTo(1);
         Check.That(presenter.ShowCalls).IsEqualTo(0);
 
+        // F1 (review): CanShow() must still see Backstage when ANOTHER surface closes underneath
+        // it. This is the real re-show path — an instrumented session with the menu open and
+        // Settings/probe/guide closing behind it. Without the backstage term CanShow() returns
+        // true here and the button re-shows OVER the fullscreen menu with a live dwell target.
+        // Mutation-checked: drop the term and this assertion goes red.
+        host.OnSettingsOpenChanged(false);
+        Check.WithCustomMessage("a Settings close underneath Backstage re-showed the lag button.")
+            .That(presenter.ShowCalls).IsEqualTo(0);
+
         _backstageOpen = false;
         host.OnBackstageOpenChanged(false);
         Check.That(presenter.ShowCalls).IsEqualTo(1);   // the session fixture comes back
         Check.That(presenter.IsShowing).IsTrue();
+    }
+
+    [Fact]
+    public void TheRestartCard_EatsNoGaze_WhileBackstageOwnsTheScreen()
+    {
+        // F2 (review): SetupNoticeWatch shows through the presenter DIRECTLY
+        // (App.xaml.cs's setup-notice path), bypassing the host's ScreenOwnedElsewhere() guard, so
+        // a card really can be up over the menu while it polls for up to 90 s. Its invisible close
+        // button must not accumulate dwell there. Mutation-checked: drop the backstage term from
+        // the gaze guard and the first assertion goes red.
+        var messenger = new WeakReferenceMessenger();
+        var presenter = new FakeNoticePresenter();
+        using var host = new RestartNoticeHost(
+            messenger, presenter,
+            isSettingsOpen: () => false, isProbeOpen: () => false,
+            targetLanguage: () => EyeCtrl.Core.Enums.UiLanguage.English,
+            postToUi: work => work(),
+            isBackstageOpen: () => BackstageOpen);
+
+        presenter.ShowNotice("the setup notice", "✓ OK", RestartNoticeHost.RefusedHold);
+
+        _backstageOpen = true;
+        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 1_000));
+        Check.WithCustomMessage("gaze was fed to a card covered by the Backstage menu.")
+            .That(presenter.Gaze).IsEmpty();
+
+        _backstageOpen = false;
+        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 2_000));
+        Check.That(presenter.Gaze).HasSize(1);
     }
 
     // ── LagMarkHost: the button hides on open and returns on close only when allowed ──

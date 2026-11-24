@@ -101,7 +101,7 @@ public class EventCoordinator : IEventCoordinator
     /// <see cref="IsBackstageOpen"/>, not the argument (a re-entrant flip delivers a stale value).
     /// Always <c>+=</c> / <c>-=</c> through here, never assign: the backing event has other
     /// subscribers.</summary>
-    internal event Action<bool> BackstageOpenChanged
+    internal event Action<bool>? BackstageOpenChanged
     {
         add => _modal.BackstageOpenChanged += value;
         remove => _modal.BackstageOpenChanged -= value;

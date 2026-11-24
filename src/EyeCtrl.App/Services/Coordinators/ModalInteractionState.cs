@@ -126,9 +126,18 @@ internal sealed class ModalInteractionState
 
     /// <summary>
     /// True while the fullscreen Backstage menu owns the screen (Quit / Restart / Calibrate and the
-    /// install-maintenance cards). It is a full-surface modal like <see cref="GuideOpen"/>: every
-    /// proactive surface defers behind it and no input is fed to anything it covers. Assigning
-    /// raises <see cref="BackstageOpenChanged"/>.
+    /// install-maintenance cards). Like <see cref="GuideOpen"/> it is a surface behind which the
+    /// gaze side defers: the cursor ring may not re-show, activation offers suspend, the
+    /// keyboard/Settings per-sample feeds close, the floating restart and lag-mark cards stand
+    /// down, and the note gate's suspend predicate holds. Assigning raises
+    /// <see cref="BackstageOpenChanged"/>.
+    /// <para>
+    /// Known exception, and NOT covered by that list: <c>SetupNoticeWatch</c> gates on
+    /// <see cref="GuideOpen"/> only — it never gated on Settings or the probe either, so this
+    /// predates Backstage. It can show a setup notice through the presenter directly while the menu
+    /// is up; the notice host's gaze guard is what keeps that card inert (see its own
+    /// <c>isBackstageOpen</c> term). Closing the gap is a later ticket, not a claim of this one.
+    /// </para>
     /// </summary>
     public bool BackstageOpen
     {

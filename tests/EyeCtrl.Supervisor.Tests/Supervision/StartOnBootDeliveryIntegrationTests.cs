@@ -1,6 +1,7 @@
 namespace EyeCtrl.Supervisor.Tests.Supervision;
 
 using System.Diagnostics;
+using System.Windows.Threading;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Supervisor.Ipc;
 using EyeCtrl.Supervisor.Supervision;
@@ -81,7 +82,10 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
     private TimeSpan TimeUntilUiPumps()
     {
         var queuedAt = Stopwatch.GetTimestamp();
-        return _ui.Dispatcher.Invoke(() => Stopwatch.GetElapsedTime(queuedAt));
+        // Normal, not the Invoke default (Send): the request posts its UI work via BeginInvoke,
+        // which is Normal — a Send-priority probe can jump ahead of a posted item that has not
+        // started yet and read an empty queue (review-02 R2-F1).
+        return _ui.Dispatcher.Invoke(() => Stopwatch.GetElapsedTime(queuedAt), DispatcherPriority.Normal);
     }
 
     private async Task WaitForStateAsync(SettingDelivery<bool> delivery, SettingDeliveryState state)

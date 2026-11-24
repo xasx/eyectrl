@@ -1,6 +1,7 @@
 namespace EyeCtrl.Supervisor.Tests.Supervision;
 
 using System.Diagnostics;
+using System.Windows.Threading;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Supervisor.Ipc;
 using EyeCtrl.Supervisor.Supervision;
@@ -56,11 +57,35 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
         _ui.Dispatcher.Invoke(delivery.OnAppHeartbeat);
     }
 
-    private TimeSpan TimeOnUi(Action action)
+    /// <summary>
+    /// Only the work the UI thread does: the stopwatch starts and stops INSIDE the invoked
+    /// delegate, so queueing on a saturated host is excluded from the measurement (main run
+    /// 45065530230 read 1550 ms against a 1000 ms bound with a free UI thread — most likely
+    /// round-trip queueing; a starvation-stretched delegate is the residual, review-01 F2).
+    /// A UI thread that waited on the hung App spends the whole ack bound inside the delegate;
+    /// one that never waits returns in milliseconds.
+    /// </summary>
+    private TimeSpan TimeOnUi(Action action) =>
+        _ui.Dispatcher.Invoke(() =>
+        {
+            var watch = Stopwatch.StartNew();
+            action();
+            return watch.Elapsed;
+        });
+
+    /// <summary>
+    /// How long a queued no-op WAITED before the UI thread ran it — dispatcher backlog measured
+    /// up to the moment the pump starts, excluding the round-trip's return half (host load, not
+    /// UI-thread state). A UI thread blocked on the hung App starts the no-op only after the
+    /// block, so it reads ≥ the ack bound; a free one runs it at once.
+    /// </summary>
+    private TimeSpan TimeUntilUiPumps()
     {
-        var watch = Stopwatch.StartNew();
-        _ui.Dispatcher.Invoke(action);
-        return watch.Elapsed;
+        var queuedAt = Stopwatch.GetTimestamp();
+        // Normal, not the Invoke default (Send): the request posts its UI work via BeginInvoke,
+        // which is Normal — a Send-priority probe can jump ahead of a posted item that has not
+        // started yet and read an empty queue (review-02 R2-F1).
+        return _ui.Dispatcher.Invoke(() => Stopwatch.GetElapsedTime(queuedAt), DispatcherPriority.Normal);
     }
 
     private async Task WaitForStateAsync(SettingDelivery<bool> delivery, SettingDeliveryState state)
@@ -84,13 +109,21 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
         var server = Serve(FakeAppPipe.Behaviour.Hang);
         var delivery = CreateDelivery(connect: TimeSpan.FromSeconds(2), ack: ackBound);
 
+        // Warm the serializer path (first SerializeToElement + JIT) off the clock, so it is not
+        // inside the timed delegate (review-01 F2).
+        _ = SettingRequest.SetStartOnBoot(true);
+
         var started = Stopwatch.StartNew();
         var requestTook = TimeOnUi(() => delivery.Request(true));
+        var pumpTook = TimeUntilUiPumps();
+
         Check.That(await server.WaitForRequestAsync(Settle)).IsTrue();
 
-        // The App holds the request; the UI thread is free the whole time.
+        // The App holds the request; the UI thread is free the whole time. The pump above was
+        // queued right behind the request, while it was still in flight — a UI thread that
+        // waited the hung App out would have been caught THERE: this later State round-trip
+        // would otherwise absorb the block before pumpTook could see it (review-01 F1).
         Check.That(_ui.Dispatcher.Invoke(() => delivery.State)).IsEqualTo(SettingDeliveryState.Sending);
-        var pumpTook = TimeOnUi(() => { });
 
         await WaitForStateAsync(delivery, SettingDeliveryState.Parked);
         started.Stop();

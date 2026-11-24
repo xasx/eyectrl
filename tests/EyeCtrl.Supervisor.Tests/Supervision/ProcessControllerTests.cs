@@ -8,6 +8,7 @@ using EyeCtrl.Supervisor.Supervision;
 using NFluent;
 using Xunit;
 
+[Collection(GlobalSerilogLoggerCollection.Name)]
 public class ProcessControllerTests
 {
     [Fact]
@@ -411,34 +412,17 @@ public class ProcessControllerTests
         var marker = new FakeMarker { IsSet = true, ClearFailure = new IOException("the marker file is locked") };
         var input = new RecordingInput();
         var controller = CreateControllerWithRelease(out _, marker, input);
-        var sink = new CapturingSink();
-        var previous = Serilog.Log.Logger;
-        Serilog.Log.Logger = new Serilog.LoggerConfiguration()
-            .MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
-        try
-        {
-            Check.ThatCode(controller.ForceKill).DoesNotThrow();
-        }
-        finally
-        {
-            Serilog.Log.Logger = previous;
-        }
 
+        var sink = CaptureGlobalLogger(() => Check.ThatCode(controller.ForceKill).DoesNotThrow());
+
+        var ours = sink.Messages.Where(WrittenByForceKill).ToList();
         Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
         Check.WithCustomMessage($"the log did not name the failed clear: {string.Join(" | ", sink.Messages)}")
-             .That(sink.Messages.Any(m => m.Contains("clearing the marker failed", StringComparison.Ordinal)))
+             .That(ours.Any(m => m.Contains("clearing the marker failed", StringComparison.Ordinal)))
              .IsTrue();
         Check.WithCustomMessage($"the log blamed the release, which succeeded: {string.Join(" | ", sink.Messages)}")
-             .That(sink.Messages.Any(m => m.Contains("release failed", StringComparison.Ordinal)))
+             .That(ours.Any(m => m.Contains("release failed", StringComparison.Ordinal)))
              .IsFalse();
-    }
-
-    /// <summary>Captures the lines written through the process-global Serilog logger.</summary>
-    private sealed class CapturingSink : Serilog.Core.ILogEventSink
-    {
-        public List<string> Messages { get; } = new();
-
-        public void Emit(Serilog.Events.LogEvent logEvent) => Messages.Add(logEvent.RenderMessage());
     }
 
     [Fact]
@@ -451,28 +435,74 @@ public class ProcessControllerTests
         var input = new RecordingInput();
         var controller = CreateControllerWithRelease(
             out _, marker, input, leftButtonDown: () => true);
+
+        var sink = CaptureGlobalLogger(() => Check.ThatCode(controller.ForceKill).DoesNotThrow());
+
+        var ours = sink.Messages.Where(WrittenByForceKill).ToList();
+        Check.That(marker.IsSet).IsTrue();
+        Check.That(marker.ClearCount).IsEqualTo(0);
+        Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
+        Check.WithCustomMessage($"the Supervisor did not log the kept marker: {string.Join(" | ", sink.Messages)}")
+            .That(ours.Any(m => m.Contains("still reads down", StringComparison.Ordinal)))
+            .IsTrue();
+        Check.WithCustomMessage($"the line claims Windows is discarding input: {string.Join(" | ", sink.Messages)}")
+            .That(ours.Any(m => m.Contains("another pointer device", StringComparison.Ordinal)))
+            .IsTrue();
+    }
+
+    /// <summary>
+    /// Runs <paramref name="act"/> with the process-global Serilog logger replaced by a capturing
+    /// one, restoring the previous logger afterwards, and returns the sink. The
+    /// <see cref="GlobalSerilogLoggerCollection"/> this class lives in runs alongside nothing at
+    /// all, so no parallel test can write through the swap; the sink is still synchronized and the
+    /// assertions still count only <see cref="WrittenByForceKill"/> lines, so a foreign line could
+    /// neither race the list nor be matched.
+    /// </summary>
+    private static CapturingSink CaptureGlobalLogger(Action act)
+    {
         var sink = new CapturingSink();
         var previous = Serilog.Log.Logger;
         Serilog.Log.Logger = new Serilog.LoggerConfiguration()
             .MinimumLevel.Debug().WriteTo.Sink(sink).CreateLogger();
         try
         {
-            Check.ThatCode(controller.ForceKill).DoesNotThrow();
+            act();
         }
         finally
         {
             Serilog.Log.Logger = previous;
         }
+        return sink;
+    }
 
-        Check.That(marker.IsSet).IsTrue();
-        Check.That(marker.ClearCount).IsEqualTo(0);
-        Check.That(input.Calls).ContainsExactly("ReleaseLeftButton");
-        Check.WithCustomMessage($"the Supervisor did not log the kept marker: {string.Join(" | ", sink.Messages)}")
-            .That(sink.Messages.Any(m => m.Contains("still reads down", StringComparison.Ordinal)))
-            .IsTrue();
-        Check.WithCustomMessage($"the line claims Windows is discarding input: {string.Join(" | ", sink.Messages)}")
-            .That(sink.Messages.Any(m => m.Contains("another pointer device", StringComparison.Ordinal)))
-            .IsTrue();
+    /// <summary>
+    /// Only the lines <c>ProcessController.ForceKill</c> itself wrote count: the swap is
+    /// process-global, so an "any line" assertion could otherwise match another test's line
+    /// written through the static logger while the capturing one is installed.
+    /// </summary>
+    private static bool WrittenByForceKill(string message) =>
+        message.StartsWith("ForceKill:", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Captures the lines written through the process-global Serilog logger. Synchronized because
+    /// the swap is visible to every thread in the process: a plain <see cref="List{T}"/> raced by
+    /// a concurrent write can silently drop the entry the test needs (the CI flake this guards).
+    /// <see cref="Messages"/> returns a snapshot.
+    /// </summary>
+    private sealed class CapturingSink : Serilog.Core.ILogEventSink
+    {
+        private readonly object _gate = new();
+        private readonly List<string> _messages = new();
+
+        public IReadOnlyList<string> Messages
+        {
+            get { lock (_gate) return _messages.ToArray(); }
+        }
+
+        public void Emit(Serilog.Events.LogEvent logEvent)
+        {
+            lock (_gate) _messages.Add(logEvent.RenderMessage());
+        }
     }
 
     private static ProcessController CreateControllerWithRelease(

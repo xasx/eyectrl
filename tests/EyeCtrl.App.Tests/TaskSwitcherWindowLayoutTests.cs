@@ -144,19 +144,27 @@ public class TaskSwitcherWindowLayoutTests
                     $"The chip is {chipText.FontSize} DIP but the hint is {hint.FontSize} DIP — they must "
                     + "stay one line of the same size (F-HINT).")
                 .That(chipText.FontSize).IsEqualTo(hint.FontSize);
-            Check.That(BrushColor(hint.Foreground)).IsEqualTo(Tokens.TextSecondary);
-            Check.That(BrushColor(chipText.Foreground)).IsEqualTo(Tokens.TextSecondary);
+            // Compare each with the brush its own element resolves: OverlayStyles.xaml materialises
+            // its {x:Static} values on the app dictionary's first lookup of each key and then keeps
+            // them for the process, so a live Tokens.TextSecondary read is only correct when that
+            // first lookup happened under Midnight (F-FLAKE2).
+            var hintBrush = hint.TryFindResource("BrushTextSecondary") as Brush;
+            Check.WithCustomMessage("The hint must read the BrushTextSecondary token.")
+                .That(hintBrush).IsNotNull();
+            Check.WithCustomMessage("The hint must keep the secondary text colour.")
+                .That(hint.Foreground).IsSameReferenceAs(hintBrush!);
+
+            var chipBrush = chipText.TryFindResource("BrushTextSecondary") as Brush;
+            Check.WithCustomMessage("The overflow chip must read the BrushTextSecondary token.")
+                .That(chipBrush).IsNotNull();
+            Check.WithCustomMessage("The overflow chip must keep the secondary text colour.")
+                .That(chipText.Foreground).IsSameReferenceAs(chipBrush!);
         }
         finally
         {
             window.Close();
         }
     }
-
-    private static Color BrushColor(Brush? brush) =>
-        brush is SolidColorBrush solid
-            ? solid.Color
-            : throw new InvalidOperationException($"{brush} is not a solid brush.");
 
     /// <summary>
     /// Source-scan pin: ShowFullScreen must hand the coordinator's keep-out to the pure helper

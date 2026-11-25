@@ -10,7 +10,6 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Localization;
-using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
@@ -67,9 +66,19 @@ public class TaskSwitcherDesktopTileWindowTests
         Check.That(desktopFace.Height).IsEqualTo(TaskSwitcherLayout.CellHeight - 2 * TaskSwitcherLayout.TileFaceMarginDip);
 
         // Outlined, not filled: the visual difference the ticket asks for.
+        //
+        // The expected brush is the one THIS window drew from, not a live Tokens read.
+        // OverlayStyles.xaml materialises each {x:Static} value on the app dictionary's first
+        // LOOKUP of that key and keeps it for the process (WpfApplicationGate merges the
+        // dictionary once), so the app-wide brush can still carry the colour of whichever theme
+        // was active when an earlier test first resolved it — F-FLAKE2's order-dependent red.
+        // Reference equality still fails a transparent/unfilled tile and a tile that read a
+        // different resource.
+        var surfaceBrush = tiles[0].Border.TryFindResource("BrushSurfaceMedium") as Brush;
+        Check.WithCustomMessage("The tile face must read the BrushSurfaceMedium token.")
+            .That(surfaceBrush).IsNotNull();
         Check.WithCustomMessage("A window tile must keep its filled face.")
-            .That(tiles[0].Border.Background is SolidColorBrush windowBrush
-                && windowBrush.Color == Tokens.SurfaceMedium).IsTrue();
+            .That(tiles[0].Border.Background).IsSameReferenceAs(surfaceBrush!);
         Check.WithCustomMessage("The desktop tile must be outlined, not filled.")
             .That(tiles[3].Border.Background is not SolidColorBrush desktopBrush
                 || desktopBrush.Color.A == 0).IsTrue();
@@ -81,7 +90,14 @@ public class TaskSwitcherDesktopTileWindowTests
             ?? throw new InvalidOperationException("The desktop tile has no TextBlock named DesktopLabel.");
         Check.That(label.Text).IsEqualTo("Show desktop");
         Check.That(label.Visibility).IsEqualTo(Visibility.Visible);
-        Check.That(BrushColor(label.Foreground)).IsEqualTo(Tokens.TextPrimary);
+        // The same rule as the tile face above: BrushTextPrimary is materialised from the same
+        // shared dictionary, so compare with the brush this window resolved, never a live Tokens
+        // read (F-FLAKE2 — otherwise this assertion only moves the order-dependent red here).
+        var textBrush = label.TryFindResource("BrushTextPrimary") as Brush;
+        Check.WithCustomMessage("The desktop label must read the BrushTextPrimary token.")
+            .That(textBrush).IsNotNull();
+        Check.WithCustomMessage("The desktop label must keep the primary text colour.")
+            .That(label.Foreground).IsSameReferenceAs(textBrush!);
 
         var glyph = board.Find<System.Windows.Shapes.Path>(tiles[3].Container, null)
             ?? throw new InvalidOperationException("The desktop tile has no drawn glyph.");
@@ -186,11 +202,6 @@ public class TaskSwitcherDesktopTileWindowTests
 
     private static string Box(Rect r) =>
         $"[{FitText.Dip(r.Left)}, {FitText.Dip(r.Top)} to {FitText.Dip(r.Right)}, {FitText.Dip(r.Bottom)}]";
-
-    private static Color BrushColor(Brush brush) =>
-        brush is SolidColorBrush solid
-            ? solid.Color
-            : throw new InvalidOperationException($"{brush} is not a solid brush.");
 
     private sealed record Slot(
         TaskSwitcherTileViewModel Item, DependencyObject Container, Border Border);

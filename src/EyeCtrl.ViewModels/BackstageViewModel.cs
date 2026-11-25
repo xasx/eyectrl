@@ -141,6 +141,7 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     /// </summary>
     public void ShowOverlay()
     {
+        ResetCardProgress();
         _mainTargets.Clear();
         DwellDetector.ClearTargets();
         _latch.Clear();
@@ -159,6 +160,7 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     public void HideOverlay()
     {
         IsVisible = false;
+        ResetCardProgress();
         _mainTargets.Clear();
         DwellDetector.ClearTargets();
         _latch.Clear();
@@ -258,6 +260,7 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     public void ShowModal(string modalId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modalId);
+        ResetCardProgress();
         ModalId = modalId;
         IsModalOpen = true;
         DwellDetector.ClearTargets();
@@ -317,6 +320,7 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
         if (!IsVisible || IsModalOpen)
             return;
 
+        ResetCardProgress();
         DwellDetector.ClearTargets();
         _latch.Clear();
         CloseDwellProgress = 0;
@@ -399,6 +403,21 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
 
         _mainTargets[existing] = registration;
         return true;
+    }
+
+    /// <summary>
+    /// Drops every card's progress bar to zero before a clear. <c>ClearTargets()</c> emits no
+    /// progress, so a card dwell interrupted by a modal it did not open (or by a hide / a restore)
+    /// would otherwise leave its bar frozen part-filled — and a part-filled bar reads as "still
+    /// armed" right next to Quit. The Close disc has its own observable and is not a card.
+    /// </summary>
+    private void ResetCardProgress()
+    {
+        foreach (var registration in _mainTargets)
+        {
+            if (registration is CardRegistration)
+                CardProgress?.Invoke(registration.Id, 0);
+        }
     }
 
     /// <summary>Adds a fresh target and puts it behind the leave-before-arm latch. Its centre is

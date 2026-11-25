@@ -6,7 +6,10 @@ using EyeCtrl.Core.Localization;
 /// The four states the Backstage status strip's Supervisor badge can report — the live presence
 /// answer, not the on-disk setting alone. <see cref="Off"/> means supervision is deliberately off;
 /// <see cref="NotAnswering"/> means it is on but nothing is answering; <see cref="Unavailable"/>
-/// means there is no Supervisor to ask (the service is not composed, or its exe is missing).
+/// means the Supervisor exe is missing. In production that last state has exactly one cause:
+/// <see cref="SupervisionComposition"/> always composes a non-null service, so the badge's
+/// "Supervisor not installed" text is true whenever it is shown. The null-service branch is
+/// defensive/test-only and deliberately reuses the same label.
 /// </summary>
 public enum SupervisorPresence
 {
@@ -32,12 +35,13 @@ public sealed record BackstageStatusSnapshot(
     string SupervisorText)
 {
     /// <summary>
-    /// Reads the <see cref="SupervisionToggleService"/>'s presence. Order matters: an absent
-    /// service (or a missing Supervisor exe) is <see cref="SupervisorPresence.Unavailable"/> even
-    /// when the setting says enabled, because "off" would claim a deliberate choice the owner never
-    /// made; a deliberately off supervision is <see cref="SupervisorPresence.Off"/> regardless of a
-    /// stale process; otherwise the live delivery-freshness answer decides connected vs. not
-    /// answering.
+    /// Reads the <see cref="SupervisionToggleService"/>'s presence. Order matters: a missing
+    /// Supervisor exe is <see cref="SupervisorPresence.Unavailable"/> even when the setting says
+    /// enabled, because "off" would claim a deliberate choice the owner never made; a deliberately
+    /// off supervision is <see cref="SupervisorPresence.Off"/> regardless of a stale process;
+    /// otherwise the live delivery-freshness answer decides connected vs. not answering. The null
+    /// argument is the defensive/test-only branch — production always composes a service — and it
+    /// maps to the same unavailable state the exe probe produces.
     /// </summary>
     public static SupervisorPresence PresenceOf(SupervisionToggleService? supervision) =>
         supervision is null

@@ -101,6 +101,90 @@ public class BackstageViewModelTests
     }
 
     [Fact]
+    public void ModalSwap_SurvivesAReLayoutWhileTheModalIsOpen()
+    {
+        // Ticket 3's window re-runs layout when the modal opens, on a DPI change and on a theme
+        // change. A re-reported card/close face must only update the remembered geometry while the
+        // modal owns the surface — registering it live would put a background card BEHIND the
+        // confirmation, and OnTargetActivated would then deliver its id as a modal choice.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        using var vm = NewVm(messenger, settings);
+        ShowWithCardAndClose(vm);
+        Arm(messenger);
+
+        var cards = new List<string>();
+        var choices = new List<string>();
+        vm.CardActivated += cards.Add;
+        vm.ModalChoiceActivated += choices.Add;
+
+        vm.ShowModal("quit");
+        vm.RegisterModalChoice("modal_cancel");
+        vm.UpdateModalChoiceCentre("modal_cancel", ModalChoiceCentre);
+
+        vm.UpdateCardPosition(BackstageViewModel.QuitCardId, CardRect);
+        vm.UpdateCloseButtonPosition(CloseCentre);
+
+        Check.That(vm.DetectorForTest.Targets.Select(t => t.Id))
+            .ContainsExactly("modal_cancel");
+
+        var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1_000L;
+        Dwell(messenger, CardCentre, 200_000, 200_000 + dwellUs);
+        Check.That(cards).IsEmpty();
+        Check.That(choices).IsEmpty();
+    }
+
+    [Fact]
+    public void CardProgress_IsResetOnEveryClearPath()
+    {
+        // ClearTargets() emits no progress: an interrupted card bar would stay frozen part-filled,
+        // which reads as "still armed" right next to Quit. Every path that clears the grid must
+        // drop the cards' bars to zero.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.DwellPauseGraceMs = 0;   // each Partial() starts from zero
+        using var vm = NewVm(messenger, settings);
+        ShowWithCardAndClose(vm);
+
+        var events = new List<ProgressEvent>();
+        vm.CardProgress += (id, progress) => events.Add(new ProgressEvent(id, progress));
+
+        long clock = 0;
+        void PartialCardDwell()
+        {
+            messenger.Send(new GazeCursorMovedMessage(Away, clock));   // arm the latch
+            Dwell(messenger, CardCentre, clock + 30_000, clock + 150_000);
+            clock += 200_000;
+        }
+
+        PartialCardDwell();
+        events.Clear();
+        vm.ShowModal("quit");
+        Check.That(events).ContainsExactly(new ProgressEvent(BackstageViewModel.QuitCardId, 0));
+
+        vm.DismissModal();
+        PartialCardDwell();
+        events.Clear();
+        vm.HideOverlay();
+        Check.That(events).ContainsExactly(new ProgressEvent(BackstageViewModel.QuitCardId, 0));
+
+        vm.ShowOverlay();
+        vm.UpdateCardPosition(BackstageViewModel.QuitCardId, CardRect);
+        vm.UpdateCloseButtonPosition(CloseCentre);
+        PartialCardDwell();
+        events.Clear();
+        vm.RestoreMainSurface();
+        Check.That(events).ContainsExactly(new ProgressEvent(BackstageViewModel.QuitCardId, 0));
+
+        PartialCardDwell();
+        events.Clear();
+        vm.ShowOverlay();
+        Check.That(events).ContainsExactly(new ProgressEvent(BackstageViewModel.QuitCardId, 0));
+    }
+
+    private sealed record ProgressEvent(string Id, double Progress);
+
+    [Fact]
     public void Latch_TargetRegisteredUnderTheRestingGaze_DoesNotFireUntilTheGazeLeaves()
     {
         // The opening gaze (the toolbar Backstage disc) must not complete the first card it lands
@@ -191,6 +275,12 @@ public class BackstageViewModelTests
 
         // Every (re)open and modal transition starts the disc from zero.
         vm.ShowOverlay();
+        vm.CloseDwellProgress = 0.5;
+        vm.CloseDwellPaused = true;
+        vm.ShowOverlay();
+        Check.That(vm.CloseDwellProgress).IsEqualTo(0);
+        Check.That(vm.CloseDwellPaused).IsFalse();
+
         vm.CloseDwellProgress = 0.5;
         vm.CloseDwellPaused = true;
         vm.ShowModal("quit");

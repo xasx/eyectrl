@@ -11,16 +11,22 @@ using EyeCtrl.Core.Localization;
 using EyeCtrl.Tests.TestSupport;
 
 /// <summary>
-/// Ticket 02's status strip is <c>fit=row</c> until Ticket 03 adds the real badge/strip class and
-/// measurer. That deferral left the German fit ungated, so this is the REVIEWER's headless
-/// backstop the l10n coordinator asked for: the three WIDEST German badges, rendered side by side
-/// at the user's 2.0× in the production overlay font, must show whole — no clipping, no ellipsis,
-/// and the whole strip inside the reference work area.
+/// A SMOKE RENDER, not a fit gate, for the Backstage status strip's German badges. It lays the
+/// three widest approved German badges side by side at the user's 2.0× in the production overlay
+/// font and checks one thing a headless probe honestly can before the window exists: their total
+/// width still fits the 1920 DIP reference work area.
 ///
 /// <para>
-/// It is deliberately NOT a fit class and adds no string-table metadata. The badge padding and
-/// gap below are this probe's generous assumptions; Ticket 03's real strip geometry replaces them
-/// when the window exists. The doubled-text probe at the end proves the width check can fail.
+/// <b>The German FIT of these badges is UNGATED until Ticket 03</b> adds the real badge/strip fit
+/// class and measurer with <c>BackstageWindow</c>. This test must not be read as that gate: a
+/// horizontal <c>StackPanel</c> measures children with infinite width, so per-badge "no clip /
+/// no trim / natural ≤ actual" checks are tautological and are deliberately not written here.
+/// The tenfold-label probe at the end only proves the total-width check can fail.
+/// </para>
+///
+/// <para>
+/// The badge padding and gap are this probe's generous assumptions; Ticket 03's real strip
+/// geometry replaces them. No fit class and no string-table metadata are added here.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]
@@ -33,7 +39,7 @@ public class BackstageStatusStripRenderTests
     private const double BadgeGapDip = 16;
 
     [StaFact]
-    public void TheThreeWidestGermanBadges_ShowWholeSideBySideAt2x()
+    public void TheThreeWidestGermanBadges_SmokeRender_SideBySideAt2x()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var previous = StringTable.Current;
@@ -53,21 +59,10 @@ public class BackstageStatusStripRenderTests
                 family: Tokens.FontStandard);
 
             var width = badges.Sum(b => b.ActualWidth + b.Margin.Left + b.Margin.Right);
-            foreach (var (badge, label) in badges.Zip(labels))
-            {
-                var text = (TextBlock)badge.Child;
-                Check.WithCustomMessage($"\"{label}\" is trimmed or clipped in its badge.")
-                    .That(text.TextTrimming).IsEqualTo(TextTrimming.None);
-                Check.WithCustomMessage($"\"{label}\" wraps instead of reading on one line.")
-                    .That(text.TextWrapping).IsEqualTo(TextWrapping.NoWrap);
-                Check.WithCustomMessage($"\"{label}\" needs {FitText.Dip(FitText.NaturalWidth(text, label))} "
-                        + $"but is given {FitText.Dip(text.ActualWidth)} DIP.")
-                    .That(FitText.NaturalWidth(text, label)).IsLessOrEqualThan(text.ActualWidth + 0.5);
-            }
-
             Check.WithCustomMessage(
                     $"The three widest German badges need {FitText.Dip(width)} DIP side by side, "
-                    + $"wider than the {FitText.Dip(AppFitMeasurers.ReferenceWorkArea.Width)} DIP work area.")
+                    + $"wider than the {FitText.Dip(AppFitMeasurers.ReferenceWorkArea.Width)} DIP work area. "
+                    + "The badges' real fit class is Ticket 03's.")
                 .That(width).IsStrictlyLessThan(AppFitMeasurers.ReferenceWorkArea.Width);
 
             // Teeth: the same probe must reject a strip that cannot fit.

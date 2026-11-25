@@ -1863,6 +1863,48 @@
       "Literal": "\"native exit after the last OnExit step\"",
       "Category": "id",
       "Reason": "The OnExit sequence's post-last-step marker (native teardown), used only as the step name in the stuck-exit report; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"__backstage_close__\"",
+      "Category": "id",
+      "Reason": "The Backstage Close disc's dwell-target id (the TaskSwitcher close precedent); an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_calibrate\"",
+      "Category": "id",
+      "Reason": "The Calibrate card's dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_quit\"",
+      "Category": "id",
+      "Reason": "The Quit card's dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_restart\"",
+      "Category": "id",
+      "Reason": "The Restart card's dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_rollback\"",
+      "Category": "id",
+      "Reason": "The Rollback card's dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_uninstall\"",
+      "Category": "id",
+      "Reason": "The Uninstall card's dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_update\"",
+      "Category": "id",
+      "Reason": "The Install update card's dwell-target id; an identifier, never shown."
     }
   ]
 }

@@ -1436,6 +1436,41 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"__backstage_close__\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_calibrate\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_quit\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_restart\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_rollback\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_uninstall\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/BackstageViewModel.cs",
+      "Literal": "\"backstage_update\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.ViewModels/DragTrailViewModel.cs",
       "Literal": "\"Drag_release\"",
       "Count": 1

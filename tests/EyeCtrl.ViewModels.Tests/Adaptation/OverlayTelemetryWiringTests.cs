@@ -65,6 +65,7 @@ public class OverlayTelemetryWiringTests
         var expected = new Dictionary<string, DwellContext>
         {
             [nameof(ActionMenuViewModel)] = DwellContext.ActionMenu,
+            [nameof(BackstageViewModel)] = DwellContext.Other,
             [nameof(DragTrailViewModel)] = DwellContext.DragTrail,
             [nameof(EdgeButtonBarViewModel)] = DwellContext.EdgeButtonBar,
             [nameof(FirstRunGuideViewModel)] = DwellContext.Other,

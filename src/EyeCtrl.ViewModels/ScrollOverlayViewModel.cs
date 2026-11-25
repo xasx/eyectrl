@@ -139,6 +139,8 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
 
     public override void Receive(GazeCursorMovedMessage message)
     {
+        NoteSamplePaused(message.IsPaused);
+
         // Route through the shared sample gate (round-2 finding 2): this override replaced
         // base.Receive entirely, silently bypassing the pause gate — and its output IS OS input
         // (TargetVelocityChanged drives ScrollWorker → SendInput.Scroll). A5's Pause stops the

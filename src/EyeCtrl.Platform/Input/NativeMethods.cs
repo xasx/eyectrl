@@ -13,6 +13,11 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial short VkKeyScanW(ushort ch);
 
+    [LibraryImport("user32.dll", EntryPoint = "MapVirtualKeyW")]
+    internal static partial uint MapVirtualKey(uint uCode, uint uMapType);
+
+    internal const uint MAPVK_VK_TO_VSC = 0;
+
     internal const int SM_CXSCREEN = 0;
     internal const int SM_CYSCREEN = 1;
 
@@ -33,11 +38,13 @@ internal static partial class NativeMethods
     internal const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     internal const uint KEYEVENTF_KEYUP = 0x0002;
     internal const uint KEYEVENTF_UNICODE = 0x0004;
+    internal const uint KEYEVENTF_SCANCODE = 0x0008;
 
     internal const ushort VK_SHIFT = VirtualKeys.Shift;
     internal const ushort VK_CONTROL = VirtualKeys.Control;
     internal const ushort VK_MENU = VirtualKeys.Alt;
     internal const ushort VK_LWIN = VirtualKeys.LWin;
+    internal const ushort VK_RWIN = 0x5C;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct INPUT

@@ -390,6 +390,8 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
 
     public override void Receive(GazeCursorMovedMessage message)
     {
+        NoteSamplePaused(message.IsPaused);
+
         if (!IsDragActive) return;
 
         // A gap-held sample repeats the last valid position, so every write below would be a no-op

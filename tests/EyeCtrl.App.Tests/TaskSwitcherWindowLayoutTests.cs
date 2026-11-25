@@ -148,13 +148,13 @@ public class TaskSwitcherWindowLayoutTests
             // its {x:Static} values on the app dictionary's first lookup of each key and then keeps
             // them for the process, so a live Tokens.TextSecondary read is only correct when that
             // first lookup happened under Midnight (F-FLAKE2).
-            var hintBrush = (Brush?)hint.FindResource("BrushTextSecondary");
+            var hintBrush = hint.TryFindResource("BrushTextSecondary") as Brush;
             Check.WithCustomMessage("The hint must read the BrushTextSecondary token.")
                 .That(hintBrush).IsNotNull();
             Check.WithCustomMessage("The hint must keep the secondary text colour.")
                 .That(hint.Foreground).IsSameReferenceAs(hintBrush!);
 
-            var chipBrush = (Brush?)chipText.FindResource("BrushTextSecondary");
+            var chipBrush = chipText.TryFindResource("BrushTextSecondary") as Brush;
             Check.WithCustomMessage("The overflow chip must read the BrushTextSecondary token.")
                 .That(chipBrush).IsNotNull();
             Check.WithCustomMessage("The overflow chip must keep the secondary text colour.")

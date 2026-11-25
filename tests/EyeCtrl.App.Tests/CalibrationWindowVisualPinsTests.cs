@@ -88,7 +88,7 @@ public class CalibrationWindowVisualPinsTests
             // read. OverlayStyles.xaml's {x:Static} values freeze when the app dictionary first
             // looks the key up, so Tokens.StrokeHalo is only the right expectation when that
             // happened under Midnight (F-FLAKE2).
-            var haloBrush = (Brush?)window.TargetDot.FindResource("BrushStrokeHalo");
+            var haloBrush = window.TargetDot.TryFindResource("BrushStrokeHalo") as Brush;
             Check.WithCustomMessage("The dot's rim must read the BrushStrokeHalo token.")
                 .That(haloBrush).IsNotNull();
             Check.WithCustomMessage(
@@ -111,7 +111,7 @@ public class CalibrationWindowVisualPinsTests
             foreach (var card in new[] { window.ProgressCard, window.CompletionCard, window.CancelCard, window.CancelDwellButton })
             {
                 // The same rule as the dot's rim: compare with the brush the card itself resolved.
-                var surfaceBrush = (Brush?)card.FindResource("BrushSurfaceDark");
+                var surfaceBrush = card.TryFindResource("BrushSurfaceDark") as Brush;
                 Check.WithCustomMessage("The card must read the BrushSurfaceDark token.")
                     .That(surfaceBrush).IsNotNull();
                 Check.WithCustomMessage(

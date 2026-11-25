@@ -74,7 +74,7 @@ public class TaskSwitcherDesktopTileWindowTests
         // was active when an earlier test first resolved it — F-FLAKE2's order-dependent red.
         // Reference equality still fails a transparent/unfilled tile and a tile that read a
         // different resource.
-        var surfaceBrush = (Brush?)tiles[0].Border.FindResource("BrushSurfaceMedium");
+        var surfaceBrush = tiles[0].Border.TryFindResource("BrushSurfaceMedium") as Brush;
         Check.WithCustomMessage("The tile face must read the BrushSurfaceMedium token.")
             .That(surfaceBrush).IsNotNull();
         Check.WithCustomMessage("A window tile must keep its filled face.")
@@ -93,7 +93,7 @@ public class TaskSwitcherDesktopTileWindowTests
         // The same rule as the tile face above: BrushTextPrimary is materialised from the same
         // shared dictionary, so compare with the brush this window resolved, never a live Tokens
         // read (F-FLAKE2 — otherwise this assertion only moves the order-dependent red here).
-        var textBrush = (Brush?)label.FindResource("BrushTextPrimary");
+        var textBrush = label.TryFindResource("BrushTextPrimary") as Brush;
         Check.WithCustomMessage("The desktop label must read the BrushTextPrimary token.")
             .That(textBrush).IsNotNull();
         Check.WithCustomMessage("The desktop label must keep the primary text colour.")

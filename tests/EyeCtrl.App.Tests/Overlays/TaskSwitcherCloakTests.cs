@@ -8,7 +8,6 @@ using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
-using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Icons;
 using EyeCtrl.Tests.TestSupport;
@@ -56,17 +55,23 @@ public class TaskSwitcherCloakTests
 
             Check.That(window.Background).IsInstanceOf<SolidColorBrush>();
             var background = (SolidColorBrush)window.Background;
-            var expected = Tokens.BrushSurfaceDarkOpaque.Color;
+
+            // The expected brush is the one THIS window resolved, not a live Tokens read:
+            // OverlayStyles.xaml materialises each {x:Static} value on the app dictionary's first
+            // lookup of that key and keeps it for the process, so the opaque surface can still
+            // carry the colour of whichever theme was active when an earlier test first resolved
+            // it (F-FLAKE2). The "opaque == SurfaceDark at full alpha" derivation is pinned for
+            // every theme by ThemeShapeTests.
+            var expectedBrush = window.TryFindResource("BrushSurfaceDarkOpaque") as SolidColorBrush;
+            Check.WithCustomMessage("The switcher must read the BrushSurfaceDarkOpaque token.")
+                .That(expectedBrush).IsNotNull();
 
             Check.WithCustomMessage(
                     $"the switcher background is {background.Color}; a non-layered window must paint the " +
-                    $"theme's SurfaceDark RGB at full alpha, which is {expected}.")
-                .That(background.Color).IsEqualTo(expected);
+                    $"brush it resolves for BrushSurfaceDarkOpaque, which is {expectedBrush!.Color}.")
+                .That(window.Background).IsSameReferenceAs(expectedBrush);
             Check.WithCustomMessage("the switcher's window background must be fully opaque")
                 .That(background.Color.A).IsEqualTo(byte.MaxValue);
-            Check.WithCustomMessage("the opaque background must keep the theme's SurfaceDark RGB")
-                .That((background.Color.R, background.Color.G, background.Color.B))
-                .IsEqualTo((Tokens.SurfaceDark.R, Tokens.SurfaceDark.G, Tokens.SurfaceDark.B));
         }
         finally
         {

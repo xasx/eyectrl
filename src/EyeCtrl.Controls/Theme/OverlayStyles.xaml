@@ -61,11 +61,13 @@
     <!-- Geometry. Raw doubles for code and the validator; the CornerRadius forms for XAML,
          which cannot convert a double resource. Both are pulled from Tokens with {x:Static}
          so there is exactly one literal per value, in the theme classes.
-         NOTE: {x:Static} resolves at PARSE time, before a theme is chosen — so every key
-         here must also be written by ThemeResourceApplier.Apply, or it silently stays on
-         Midnight. Apply_CoversEveryKeyTheDictionaryDeclares enforces that. See spec §6.6.
-         Today every theme declares identical geometry and type, so "stays on Midnight"
-         is a mechanism statement, not a currently-observable bug — only
+         NOTE: WPF materialises each {x:Static} value at this dictionary's FIRST LOOKUP of
+         that key (a BAML dictionary defers its entries), and the token then reads whichever
+         theme is active at that moment — so every key here must also be written by
+         ThemeResourceApplier.Apply, or it keeps that first lookup's theme.
+         Apply_CoversEveryKeyTheDictionaryDeclares enforces that. See spec §6.6.
+         Today every theme declares identical geometry and type, so "keeps the first
+         lookup's theme" is a mechanism statement, not a currently-observable bug — only
          BorderThicknessStandard (Contrast = 2) actually differs. -->
     <x:Static x:Key="CornerRadiusSmall"    Member="theme:Tokens.CornerRadiusSmall"/>
     <x:Static x:Key="CornerRadiusStandard" Member="theme:Tokens.CornerRadiusStandard"/>

@@ -10,11 +10,12 @@ using System.Windows.Media;
 /// <see cref="ResourceDictionary"/>, so the 106 {StaticResource Brush*} lookups across the
 /// overlay XAML resolve to that theme.
 ///
-/// OverlayStyles.xaml pulls the same values through {x:Static}, but those resolve
-/// when WPF parses the dictionary — which happens during Application construction,
-/// before OnStartup can choose a theme. Writing explicitly makes the result
-/// independent of that ordering. Applied to Application.Resources at the top level,
-/// these entries take precedence over the merged dictionary's.
+/// OverlayStyles.xaml pulls the same values through {x:Static}, but WPF materialises each of
+/// those entries at the dictionary's FIRST LOOKUP of that key, and the {x:Static} then reads
+/// whichever theme is active at that moment — normally during Application construction, before
+/// OnStartup can choose one. Writing explicitly makes the result independent of that ordering.
+/// Applied to Application.Resources at the top level, these entries take precedence over the
+/// merged dictionary's.
 ///
 /// Keys are the ITheme property names verbatim, plus four derived CornerRadius keys and
 /// StandardBorderThickness.
@@ -61,8 +62,9 @@ public static class ThemeResourceApplier
     ///
     /// The reflected half covers everything on <see cref="ITheme"/>. The explicit tail covers
     /// the *derived* values, which are not interface members and would otherwise reach XAML
-    /// only through <c>{x:Static}</c> — resolved at parse time, before a theme is chosen, and
-    /// therefore frozen to Midnight. See the design spec §6.6;
+    /// only through <c>{x:Static}</c> — materialised at the dictionary's first lookup of each
+    /// key, under whatever theme was active then, and kept for the process. See the design
+    /// spec §6.6;
     /// <c>Apply_CoversEveryKeyTheDictionaryDeclares</c> fails if this tail falls behind
     /// <c>OverlayStyles.xaml</c>.
     /// </summary>

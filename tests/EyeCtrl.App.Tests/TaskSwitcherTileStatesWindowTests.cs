@@ -159,7 +159,7 @@ public class TaskSwitcherTileStatesWindowTests
                 + $"(content {FitText.Dip(contentWidth)}, column {FitText.Dip(room)}); "
                 + $"progress top {FitText.Dip(progressTop)}; column needs {FitText.Dip(needed)} of "
                 + $"{FitText.Dip(slot.Height)} DIP (headroom {FitText.Dip(slot.Height - needed)})");
-            var wordBrush = (Brush?)word.FindResource("BrushTextSecondary");
+            var wordBrush = word.TryFindResource("BrushTextSecondary") as Brush;
             Check.WithCustomMessage("The minimised badge word must read the BrushTextSecondary token.")
                 .That(wordBrush).IsNotNull();
             Check.WithCustomMessage("The minimised badge word must keep the secondary text colour.")
@@ -169,7 +169,7 @@ public class TaskSwitcherTileStatesWindowTests
             Check.WithCustomMessage("The badge's drawn minimise bar has no ink.")
                 .That(bar.ActualWidth).IsStrictlyGreaterThan(0);
             Check.That(bar.ActualHeight).IsStrictlyGreaterThan(0);
-            var barBrush = (Brush?)bar.FindResource("BrushTextSecondary");
+            var barBrush = bar.TryFindResource("BrushTextSecondary") as Brush;
             Check.WithCustomMessage("The minimise bar must read the BrushTextSecondary token.")
                 .That(barBrush).IsNotNull();
             Check.WithCustomMessage("The minimise bar must keep the secondary text colour.")
@@ -341,7 +341,7 @@ public class TaskSwitcherTileStatesWindowTests
         Check.WithCustomMessage($"The empty message {Box(box)} is not at the tile area's centre.")
             .That(box.Left + (box.Width / 2)).IsCloseTo(area.Area.X + (area.Area.Width / 2), 0.5);
         Check.That(box.Top + (box.Height / 2)).IsCloseTo(area.Area.Y + (area.Area.Height / 2), 0.5);
-        var messageBrush = (Brush?)message.FindResource("BrushTextSecondary");
+        var messageBrush = message.TryFindResource("BrushTextSecondary") as Brush;
         Check.WithCustomMessage("The empty message must read the BrushTextSecondary token.")
             .That(messageBrush).IsNotNull();
         Check.WithCustomMessage("The empty message must keep the secondary text colour.")
@@ -413,7 +413,7 @@ public class TaskSwitcherTileStatesWindowTests
 
         var text = Descendants<TextBlock>(chip).Single();
         Check.That(text.Text).IsEqualTo("More windows: 25");
-        var chipBrush = (Brush?)text.FindResource("BrushTextSecondary");
+        var chipBrush = text.TryFindResource("BrushTextSecondary") as Brush;
         Check.WithCustomMessage("The overflow chip must read the BrushTextSecondary token.")
             .That(chipBrush).IsNotNull();
         Check.WithCustomMessage("The overflow chip must keep the secondary text colour.")

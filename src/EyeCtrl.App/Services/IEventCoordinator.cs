@@ -103,4 +103,7 @@ public record EventCoordinationContext(
     // coordinator tests keep their contexts unchanged; production passes the same Platform probes
     // the verified input decorator uses.
     ICursorPositionProbe? CursorPositionProbe = null,
-    IInputIntegrityProbe? InputIntegrityProbe = null);
+    IInputIntegrityProbe? InputIntegrityProbe = null,
+    // Ticket 03: the app-lifetime Backstage view model. Nullable so focused coordinator tests keep
+    // their contexts unchanged; a null disables the menu rather than throwing at startup.
+    BackstageViewModel? BackstageVM = null);

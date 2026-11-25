@@ -20,6 +20,7 @@ public sealed class SetupNoticeWatch : IDisposable
     private readonly Func<DateTimeOffset> _now;
     private readonly Func<Action, IDisposable?>? _fileChange;
     private readonly Func<bool>? _isGuideOpen;
+    private readonly Func<bool>? _isBackstageOpen;
 
     private DateTimeOffset _startedAt;
     private bool _started;
@@ -41,6 +42,10 @@ public sealed class SetupNoticeWatch : IDisposable
     /// and drive polls.</param>
     /// <param name="isGuideOpen">Whether the first-run guide holds the screen; while it does, the
     /// checks and the expiry window both pause, and the guide's close pokes once (r4 F3, r1 F24).</param>
+    /// <param name="isBackstageOpen">Whether the fullscreen Backstage menu holds the screen. Same
+    /// rule as the guide: this watch shows THROUGH the host presenter directly, bypassing every
+    /// host guard, so the watch itself must defer or a card pixels-over the menu would be
+    /// undismissable by gaze for up to the watch's 90 s window.</param>
     public SetupNoticeWatch(
         SetupLastNoticeService service,
         TimeSpan window,
@@ -48,13 +53,15 @@ public sealed class SetupNoticeWatch : IDisposable
         Action<TimeSpan, Action> schedule,
         Func<DateTimeOffset> now,
         Func<Action, IDisposable?>? fileChange = null,
-        Func<bool>? isGuideOpen = null)
+        Func<bool>? isGuideOpen = null,
+        Func<bool>? isBackstageOpen = null)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
         _now = now ?? throw new ArgumentNullException(nameof(now));
         _fileChange = fileChange;
         _isGuideOpen = isGuideOpen;
+        _isBackstageOpen = isBackstageOpen;
         if (window <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(window));
         if (interval <= TimeSpan.Zero || interval > window)
@@ -72,6 +79,15 @@ public sealed class SetupNoticeWatch : IDisposable
     /// <summary>Guide opened or closed: closing pokes once (r4 F3).</summary>
     /// <param name="open">True when the first-run guide has opened.</param>
     public void OnGuideOpenChanged(bool open)
+    {
+        if (!open) Poke();
+    }
+
+    /// <summary>The fullscreen Backstage menu opened or closed: closing pokes once, exactly like
+    /// the guide's close. Opening itself needs no action — <see cref="ScreenHeld"/> makes every
+    /// tick and the expiry window stand down.</summary>
+    /// <param name="open">True when Backstage has opened.</param>
+    public void OnBackstageOpenChanged(bool open)
     {
         if (!open) Poke();
     }
@@ -100,7 +116,7 @@ public sealed class SetupNoticeWatch : IDisposable
             _fileWatch = null;
         }
 
-        if (CheckStartupWhenGuideClosed())
+        if (CheckStartupWhenScreenFree())
         {
             NoticeShown = true;
             if (IsCurrentSessionRecord())
@@ -119,7 +135,7 @@ public sealed class SetupNoticeWatch : IDisposable
         if (_done)
             return;
 
-        if (CheckStartupWhenGuideClosed())
+        if (CheckStartupWhenScreenFree())
         {
             NoticeShown = true;
             if (IsCurrentSessionRecord())
@@ -129,9 +145,10 @@ public sealed class SetupNoticeWatch : IDisposable
             }
         }
 
-        // The 90 s window must not run out behind the guide (r1 F24): expiry is deferred while
-        // GuideOpen, and the guide's close-time poke shows the notice then.
-        if (_now() - _startedAt >= _window && !GuideOpen)
+        // The 90 s window must not run out behind the guide (r1 F24) or the fullscreen Backstage
+        // menu: expiry is deferred while either holds the screen, and its close-time poke shows the
+        // notice then.
+        if (_now() - _startedAt >= _window && !ScreenHeld)
         {
             Finish();
             return;
@@ -150,7 +167,7 @@ public sealed class SetupNoticeWatch : IDisposable
         if (!_started || _done)
             return;
 
-        if (!CheckStartupWhenGuideClosed())
+        if (!CheckStartupWhenScreenFree())
             return;
 
         NoticeShown = true;
@@ -165,10 +182,11 @@ public sealed class SetupNoticeWatch : IDisposable
 
     /// <summary>r4 F3 + r1 F24: CheckStartup writes setup-notice-shown.json BEFORE _show (no burn
     /// behind the guide), and the expiry window must not run out while the guide holds the
-    /// screen — both skip while GuideOpen; the close-time poke shows then.</summary>
-    private bool GuideOpen => _isGuideOpen?.Invoke() ?? false;
+    /// screen — both skip while a fullscreen surface is up; the close-time poke shows then.</summary>
+    private bool ScreenHeld =>
+        (_isGuideOpen?.Invoke() ?? false) || (_isBackstageOpen?.Invoke() ?? false);
 
-    private bool CheckStartupWhenGuideClosed() => !GuideOpen && _service.CheckStartup();
+    private bool CheckStartupWhenScreenFree() => !ScreenHeld && _service.CheckStartup();
 
     private void Finish()
     {

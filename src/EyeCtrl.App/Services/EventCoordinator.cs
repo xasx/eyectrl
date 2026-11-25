@@ -39,9 +39,15 @@ public class EventCoordinator : IEventCoordinator
     private OverlayMessageCoordinator? _overlayMessage;
     private FiredFlashCoordinator? _firedFlash;
     private SettingsUiCoordinator? _settingsUi;
+    private BackstageUiCoordinator? _backstage;
     private ActivationOfferCoordinator? _activationOffers;
     private SubPixelProbeCoordinator? _probe;
     private KeyboardProbe? _keyboardProbe;
+
+    // Written by the EyeCareExerciseActiveMessage handler (UI thread), read by the Backstage
+    // coordinator's open refusal. The exercise owns the screen and a fullscreen menu with dead
+    // dwell is a stranding shape, not a harmless extra layer.
+    private bool _exerciseActive;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
@@ -144,13 +150,23 @@ public class EventCoordinator : IEventCoordinator
         // Same fail-loud rationale as SetModelServices above.
         RequireInitialized(nameof(SetRestartCoordinator));
         _settingsUi!.SetRestartCoordinator(coordinator);
+        _backstage!.SetRestartCoordinator(coordinator);
     }
 
-    /// <summary>Hands the supervision toggle (ticket 04) to the settings window at construction.</summary>
+    /// <summary>Hands the supervision toggle (ticket 04) to the settings window and the Backstage
+    /// status strip.</summary>
     public void SetSupervisionToggle(SupervisionToggleService service)
     {
         RequireInitialized(nameof(SetSupervisionToggle));
         _settingsUi!.SetSupervisionToggle(service);
+        _backstage!.SetSupervisionToggle(service);
+    }
+
+    /// <summary>Hands the App's shutdown action to the Backstage Quit card. Called once at startup.</summary>
+    public void SetShutdownAction(Action shutdown)
+    {
+        RequireInitialized(nameof(SetShutdownAction));
+        _backstage!.SetShutdown(shutdown);
     }
 
     /// <summary>Hands the splash handle to the settings-UI coordinator (the guide's latched
@@ -171,7 +187,10 @@ public class EventCoordinator : IEventCoordinator
     public void SetSetupGateways(Func<ISetupGateways> gatewaysFactory)
     {
         RequireInitialized(nameof(SetSetupGateways));
+        // Settings keeps its Advanced rows until Ticket 04 moves them; Backstage needs the SAME
+        // factory now for the status strip's installed/UIAccess facts (a fresh instance per visit).
         _settingsUi!.SetSetupGateways(gatewaysFactory);
+        _backstage!.SetSetupGateways(gatewaysFactory);
     }
 
     /// <summary>
@@ -206,6 +225,10 @@ public class EventCoordinator : IEventCoordinator
     /// <see cref="Initialize"/>. Null before Initialize and after Dispose.
     /// </summary>
     internal ToolbarLifecycleCoordinator? ToolbarLifecycle => _toolbar;
+
+    /// <summary>The fullscreen Backstage sub-coordinator, for the lifecycle/precedence tests.
+    /// Null before Initialize and after Dispose.</summary>
+    internal BackstageUiCoordinator? Backstage => _backstage;
 
     public void Initialize(EventCoordinationContext context)
     {
@@ -268,6 +291,7 @@ public class EventCoordinator : IEventCoordinator
         // Settings feeds are gated in the toolbar coordinator.
         context.Messenger.Register<EventCoordinator, EyeCareExerciseActiveMessage>(this, (_, message) =>
         {
+            _exerciseActive = message.Active;
             context.Messenger.Send(new ExerciseScreenHoldMessage(message.Active));
             _quickActions?.SetSummonSuspended("exercise", message.Active);
         });
@@ -307,6 +331,11 @@ public class EventCoordinator : IEventCoordinator
         // coordinator, so all three must be initialized before it.
         _settingsUi = new SettingsUiCoordinator(_modal, _quickActions, _toolbar, _keyboard);
         _settingsUi.Initialize(context);
+
+        // Ticket 03: the fullscreen Backstage menu. A sibling of Settings, not a child of it; it
+        // reads the same shared modal state and the exercise predicate, and owns its own window.
+        _backstage = new BackstageUiCoordinator(_modal, _quickActions, _toolbar, () => _exerciseActive);
+        _backstage.Initialize(context);
 
         // Hand the settings sub-coordinator to the toolbar sub-coordinator: the per-sample gaze
         // route (which lives on ToolbarLifecycleCoordinator after the T8 fold) forwards to the
@@ -374,6 +403,11 @@ public class EventCoordinator : IEventCoordinator
         // — the SettingsRequested/CloseSettings registrations.)
         _settingsUi?.Dispose();
         _settingsUi = null;
+
+        // Backstage next: its unwind releases claims that the toolbar and quick-actions seams below
+        // must still be alive to honour. It also unregisters the Esc hook and the window notices.
+        _backstage?.Dispose();
+        _backstage = null;
 
         // The probe goes next: its restore needs the toolbar, keyboard and summon seams alive, and
         // its own messenger registration must go before those coordinators' teardown noise.

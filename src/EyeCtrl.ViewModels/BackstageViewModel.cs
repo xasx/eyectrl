@@ -65,6 +65,14 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     private readonly double _releaseMarginPhysical;
 
     /// <summary>
+    /// The ids of the modal choices currently registered. Kept so a modal that is replaced, dismissed
+    /// or hidden mid-dwell can drop every choice's progress bar to zero: <c>ClearTargets()</c> emits
+    /// no progress, so without this a part-filled modal bar would stay frozen beside a live
+    /// confirmation button (the N7 follow-up from the Ticket 2 review).
+    /// </summary>
+    private readonly List<string> _modalTargetIds = new();
+
+    /// <summary>
     /// The main surface the View last laid out, in registration order. Kept so a modal dismiss can
     /// re-register exactly the cards and Close disc that were on screen — as FRESH
     /// <see cref="DwellTarget"/> instances, never the pre-modal objects, whose accumulated dwell
@@ -119,6 +127,11 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     /// <summary>Test seam: the pause opt-in, so a test cannot pass for the wrong reason.</summary>
     internal bool DwellActiveWhilePausedForTest => DwellActiveWhilePaused;
 
+    /// <summary>Test seam: the sample stamp the base's pause gates read. Ticket 03 adds no
+    /// input-injecting card, but the stamp becomes load-bearing the moment one exists, and no
+    /// assembly-wide pin reads Receive overrides — so this one is pinned now.</summary>
+    internal bool LastSampleWasPausedForTest => LastSampleWasPaused;
+
     public BackstageViewModel(IMessenger messenger, EyeCtrlSettings settings,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
         : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Other, sink, dwellRegistry,
@@ -129,9 +142,24 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
         _latch = new LeaveBeforeArmLatch(DwellDetector, () => _releaseMarginPhysical);
     }
 
-    private int CardDwellMs => _settings.Dwell.ToolbarButtonDwellMs;
+    /// <summary>
+    /// A session card is Quit / Restart / Calibrate: more consequential than switching a window.
+    /// It therefore follows the Task Switcher tile's precedent — <c>max(TaskSwitcherTileDwellMs,
+    /// ToolbarButtonDwellMs)</c> — instead of inheriting the toolbar's 700 ms. Inheriting the
+    /// toolbar value would also let an owner who shortens their toolbar dwell silently shorten
+    /// Quit.
+    /// </summary>
+    private int CardDwellMs => Math.Max(_settings.Dwell.ToolbarButtonDwellMs, _settings.Dwell.TaskSwitcherTileDwellMs);
+
+    /// <summary>
+    /// The Close disc deliberately keeps the toolbar's quick dwell: it is the escape from the
+    /// surface, and the Task Switcher's own close disc is left at the same value for the same
+    /// reason (DwellSettings.cs's close-disc comment).
+    /// </summary>
     private int CloseDwellMs => _settings.Dwell.ToolbarButtonDwellMs;
-    private int ModalChoiceDwellMs => _settings.Dwell.ToolbarButtonDwellMs;
+
+    /// <summary>A confirmation choice carries the same weight as the card that opened it.</summary>
+    private int ModalChoiceDwellMs => Math.Max(_settings.Dwell.ToolbarButtonDwellMs, _settings.Dwell.TaskSwitcherTileDwellMs);
 
     /// <summary>
     /// Opens a fresh session: forgets the previous layout, clears every target and both latches,
@@ -142,6 +170,7 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     public void ShowOverlay()
     {
         ResetCardProgress();
+        ResetModalProgress();
         _mainTargets.Clear();
         DwellDetector.ClearTargets();
         _latch.Clear();
@@ -161,6 +190,7 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     {
         IsVisible = false;
         ResetCardProgress();
+        ResetModalProgress();
         _mainTargets.Clear();
         DwellDetector.ClearTargets();
         _latch.Clear();
@@ -261,6 +291,7 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modalId);
         ResetCardProgress();
+        ResetModalProgress();
         ModalId = modalId;
         IsModalOpen = true;
         DwellDetector.ClearTargets();
@@ -270,9 +301,14 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     }
 
     /// <summary>
-    /// Registers a modal choice at the origin and HOLDS it. The View pushes the real centre after
-    /// layout through <see cref="UpdateModalChoiceCentre"/>; until then the target cannot fire even
-    /// if the gaze happens to rest on the placeholder.
+    /// Registers a circular modal choice at the origin and HOLDS it. The View pushes the real centre
+    /// after layout through <see cref="UpdateModalChoiceCentre"/>; until then the target cannot fire
+    /// even if the gaze happens to rest on the placeholder.
+    /// <para>
+    /// Production uses the rectangular overload below instead: a modal button is wider than it is
+    /// tall, and a circle is the wrong shape for "what is drawn is what is hit". This overload
+    /// remains for tests and for any caller whose choice really is a disc.
+    /// </para>
     /// </summary>
     /// <param name="choiceId">The choice's id — what <see cref="ModalChoiceActivated"/> reports.</param>
     /// <param name="radiusDip">The drawn button's hit radius in DIP; defaults to the guide's 70 DIP
@@ -280,17 +316,51 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     public void RegisterModalChoice(string choiceId, double? radiusDip = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(choiceId);
+        _modalTargetIds.Add(choiceId);
         DwellDetector.AddTarget(new DwellTarget(choiceId, new PhysicalPoint(0, 0),
             DpiHelper.LogicalToPhysicalX(radiusDip ?? ModalChoiceRadiusDip), ModalChoiceDwellMs));
         _latch.Hold(choiceId);
     }
 
+    /// <summary>
+    /// Registers a RECTANGULAR modal choice from the drawn button's real half-extents in DIP. This
+    /// is the production path: the drawn button and the hit target are the same rectangle (B8), so
+    /// the confirm/cancel pair of a Quit dialog has no painted area that does not hit. The
+    /// placeholder rect is empty-sized and HELD, so it cannot fire before
+    /// <see cref="UpdateModalChoiceRect"/> pushes the real on-screen rectangle.
+    /// </summary>
+    /// <param name="choiceId">The choice's id.</param>
+    /// <param name="halfWidthDip">The drawn button's half width in DIP.</param>
+    /// <param name="halfHeightDip">The drawn button's half height in DIP.</param>
+    public void RegisterModalChoice(string choiceId, double halfWidthDip, double halfHeightDip)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(choiceId);
+        if (halfWidthDip <= 0) throw new ArgumentOutOfRangeException(nameof(halfWidthDip));
+        if (halfHeightDip <= 0) throw new ArgumentOutOfRangeException(nameof(halfHeightDip));
+
+        _modalTargetIds.Add(choiceId);
+        var placeholder = new PhysicalRect(0, 0,
+            DpiHelper.LogicalToPhysicalX(halfWidthDip * 2), DpiHelper.LogicalToPhysicalY(halfHeightDip * 2));
+        DwellDetector.AddTarget(new DwellTarget(choiceId, placeholder, ModalChoiceDwellMs));
+        _latch.Hold(choiceId);
+    }
+
     /// <summary>The View's layout/DPI push for a modal choice: real centre + the latch's positioned
     /// mark (the mark only sticks on an already-held target, so this follows
-    /// <see cref="RegisterModalChoice"/>).</summary>
+    /// <see cref="RegisterModalChoice(string, double?)"/>).</summary>
     public void UpdateModalChoiceCentre(string choiceId, PhysicalPoint centre)
     {
         DwellDetector.UpdateTargetCenter(choiceId, centre);
+        _latch.Positioned(choiceId);
+    }
+
+    /// <summary>
+    /// The View's layout/DPI push for a rectangular modal choice: the drawn button's real on-screen
+    /// rectangle, rebased without disturbing dwell state, plus the latch's positioned mark.
+    /// </summary>
+    public void UpdateModalChoiceRect(string choiceId, PhysicalRect screenRect)
+    {
+        DwellDetector.RebaseTarget(choiceId, screenRect);
         _latch.Positioned(choiceId);
     }
 
@@ -310,6 +380,19 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     }
 
     /// <summary>
+    /// The mouse/keyboard path to exactly what a completed dwell does. It clears the live targets
+    /// first (the same OnTargetActivated contract), so a caregiver click cannot leave a gaze dwell
+    /// running underneath the effect. Inert while hidden.
+    /// </summary>
+    public void ActivateForMouse(string targetId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetId);
+        if (!IsVisible)
+            return;
+        OnTargetActivated(targetId);
+    }
+
+    /// <summary>
     /// Re-registers the remembered main-surface cards + Close disc after a modal (or after an
     /// activation that did not open one), all held. Clears whatever targets were live first, so a
     /// modal's choices cannot survive into the grid. No-op while hidden or while a modal is open
@@ -317,10 +400,14 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     /// </summary>
     public void RestoreMainSurface()
     {
+        // The guard is load-bearing, not defensive: a re-layout that runs while a confirmation is
+        // up must only remember the card's new geometry. Clearing here would re-register the grid
+        // UNDER the modal, and OnTargetActivated would then deliver a card id as the modal answer.
         if (!IsVisible || IsModalOpen)
             return;
 
         ResetCardProgress();
+        ResetModalProgress();
         DwellDetector.ClearTargets();
         _latch.Clear();
         CloseDwellProgress = 0;
@@ -413,11 +500,29 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
     /// </summary>
     private void ResetCardProgress()
     {
-        foreach (var registration in _mainTargets)
+        // A snapshot, not the live list: CardProgress is a public event, and a handler that
+        // re-enters the VM (a View rebuilding its layout synchronously) must not invalidate the
+        // enumeration mid-raise.
+        foreach (var registration in _mainTargets.ToArray())
         {
             if (registration is CardRegistration)
                 CardProgress?.Invoke(registration.Id, 0);
         }
+    }
+
+    /// <summary>
+    /// Drops every live modal choice's progress bar to zero before the modal is replaced, dismissed
+    /// or hidden. Same reason as <see cref="ResetCardProgress"/>: ClearTargets emits no progress, so
+    /// a dismissed/replaced modal would otherwise leave a part-filled bar reading as still armed.
+    /// </summary>
+    private void ResetModalProgress()
+    {
+        if (_modalTargetIds.Count == 0)
+            return;
+
+        foreach (var id in _modalTargetIds.ToArray())
+            ModalProgress?.Invoke(id, 0);
+        _modalTargetIds.Clear();
     }
 
     /// <summary>Adds a fresh target and puts it behind the leave-before-arm latch. Its centre is

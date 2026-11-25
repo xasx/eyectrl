@@ -307,6 +307,9 @@ public partial class App : Application
             var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, actionMenuModBarVm, trackStatusVm, taskSwitcherVm,
                 quickActionsGridVm, modesMenuVm, repeatCursorVm,
                 _serviceProvider.GetRequiredService<ResumeStripViewModel>());
+            // Ticket 03: the Backstage menu's VM is app-lifetime (registered with the telemetry sink
+            // and dwell registry) and is handed to EventCoordinator through its context.
+            var backstageVm = _serviceProvider.GetRequiredService<BackstageViewModel>();
             var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
 
             // Stage-2 UI instrument 2, attached only for a measurement session. Without the attach the
@@ -355,9 +358,13 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<UserDictionaryService>(),
                 HeldButtonMarker: heldButtonMarker,
                 CursorPositionProbe: _serviceProvider.GetRequiredService<ICursorPositionProbe>(),
-                InputIntegrityProbe: _serviceProvider.GetRequiredService<IInputIntegrityProbe>());
+                InputIntegrityProbe: _serviceProvider.GetRequiredService<IInputIntegrityProbe>(),
+                BackstageVM: backstageVm);
             _eventCoordinator.Initialize(coordinationContext);
             _eventCoordinator.SetSplashHandle(_splashHandle);
+            // The Backstage Quit card must shut the App down exactly like the tray's Quit: the
+            // injected action is Application.Current.Shutdown, never a second exit path.
+            _eventCoordinator.SetShutdownAction(Shutdown);
 
             // The note gate's occluder sources (P2 D3) — the four production delegates live in
             // NoteOccluderWiring.Wire, so the real wiring is executable from a container test
@@ -617,7 +624,11 @@ public partial class App : Application
                 },
                 now: () => DateTimeOffset.Now,
                 fileChange: onChange => WatchSetupLastRecord(noticeFiles.RecordPath, onChange),
-                isGuideOpen: () => _eventCoordinator.IsGuideOpen);
+                isGuideOpen: () => _eventCoordinator.IsGuideOpen,
+                // The watch shows through the presenter directly, so it is the one proactive
+                // surface that must gate itself: a setup card pixels-over Backstage would be
+                // invisible to dwell for up to 90 s and the owner could not dismiss it by gaze.
+                isBackstageOpen: () => _eventCoordinator.IsBackstageOpen);
             // S2-1: when the startup guide is pending, the watch must NOT run its immediate check
             // here. GuideOpen is still false at construction (the guide opens only after the splash
             // exits), so an unseen failed-update record would burn its setup-notice-shown.json
@@ -630,9 +641,10 @@ public partial class App : Application
             if (!SafetySetupStartup.ShouldPrompt(
                     settings.General.SafetySetupDone, IsPausedLaunch, IsTestMode))
                 _setupNoticeWatch.Start();
-            // While the guide holds the screen the watch neither checks nor expires; its close
-            // pokes once (Task 11).
+            // While the guide or the fullscreen Backstage menu holds the screen the watch neither
+            // checks nor expires; its close pokes once (Task 11 / Ticket 03).
             _eventCoordinator.GuideOpenChanged += _setupNoticeWatch.OnGuideOpenChanged;
+            _eventCoordinator.BackstageOpenChanged += _setupNoticeWatch.OnBackstageOpenChanged;
 
             // T0(a) lag mark (spec plans/t0a-lag-mark-button): the temporary dwellable "Lag" button
             // and its LAG MARK line, constructed ONLY when the dispatch probe exists — an ordinary
@@ -679,9 +691,22 @@ public partial class App : Application
 
             // The guide's banner hold (claim 4): live banner hides + re-queues; dequeue pauses.
             // Preempt still bypasses it (caregiver alerts — Task 11's pinned behaviour).
+            // BannerSlot's hold is one bool shared by its fullscreen-surface owners, so each close
+            // only releases when the OTHER surface is not still up.
             _eventCoordinator.GuideOpenChanged += open =>
             {
-                if (open) bannerSlot.Hold(); else bannerSlot.Release();
+                if (open) bannerSlot.Hold();
+                else if (!_eventCoordinator.IsBackstageOpen) bannerSlot.Release();
+            };
+
+            // Ticket 03's explicit precedence decision: the fullscreen Backstage menu holds the
+            // banner slot exactly like the guide, so a queued drift/status banner cannot paint over
+            // it. Caregiver alerts are the deliberate exception — BannerSlot.Preempt bypasses the
+            // hold, because a safety alert is allowed to interrupt anything.
+            _eventCoordinator.BackstageOpenChanged += open =>
+            {
+                if (open) bannerSlot.Hold();
+                else if (!_eventCoordinator.IsGuideOpen) bannerSlot.Release();
             };
 
             if (!IsTestMode)
@@ -775,11 +800,14 @@ public partial class App : Application
             gazeEngine.GazeSampled += sample =>
             {
                 // canInterrupt only in FreeLook — never surface a break over the action menu,
-                // keyboard, or manual-selection overlay (the break is held until FreeLook).
+                // keyboard, manual-selection overlay, first-run guide or the fullscreen Backstage
+                // menu (the break is held until FreeLook and no screen-owning surface is up).
                 eyeCare.OnGazeSample(
                     sample,
                     isPaused: im.CurrentState == InteractionState.Paused,
-                    canInterrupt: im.CurrentState == InteractionState.FreeLook && !_eventCoordinator.IsGuideOpen);
+                    canInterrupt: im.CurrentState == InteractionState.FreeLook
+                                  && !_eventCoordinator.IsGuideOpen
+                                  && !_eventCoordinator.IsBackstageOpen);
             };
 
             // The password-field detector (system-wide UIA focus hook) runs for the whole session, NOT with

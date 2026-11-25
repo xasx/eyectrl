@@ -1905,6 +1905,54 @@
       "Literal": "\"backstage_update\"",
       "Category": "id",
       "Reason": "The Install update card's dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_quit_confirm\"",
+      "Category": "id",
+      "Reason": "The Backstage Quit confirmation's modal id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_restart_confirm\"",
+      "Category": "id",
+      "Reason": "The Backstage Restart confirmation's modal id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_restart_in_progress\"",
+      "Category": "id",
+      "Reason": "The Backstage restart-in-progress notice's modal id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_restart_refused\"",
+      "Category": "id",
+      "Reason": "The Backstage restart-refused notice's modal id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_quit_yes\"",
+      "Category": "id",
+      "Reason": "The Backstage Quit confirmation's affirmative dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_cancel\"",
+      "Category": "id",
+      "Reason": "The Backstage modal cancel dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_restart_yes\"",
+      "Category": "id",
+      "Reason": "The Backstage Restart confirmation's plain restart dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_restart_supervisor\"",
+      "Category": "id",
+      "Reason": "The Backstage Restart confirmation's with-Supervisor dwell-target id; an identifier, never shown."
     }
   ]
 }

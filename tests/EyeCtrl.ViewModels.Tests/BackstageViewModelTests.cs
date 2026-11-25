@@ -25,6 +25,14 @@ public class BackstageViewModelTests
     private static BackstageViewModel NewVm(WeakReferenceMessenger messenger, EyeCtrlSettings? settings = null) =>
         new(messenger, settings ?? new EyeCtrlSettings());
 
+    /// <summary>Ticket 03: a card and a modal choice dwell at max(toolbar, task-switcher tile).</summary>
+    private static long CardDwellUs(EyeCtrlSettings settings) =>
+        Math.Max(settings.Dwell.ToolbarButtonDwellMs, settings.Dwell.TaskSwitcherTileDwellMs) * 1_000L;
+
+    /// <summary>The close disc deliberately keeps the toolbar's quicker dwell.</summary>
+    private static long CloseDwellUs(EyeCtrlSettings settings) =>
+        settings.Dwell.ToolbarButtonDwellMs * 1_000L;
+
     private static void ShowWithCardAndClose(BackstageViewModel vm)
     {
         vm.ShowOverlay();
@@ -56,7 +64,7 @@ public class BackstageViewModelTests
         var fired = new List<string>();
         vm.CardActivated += fired.Add;
 
-        var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1_000L;
+        var dwellUs = CardDwellUs(settings);
         Dwell(messenger, CardCentre, 30_000, 30_000 + dwellUs, paused: true);
 
         Check.That(vm.DwellActiveWhilePausedForTest).IsTrue();
@@ -90,13 +98,13 @@ public class BackstageViewModelTests
         Check.That(vm.IsModalOpen).IsTrue();
 
         // A full dwell on where the card was must do nothing at all.
-        Dwell(messenger, CardCentre, 200_000, 200_000 + (settings.Dwell.ToolbarButtonDwellMs * 1_000L));
+        Dwell(messenger, CardCentre, 200_000, 200_000 + CardDwellUs(settings));
         Check.That(cards).IsEmpty();
         Check.That(choices).IsEmpty();
 
         // The modal's own button is live (and was armed while the gaze rested on the card).
         Dwell(messenger, ModalChoiceCentre, 2_000_000,
-            2_000_000 + (settings.Dwell.ToolbarButtonDwellMs * 1_000L));
+            2_000_000 + CardDwellUs(settings));
         Check.That(choices).ContainsExactly("modal_cancel");
     }
 
@@ -128,7 +136,7 @@ public class BackstageViewModelTests
         Check.That(vm.DetectorForTest.Targets.Select(t => t.Id))
             .ContainsExactly("modal_cancel");
 
-        var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1_000L;
+        var dwellUs = CardDwellUs(settings);
         Dwell(messenger, CardCentre, 200_000, 200_000 + dwellUs);
         Check.That(cards).IsEmpty();
         Check.That(choices).IsEmpty();
@@ -196,7 +204,7 @@ public class BackstageViewModelTests
 
         var fired = new List<string>();
         vm.CardActivated += fired.Add;
-        var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1_000L;
+        var dwellUs = CardDwellUs(settings);
 
         // No Arm() yet: the gaze is already on the card when it is registered.
         Dwell(messenger, CardCentre, 0, dwellUs + 30_000);
@@ -221,7 +229,7 @@ public class BackstageViewModelTests
 
         var fired = new List<string>();
         vm.CardActivated += fired.Add;
-        var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1_000L;
+        var dwellUs = CardDwellUs(settings);
 
         Dwell(messenger, CardCentre, 30_000, 150_000);
         vm.UpdateCardPosition(BackstageViewModel.QuitCardId, CardRect);
@@ -244,7 +252,7 @@ public class BackstageViewModelTests
         var targetsSeenByHandler = -1;
         vm.CardActivated += _ => targetsSeenByHandler = vm.DetectorForTest.Targets.Count;
 
-        var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1_000L;
+        var dwellUs = CardDwellUs(settings);
         Dwell(messenger, CardCentre, 30_000, 30_000 + dwellUs);
 
         Check.That(targetsSeenByHandler).IsEqualTo(0);
@@ -266,7 +274,7 @@ public class BackstageViewModelTests
 
         var fired = 0;
         vm.CloseRequested += () => fired++;
-        var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1_000L;
+        var dwellUs = CloseDwellUs(settings);
         Dwell(messenger, CloseCentre, 300_000, 300_000 + dwellUs);
         Check.That(fired).IsEqualTo(1);
         Check.That(vm.IsVisible).IsFalse();
@@ -333,7 +341,7 @@ public class BackstageViewModelTests
         vm.CardActivated += fired.Add;
         vm.IsVisible = false;   // the base's visibility gate must survive this class's override
 
-        var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1_000L;
+        var dwellUs = CardDwellUs(settings);
         Dwell(messenger, CardCentre, 30_000, 30_000 + dwellUs);
         Check.That(fired).IsEmpty();
     }
@@ -351,7 +359,7 @@ public class BackstageViewModelTests
         vm.CardActivated += fired.Add;
 
         // A blink streams the frozen last position; it must not complete a dwell.
-        var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1_000L;
+        var dwellUs = CardDwellUs(settings);
         DwellDrive.Hold(30_000, 30_000 + dwellUs,
             t => messenger.Send(new GazeCursorMovedMessage(
                 new GazeFrame(CardCentre, t, IsInGap: true))));
@@ -402,6 +410,175 @@ public class BackstageViewModelTests
         Check.That(vm.VersionText).IsEqualTo("Version 1.4.2.0");
         Check.That(vm.InstallText).IsEqualTo("Installed · Standard");
         Check.That(vm.SupervisorText).IsEqualTo("Supervision off");
+    }
+
+    [Fact]
+    public void CardAndModalDwell_AreTheTaskSwitcherMax_NotTheToolbarValue()
+    {
+        // Ticket 03: a Backstage card is Quit / Restart / Calibrate, so it follows the Task Switcher
+        // tile's max(TaskSwitcherTileDwellMs, ToolbarButtonDwellMs). Inheriting the toolbar value
+        // made Quit faster than switching a window and let a shorter toolbar dwell silently shorten
+        // Quit. The close disc deliberately keeps the quick toolbar value.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.ToolbarButtonDwellMs = 600;
+        settings.Dwell.TaskSwitcherTileDwellMs = 900;
+        using var vm = NewVm(messenger, settings);
+        ShowWithCardAndClose(vm);
+
+        Check.That(vm.DetectorForTest.Targets.Single(t => t.Id == BackstageViewModel.QuitCardId)
+                .DwellTimeMicroseconds).IsEqualTo(900_000L);
+        Check.That(vm.DetectorForTest.Targets.Single(t => t.Id == BackstageViewModel.CloseTargetId)
+                .DwellTimeMicroseconds).IsEqualTo(600_000L);
+
+        vm.ShowModal("quit");
+        vm.RegisterModalChoice("modal_cancel");
+        Check.That(vm.DetectorForTest.Targets.Single().DwellTimeMicroseconds).IsEqualTo(900_000L);
+
+        // The reverse order binds too: a long toolbar dwell must not be shortened by a short tile.
+        settings.Dwell.ToolbarButtonDwellMs = 900;
+        settings.Dwell.TaskSwitcherTileDwellMs = 500;
+        vm.DismissModal();
+        Check.That(vm.DetectorForTest.Targets.Single(t => t.Id == BackstageViewModel.QuitCardId)
+                .DwellTimeMicroseconds).IsEqualTo(900_000L);
+    }
+
+    [Fact]
+    public void ModalChoice_IsTheDrawnRectangle_SoACornerOfTheButtonHits()
+    {
+        // Acceptance criterion: the real half-extent of the rendered choice, not a 70 DIP circle on
+        // a wider button. A 170 x 100 button's top-left corner is outside an inscribed-looking r70
+        // circle, so a corner dwell only fires if the target really is the drawn rectangle.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        using var vm = NewVm(messenger, settings);
+        vm.ShowOverlay();
+        vm.ShowModal("quit");
+        vm.RegisterModalChoice("modal_cancel", 85, 50);
+        var rect = new PhysicalRect(1000, 600, 170, 100);
+        vm.UpdateModalChoiceRect("modal_cancel", rect);
+
+        var target = vm.DetectorForTest.Targets.Single();
+        Check.That(target.Bounds).IsNotNull();
+        Check.That(target.Bounds!.Value).IsEqualTo(rect);
+
+        var activated = new List<string>();
+        vm.ModalChoiceActivated += activated.Add;
+
+        Arm(messenger);
+        Dwell(messenger, new PhysicalPoint(1005, 605), 30_000, 30_000 + CardDwellUs(settings));
+        Check.That(activated).ContainsExactly("modal_cancel");
+    }
+
+    [Fact]
+    public void ModalProgress_IsResetWhenOneModalReplacesAnotherOrDismissesMidDwell()
+    {
+        // N7: ClearTargets emits no progress. Without a modal counterpart to ResetCardProgress, a
+        // choice's bar froze part-filled when a notice replaced the confirmation or a dismiss landed
+        // mid-dwell.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.DwellPauseGraceMs = 0;
+        using var vm = NewVm(messenger, settings);
+        vm.ShowOverlay();
+        vm.ShowModal("quit");
+        vm.RegisterModalChoice("modal_cancel", 85, 50);
+        vm.UpdateModalChoiceRect("modal_cancel", new PhysicalRect(1000, 600, 170, 100));
+        Arm(messenger);
+
+        var events = new List<ProgressEvent>();
+        vm.ModalProgress += (id, progress) => events.Add(new ProgressEvent(id, progress));
+
+        Dwell(messenger, new PhysicalPoint(1050, 650), 30_000, 150_000);
+        Check.That(events.Any(e => e.Id == "modal_cancel" && e.Progress > 0)).IsTrue();
+
+        events.Clear();
+        vm.ShowModal("restart");
+        Check.That(events).ContainsExactly(new ProgressEvent("modal_cancel", 0));
+
+        vm.RegisterModalChoice("restart_ok", 230, 50);
+        vm.UpdateModalChoiceRect("restart_ok", new PhysicalRect(1000, 600, 460, 100));
+        Arm(messenger, 200_000);
+        Dwell(messenger, new PhysicalPoint(1050, 650), 230_000, 350_000);
+
+        events.Clear();
+        vm.DismissModal();
+        Check.That(events).ContainsExactly(new ProgressEvent("restart_ok", 0));
+    }
+
+    [Fact]
+    public void RestoreMainSurface_WhileAModalIsOpen_LeavesOnlyTheModalChoicesAlive()
+    {
+        // N6: the guard is not defensive. A re-layout during a confirmation must only remember the
+        // card/close geometry; clearing here would put the grid under the modal, and a card id
+        // would arrive as the modal answer.
+        var messenger = new WeakReferenceMessenger();
+        using var vm = NewVm(messenger);
+        ShowWithCardAndClose(vm);
+        vm.ShowModal("quit");
+        vm.RegisterModalChoice("modal_cancel", 85, 50);
+        vm.UpdateModalChoiceRect("modal_cancel", new PhysicalRect(1000, 600, 170, 100));
+
+        vm.RestoreMainSurface();
+
+        Check.That(vm.IsModalOpen).IsTrue();
+        Check.That(vm.DetectorForTest.Targets.Select(t => t.Id)).ContainsExactly("modal_cancel");
+    }
+
+    [Fact]
+    public void PausedSample_StampsThePauseFlagTheBaseContractReads()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var vm = NewVm(messenger);
+        vm.ShowOverlay();
+
+        messenger.Send(new GazeCursorMovedMessage(Away, 0) { IsPaused = true });
+        Check.That(vm.LastSampleWasPausedForTest).IsTrue();
+
+        messenger.Send(new GazeCursorMovedMessage(Away, 30_000) { IsPaused = false });
+        Check.That(vm.LastSampleWasPausedForTest).IsFalse();
+    }
+
+    [Fact]
+    public void MouseActivation_ClearsTargetsBeforeDispatch_AndIsInertWhenHidden()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var vm = NewVm(messenger);
+        ShowWithCardAndClose(vm);
+
+        var fired = new List<string>();
+        vm.CardActivated += fired.Add;
+        var targetsSeenByHandler = -1;
+        vm.CardActivated += _ => targetsSeenByHandler = vm.DetectorForTest.Targets.Count;
+
+        vm.ActivateForMouse(BackstageViewModel.QuitCardId);
+        Check.That(fired).ContainsExactly(BackstageViewModel.QuitCardId);
+        Check.That(targetsSeenByHandler).IsEqualTo(0);
+
+        vm.IsVisible = false;
+        vm.ActivateForMouse(BackstageViewModel.QuitCardId);
+        Check.That(fired).HasSize(1);
+    }
+
+    [Fact]
+    public void ResetCardProgress_ToleratesAHandlerThatReEntersTheVm()
+    {
+        // N8: ResetCardProgress raises an external event while iterating the live registration
+        // list. A synchronous handler that hides the overlay would clear that list mid-foreach and
+        // throw. The snapshot keeps a re-entrant handler from breaking a modal transition.
+        var messenger = new WeakReferenceMessenger();
+        using var vm = NewVm(messenger);
+        ShowWithCardAndClose(vm);
+
+        var reentered = false;
+        vm.CardProgress += (id, progress) =>
+        {
+            if (progress != 0 || reentered) return;
+            reentered = true;
+            vm.HideOverlay();
+        };
+
+        Check.ThatCode(() => vm.ShowModal("quit")).DoesNotThrow();
     }
 
     [Fact]

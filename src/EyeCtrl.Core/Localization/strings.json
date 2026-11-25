@@ -482,7 +482,7 @@
     "args": []
   },
   "guide.calibrate.body": {
-    "text": "EyeCtrl's calibration makes sure the cursor follows your eyes. You can also calibrate later in Settings.",
+    "text": "EyeCtrl's calibration makes sure the cursor follows your eyes. To calibrate again later, open the “Manage EyeCtrl” menu from the toolbar, or use “Calibrate Now” in Settings.",
     "who": "user",
     "where": "guide",
     "fit": "prose",
@@ -1061,60 +1061,186 @@
       "direction"
     ]
   },
+  "overlays.backstage.calibrate.description": {
+    "text": "Starts EyeCtrl's calibration. This menu closes first.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "backstageCard",
+    "args": []
+  },
+  "overlays.backstage.calibrate.title": {
+    "text": "Calibrate",
+    "who": "user",
+    "where": "overlays",
+    "fit": "backstageCard",
+    "args": []
+  },
+  "overlays.backstage.modal.cancel": {
+    "text": "Cancel – change nothing",
+    "who": "user",
+    "where": "overlays",
+    "fit": "modal460",
+    "args": []
+  },
+  "overlays.backstage.quit.confirm.action": {
+    "text": "Quit EyeCtrl",
+    "who": "user",
+    "where": "overlays",
+    "fit": "modal460",
+    "args": []
+  },
+  "overlays.backstage.quit.confirm.body": {
+    "text": "EyeCtrl stops now. No fallback program starts, and the Supervisor does not restart EyeCtrl. If no other eye control is running, this PC can no longer be controlled by gaze until someone starts EyeCtrl again.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.backstage.quit.confirm.title": {
+    "text": "Quit EyeCtrl?",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.backstage.quit.description": {
+    "text": "Closes EyeCtrl cleanly. Nothing restarts it.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "backstageCard",
+    "args": []
+  },
+  "overlays.backstage.quit.title": {
+    "text": "Quit EyeCtrl",
+    "who": "user",
+    "where": "overlays",
+    "fit": "backstageCard",
+    "args": []
+  },
+  "overlays.backstage.restart.confirm.action": {
+    "text": "Restart",
+    "who": "user",
+    "where": "overlays",
+    "fit": "modal460",
+    "args": []
+  },
+  "overlays.backstage.restart.confirm.body": {
+    "text": "EyeCtrl closes and then starts again on its own. Your settings stay as they are.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.backstage.restart.confirm.supervisedBody": {
+    "text": "A Supervisor is installed. It restarts EyeCtrl if it ever fails, and can recover a restart that goes wrong. Starting it turns supervision on and leaves it on.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.backstage.restart.confirm.supervisor": {
+    "text": "Restart with Supervisor",
+    "who": "user",
+    "where": "overlays",
+    "fit": "modal460",
+    "args": []
+  },
+  "overlays.backstage.restart.confirm.title": {
+    "text": "Restart EyeCtrl?",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.backstage.restart.confirm.withoutSupervisor": {
+    "text": "Restart without Supervisor",
+    "who": "user",
+    "where": "overlays",
+    "fit": "modal460",
+    "args": []
+  },
+  "overlays.backstage.restart.description": {
+    "text": "Relaunches EyeCtrl cleanly and keeps your settings.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "backstageCard",
+    "args": []
+  },
+  "overlays.backstage.restart.title": {
+    "text": "Restart EyeCtrl",
+    "who": "user",
+    "where": "overlays",
+    "fit": "backstageCard",
+    "args": []
+  },
+  "overlays.backstage.session": {
+    "text": "Session",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
   "overlays.backstage.status.devBuild": {
     "text": "Dev build",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "backstageBadge",
     "args": []
   },
   "overlays.backstage.status.installed.standard": {
     "text": "Installed · Standard",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "backstageBadge",
     "args": []
   },
   "overlays.backstage.status.installed.uiAccess": {
     "text": "Installed · UIAccess active",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "backstageBadge",
+    "args": []
+  },
+  "overlays.backstage.status.paused": {
+    "text": "Paused · Menu open",
+    "who": "user",
+    "where": "overlays",
+    "fit": "backstageBadge",
     "args": []
   },
   "overlays.backstage.status.supervisor.connected": {
     "text": "Supervisor connected",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "backstageBadge",
     "args": []
   },
   "overlays.backstage.status.supervisor.notAnswering": {
     "text": "Supervisor not answering",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "backstageBadge",
     "args": []
   },
   "overlays.backstage.status.supervisor.off": {
     "text": "Supervision off",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "backstageBadge",
     "args": []
   },
   "overlays.backstage.status.supervisor.unavailable": {
     "text": "Supervisor not installed",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "backstageBadge",
     "args": []
   },
   "overlays.backstage.status.version": {
     "text": "Version {0}",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "backstageBadge",
     "args": [
       "version"
     ]

@@ -11,7 +11,6 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Localization;
-using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
@@ -160,13 +159,21 @@ public class TaskSwitcherTileStatesWindowTests
                 + $"(content {FitText.Dip(contentWidth)}, column {FitText.Dip(room)}); "
                 + $"progress top {FitText.Dip(progressTop)}; column needs {FitText.Dip(needed)} of "
                 + $"{FitText.Dip(slot.Height)} DIP (headroom {FitText.Dip(slot.Height - needed)})");
-            Check.That(BrushColor(word.Foreground)).IsEqualTo(Tokens.TextSecondary);
+            var wordBrush = (Brush?)word.FindResource("BrushTextSecondary");
+            Check.WithCustomMessage("The minimised badge word must read the BrushTextSecondary token.")
+                .That(wordBrush).IsNotNull();
+            Check.WithCustomMessage("The minimised badge word must keep the secondary text colour.")
+                .That(word.Foreground).IsSameReferenceAs(wordBrush!);
             Check.WithCustomMessage("The minimised cue must not dim the tile — that is the paused cue.")
                 .That(faces[0].Border.Opacity).IsEqualTo(1.0);
             Check.WithCustomMessage("The badge's drawn minimise bar has no ink.")
                 .That(bar.ActualWidth).IsStrictlyGreaterThan(0);
             Check.That(bar.ActualHeight).IsStrictlyGreaterThan(0);
-            Check.That(BrushColor(bar.Background)).IsEqualTo(Tokens.TextSecondary);
+            var barBrush = (Brush?)bar.FindResource("BrushTextSecondary");
+            Check.WithCustomMessage("The minimise bar must read the BrushTextSecondary token.")
+                .That(barBrush).IsNotNull();
+            Check.WithCustomMessage("The minimise bar must keep the secondary text colour.")
+                .That(bar.Background).IsSameReferenceAs(barBrush!);
         }
         finally
         {
@@ -334,7 +341,11 @@ public class TaskSwitcherTileStatesWindowTests
         Check.WithCustomMessage($"The empty message {Box(box)} is not at the tile area's centre.")
             .That(box.Left + (box.Width / 2)).IsCloseTo(area.Area.X + (area.Area.Width / 2), 0.5);
         Check.That(box.Top + (box.Height / 2)).IsCloseTo(area.Area.Y + (area.Area.Height / 2), 0.5);
-        Check.That(BrushColor(message.Foreground)).IsEqualTo(Tokens.TextSecondary);
+        var messageBrush = (Brush?)message.FindResource("BrushTextSecondary");
+        Check.WithCustomMessage("The empty message must read the BrushTextSecondary token.")
+            .That(messageBrush).IsNotNull();
+        Check.WithCustomMessage("The empty message must keep the secondary text colour.")
+            .That(message.Foreground).IsSameReferenceAs(messageBrush!);
         _output.WriteLine($"empty message {Box(box)} in area {area.Area}");
 
         // Still escapable: the ✕ is the only target the View registers, and the empty message adds
@@ -402,7 +413,11 @@ public class TaskSwitcherTileStatesWindowTests
 
         var text = Descendants<TextBlock>(chip).Single();
         Check.That(text.Text).IsEqualTo("More windows: 25");
-        Check.That(BrushColor(text.Foreground)).IsEqualTo(Tokens.TextSecondary);
+        var chipBrush = (Brush?)text.FindResource("BrushTextSecondary");
+        Check.WithCustomMessage("The overflow chip must read the BrushTextSecondary token.")
+            .That(chipBrush).IsNotNull();
+        Check.WithCustomMessage("The overflow chip must keep the secondary text colour.")
+            .That(text.Foreground).IsSameReferenceAs(chipBrush!);
     }
 
     [StaFact]
@@ -749,16 +764,6 @@ public class TaskSwitcherTileStatesWindowTests
 
     private static string Box(Rect r) =>
         $"[{FitText.Dip(r.Left)}, {FitText.Dip(r.Top)} to {FitText.Dip(r.Right)}, {FitText.Dip(r.Bottom)}]";
-
-    /// <summary>
-    /// The colour a brush carries, for a claim about "the secondary text colour". The XAML
-    /// resolves the brush from the theme dictionary and the token surface hands out another
-    /// instance of the same colour, so the colour is the thing to compare.
-    /// </summary>
-    private static Color BrushColor(Brush? brush) =>
-        brush is SolidColorBrush solid
-            ? solid.Color
-            : throw new InvalidOperationException($"{brush} is not a solid brush.");
 
     private static bool Inside(Rect outer, Rect inner, double inset = 0) =>
         inner.Left >= outer.Left + inset - 0.5 && inner.Top >= outer.Top + inset - 0.5

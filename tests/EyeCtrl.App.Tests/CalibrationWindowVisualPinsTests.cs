@@ -84,11 +84,17 @@ public class CalibrationWindowVisualPinsTests
         var window = ConstructWindow();
         try
         {
-            var stroke = (SolidColorBrush)window.TargetDot.Stroke;
+            // Reference equality against the brush the dot itself resolved — not a live Tokens
+            // read. OverlayStyles.xaml's {x:Static} values freeze when the app dictionary first
+            // looks the key up, so Tokens.StrokeHalo is only the right expectation when that
+            // happened under Midnight (F-FLAKE2).
+            var haloBrush = (Brush?)window.TargetDot.FindResource("BrushStrokeHalo");
+            Check.WithCustomMessage("The dot's rim must read the BrushStrokeHalo token.")
+                .That(haloBrush).IsNotNull();
             Check.WithCustomMessage(
                     "The dot is a user-coloured absolute drawn on the black scrim; its rim " +
                     "must be the theme's halo so any pick stays visible (round 3, R1).")
-                .That(stroke.Color).IsEqualTo(Tokens.StrokeHalo);
+                .That(window.TargetDot.Stroke).IsSameReferenceAs(haloBrush!);
         }
         finally
         {
@@ -104,11 +110,14 @@ public class CalibrationWindowVisualPinsTests
         {
             foreach (var card in new[] { window.ProgressCard, window.CompletionCard, window.CancelCard, window.CancelDwellButton })
             {
-                var background = (SolidColorBrush)card.Background;
+                // The same rule as the dot's rim: compare with the brush the card itself resolved.
+                var surfaceBrush = (Brush?)card.FindResource("BrushSurfaceDark");
+                Check.WithCustomMessage("The card must read the BrushSurfaceDark token.")
+                    .That(surfaceBrush).IsNotNull();
                 Check.WithCustomMessage(
                         "m2: the cards were SurfaceMedium, which put Midnight's TextDim hint " +
                         "at 4.32:1 — under the 4.5 floor. SurfaceDark clears on every theme.")
-                    .That(background.Color).IsEqualTo(Tokens.SurfaceDark);
+                    .That(card.Background).IsSameReferenceAs(surfaceBrush!);
             }
 
             Check.WithCustomMessage("The prompt text must live inside its card, not beside it.")

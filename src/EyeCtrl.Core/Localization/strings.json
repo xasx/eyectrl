@@ -1061,6 +1061,64 @@
       "direction"
     ]
   },
+  "overlays.backstage.status.devBuild": {
+    "text": "Dev build",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.backstage.status.installed.standard": {
+    "text": "Installed · Standard",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.backstage.status.installed.uiAccess": {
+    "text": "Installed · UIAccess active",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.backstage.status.supervisor.connected": {
+    "text": "Supervisor connected",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.backstage.status.supervisor.notAnswering": {
+    "text": "Supervisor not answering",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.backstage.status.supervisor.off": {
+    "text": "Supervision off",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.backstage.status.supervisor.unavailable": {
+    "text": "Supervisor not installed",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.backstage.status.version": {
+    "text": "Version {0}",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": [
+      "version"
+    ]
+  },
   "overlays.blocked.detail": {
     "text": "Blocking window: {0}",
     "who": "user",

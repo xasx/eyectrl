@@ -566,6 +566,38 @@
     "text": "{0}% {1}",
     "src": "3dfdbbd4"
   },
+  "overlays.backstage.status.devBuild": {
+    "text": "Entwicklungsversion",
+    "src": "480b6e6c"
+  },
+  "overlays.backstage.status.installed.standard": {
+    "text": "Installiert · Standard",
+    "src": "b09e685b"
+  },
+  "overlays.backstage.status.installed.uiAccess": {
+    "text": "Installiert · UIAccess aktiv",
+    "src": "4ee3c680"
+  },
+  "overlays.backstage.status.supervisor.connected": {
+    "text": "Supervisor verbunden",
+    "src": "a87965d2"
+  },
+  "overlays.backstage.status.supervisor.notAnswering": {
+    "text": "Supervisor antwortet nicht",
+    "src": "f0c9797f"
+  },
+  "overlays.backstage.status.supervisor.off": {
+    "text": "Überwachung aus",
+    "src": "1d296d25"
+  },
+  "overlays.backstage.status.supervisor.unavailable": {
+    "text": "Supervisor nicht installiert",
+    "src": "e0c6858f"
+  },
+  "overlays.backstage.status.version": {
+    "text": "Version {0}",
+    "src": "ad821408"
+  },
   "overlays.blocked.detail": {
     "text": "Blockierendes Fenster: {0}",
     "src": "97acd946"

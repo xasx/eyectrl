@@ -11,11 +11,10 @@ using System.Windows.Media;
 /// overlay XAML resolve to that theme.
 ///
 /// OverlayStyles.xaml pulls the same values through {x:Static}, but WPF materialises each of
-/// those entries at the dictionary's FIRST LOOKUP of that key, and the {x:Static} then reads
-/// whichever theme is active at that moment — normally during Application construction, before
-/// OnStartup can choose one. Writing explicitly makes the result independent of that ordering.
-/// Applied to Application.Resources at the top level, these entries take precedence over the
-/// merged dictionary's.
+/// those entries at the dictionary's FIRST LOOKUP of that key, under whichever theme is active
+/// at that moment, and keeps it for the process. Writing explicitly at the top level means
+/// lookups never depend on when, or under which theme, that first lookup happens: these entries
+/// take precedence over the merged dictionary's.
 ///
 /// Keys are the ITheme property names verbatim, plus four derived CornerRadius keys and
 /// StandardBorderThickness.

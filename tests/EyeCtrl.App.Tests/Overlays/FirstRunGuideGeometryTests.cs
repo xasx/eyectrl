@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
@@ -16,11 +17,13 @@ using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Localization;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 using NFluent;
 using Xunit;
 
@@ -333,6 +336,157 @@ public class FirstRunGuideGeometryTests
         }
     }
 
+    [StaFact]
+    public void DisplayGeometryChangedMessage_ReappliesViewport_RescalesRadiiOnPureDpiChange_AndDetachesOnClose()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var previousScale = (DpiHelper.ScaleX, DpiHelper.ScaleY);
+        var messenger = new WeakReferenceMessenger();
+        var table = StringTable.Load(UiLanguage.English, CultureInfo.InvariantCulture, AppContext.BaseDirectory);
+
+        try
+        {
+            DpiHelper.Update(1.0, 1.0);
+            var vm = new FirstRunGuideViewModel(messenger, dwellCooldownMs: 0,
+                new EyeCtrlSettings(), sink: null, dwellRegistry: null) { IsVisible = true };
+            var window = InvisibleTestWindow.Prepare(new FirstRunGuideWindow(vm, 1920, 1200));
+            try
+            {
+                RenderStep(window, table, FirstRunGuideStep.DwellTime);
+                var expectedActionHalfDiag = Math.Sqrt(320 * 320 / 4.0 + 190 * 190 / 4.0);
+
+                Check.That(window.Width).IsEqualTo(1920);
+                Check.That(window.Height).IsEqualTo(1200);
+                Check.That(window.SurfaceScale).IsEqualTo(1.0);
+                Check.That(window.LayoutRoot.LayoutTransform).IsSameReferenceAs(Transform.Identity);
+                Check.That(vm.DetectorForTest.Targets.Single(t => t.Id == "guide_dwelltime_continue").Radius)
+                    .IsCloseTo(expectedActionHalfDiag * 1.0, 1e-6);
+                Check.That(vm.PracticeDetectorForTest.Targets.Single(t => t.Id == "guide_practice").Radius)
+                    .IsCloseTo(110.0 * 1.0, 1e-6);
+
+                // 1. Live shrink to 1080p @ 150% (1280×720 DIP, scale 0.6): window resizes,
+                //    LayoutRoot scales to 0.6, and physical radii use 0.6 * 1.5.
+                DpiHelper.Update(1.5, 1.5);
+                messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(1920, 1080, 1.5, 1.5)));
+
+                Check.That(window.Width).IsCloseTo(1280, 1e-6);
+                Check.That(window.Height).IsCloseTo(720, 1e-6);
+                Check.That(window.SurfaceScale).IsCloseTo(0.6, 1e-9);
+                Check.That(vm.SurfaceScale).IsCloseTo(0.6, 1e-9);
+                Check.That(window.LayoutRoot.LayoutTransform).IsInstanceOf<ScaleTransform>();
+                var scaleTransform = (ScaleTransform)window.LayoutRoot.LayoutTransform;
+                Check.That(scaleTransform.ScaleX).IsCloseTo(0.6, 1e-9);
+                Check.That(scaleTransform.ScaleY).IsCloseTo(0.6, 1e-9);
+                Check.That(vm.DetectorForTest.Targets.Single(t => t.Id == "guide_dwelltime_continue").Radius)
+                    .IsCloseTo(expectedActionHalfDiag * 0.6 * 1.5, 1e-6);
+                Check.That(vm.PracticeDetectorForTest.Targets.Single(t => t.Id == "guide_practice").Radius)
+                    .IsCloseTo(110.0 * 0.6 * 1.5, 1e-6);
+
+                // 2. Return to 1920×1200 @ 100%, then apply a PURE DPI change to 3840×2400 @ 200%
+                //    (logical size stays 1920×1200 and SurfaceScale stays 1.0, yet physical radii
+                //    must still double to match the new 2.0 DPI scale).
+                DpiHelper.Update(1.0, 1.0);
+                messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(1920, 1200, 1.0, 1.0)));
+                Check.That(window.SurfaceScale).IsEqualTo(1.0);
+                Check.That(window.LayoutRoot.LayoutTransform).IsSameReferenceAs(Transform.Identity);
+                Check.That(vm.DetectorForTest.Targets.Single(t => t.Id == "guide_dwelltime_continue").Radius)
+                    .IsCloseTo(expectedActionHalfDiag * 1.0, 1e-6);
+
+                DpiHelper.Update(2.0, 2.0);
+                messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(3840, 2400, 2.0, 2.0)));
+                Check.That(window.Width).IsCloseTo(1920, 1e-6);
+                Check.That(window.Height).IsCloseTo(1200, 1e-6);
+                Check.That(window.SurfaceScale).IsEqualTo(1.0);
+                Check.That(window.LayoutRoot.LayoutTransform).IsSameReferenceAs(Transform.Identity);
+                Check.That(vm.DetectorForTest.Targets.Single(t => t.Id == "guide_dwelltime_continue").Radius)
+                    .IsCloseTo(expectedActionHalfDiag * 2.0, 1e-6);
+                Check.That(vm.PracticeDetectorForTest.Targets.Single(t => t.Id == "guide_practice").Radius)
+                    .IsCloseTo(110.0 * 2.0, 1e-6);
+
+                // 3. Transient unusable 0×0 geometry is ignored.
+                messenger.Send(new DisplayGeometryChangedMessage(DisplayGeometry.Unscaled));
+                Check.That(window.Width).IsCloseTo(1920, 1e-6);
+                Check.That(window.Height).IsCloseTo(1200, 1e-6);
+
+                // 4. Closing the window detaches it from further DisplayGeometryChanged messages.
+                window.Close();
+                DpiHelper.Update(1.0, 1.0);
+                messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(1280, 720, 1.0, 1.0)));
+                Check.That(window.Width).IsCloseTo(1920, 1e-6);
+                Check.That(window.Height).IsCloseTo(1200, 1e-6);
+            }
+            finally
+            {
+                window.Close();
+                vm.Dispose();
+            }
+        }
+        finally
+        {
+            DpiHelper.Update(previousScale.ScaleX, previousScale.ScaleY);
+        }
+    }
+
+    [StaFact]
+    public void DisplayGeometryChangedMessage_AutomaticallyRepushesCentresOnHostedSurface()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var previousScale = (DpiHelper.ScaleX, DpiHelper.ScaleY);
+        var messenger = new WeakReferenceMessenger();
+        var table = StringTable.Load(UiLanguage.English, CultureInfo.InvariantCulture, AppContext.BaseDirectory);
+
+        try
+        {
+            DpiHelper.Update(FitHost.Scale, FitHost.Scale);
+            var vm = new FirstRunGuideViewModel(messenger, dwellCooldownMs: 0,
+                new EyeCtrlSettings(), sink: null, dwellRegistry: null) { IsVisible = true };
+            // Start at 1920×1200, host the live Card inside a 1280×720 FitHost, then deliver a
+            // DisplayGeometryChangedMessage for 1280×720 @ 2.0 and verify the automatic PushCentres
+            // aligns every chrome and practice target without any manual PushCentresNow call.
+            var window = InvisibleTestWindow.Prepare(new FirstRunGuideWindow(vm, 1920, 1200));
+            try
+            {
+                var content = (FrameworkElement)window.Content;
+                window.Content = null;
+                content.DataContext = vm;
+                using var host = FitHost.Open(content, width: 1280, height: 720, inheritFrom: window);
+
+                RenderStep(window, table, FirstRunGuideStep.DwellTime);
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+
+                messenger.Send(new DisplayGeometryChangedMessage(
+                    new DisplayGeometry(1280 * FitHost.Scale, 720 * FitHost.Scale, FitHost.Scale, FitHost.Scale)));
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+
+                var originPx = content.PointToScreen(new Point(0, 0));
+                var choiceCards = window.ChoiceRow.Children.OfType<FrameworkElement>().ToList();
+                var knobCards = window.KnobRow.Children.OfType<StackPanel>().Single()
+                    .Children.OfType<FrameworkElement>().ToList();
+
+                AssertCardsCoveredByTargets("live-resize 1280x720", choiceCards, vm.DetectorForTest.Targets, content, originPx);
+                AssertCardsCoveredByTargets("live-resize 1280x720", knobCards, vm.DetectorForTest.Targets, content, originPx);
+
+                var ring = ((Grid)window.StepContent.Content).Children.OfType<Ellipse>().First();
+                var ringRect = BoundsIn(ring, content);
+                var practice = vm.PracticeDetectorForTest.Targets.Single();
+                var practiceCentreDip = ToDipInContent(practice.Center, originPx);
+                Check.That(Distance(practiceCentreDip,
+                        new Point(ringRect.X + ringRect.Width / 2, ringRect.Y + ringRect.Height / 2)))
+                    .IsLessOrEqualThan(CentreMatchToleranceDip);
+                Check.That(practice.Radius / FitHost.Scale).IsCloseTo(ringRect.Width / 2, 0.5);
+            }
+            finally
+            {
+                window.Close();
+                vm.Dispose();
+            }
+        }
+        finally
+        {
+            DpiHelper.Update(previousScale.ScaleX, previousScale.ScaleY);
+        }
+    }
+
     private static void RenderStep(FirstRunGuideWindow window, StringTable table, FirstRunGuideStep step)
     {
         var (title, body) = step switch
@@ -421,7 +575,7 @@ public class FirstRunGuideGeometryTests
         return element.TransformToAncestor(ancestor).TransformBounds(new Rect(element.RenderSize));
     }
 
-    private static Point ToDipInContent(EyeCtrl.Core.Models.PhysicalPoint pt, Point originPx) =>
+    private static Point ToDipInContent(PhysicalPoint pt, Point originPx) =>
         new((pt.X - originPx.X) / FitHost.Scale, (pt.Y - originPx.Y) / FitHost.Scale);
 
     private static double Distance(Point a, Point b)

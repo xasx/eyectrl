@@ -33,6 +33,9 @@ using EyeCtrl.ViewModels;
 /// clip or collide; <see cref="FirstRunGuideViewModel.SetSurfaceScale"/> scales the registered
 /// dwell radii and latch hysteresis by the same factor so hit catchments match the rendered
 /// visuals 1:1. On 1920×1200 DIP and larger screens the scale is 1.0 (<see cref="Transform.Identity"/>).
+/// Live resolution or DPI changes while the guide is open arrive through
+/// <see cref="FirstRunGuideViewModel.DisplayGeometryChanged"/> and re-apply the viewport,
+/// transform, target radii, and screen centres automatically.
 /// </para>
 ///
 /// <para>
@@ -133,14 +136,43 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
 
         // Progress bindings (r3 F7): the practice fill follows the VM; the cards' progress rides
         // the control's own bar through SetChoiceProgress.
-        vm.ChoiceProgress += (id, p) => SetChoiceProgress(id, p);
+        vm.ChoiceProgress += SetChoiceProgress;
         vm.PracticeProgress += SetPracticeFill;
 
         // The dwell read-out follows the knob (ONE subscription in the ctor — no pile-up, r4 S3).
-        vm.DwellTimeChanged += ms =>
-        {
-            if (_dwellValue is { } value) value.Text = $"{ms} ms";
-        };
+        vm.DwellTimeChanged += OnDwellTimeChanged;
+
+        // Live resolution / DPI changes (issue #372): re-apply the viewport, LayoutRoot scale
+        // transform, and dwell target centres whenever DisplayGeometryWatcher publishes a new
+        // screen snapshot while the guide is open.
+        vm.DisplayGeometryChanged += OnDisplayGeometryChanged;
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _vm.ChoiceProgress -= SetChoiceProgress;
+        _vm.PracticeProgress -= SetPracticeFill;
+        _vm.DwellTimeChanged -= OnDwellTimeChanged;
+        _vm.DisplayGeometryChanged -= OnDisplayGeometryChanged;
+        base.OnClosed(e);
+    }
+
+    private void OnDwellTimeChanged(int ms)
+    {
+        if (_dwellValue is { } value) value.Text = $"{ms} ms";
+    }
+
+    private void OnDisplayGeometryChanged(DisplayGeometry geometry)
+    {
+        if (!geometry.IsUsable) return;
+        var widthDip = geometry.WidthPx / geometry.ScaleX;
+        var heightDip = geometry.HeightPx / geometry.ScaleY;
+        if (!double.IsFinite(widthDip) || !double.IsFinite(heightDip) || widthDip <= 0 || heightDip <= 0)
+            return;
+
+        Left = 0;
+        Top = 0;
+        ApplyViewport(widthDip, heightDip);
     }
 
     /// <summary>Sizes the window to the given logical viewport and updates <c>LayoutRoot</c>'s
@@ -155,7 +187,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             ? new ScaleTransform(SurfaceScale, SurfaceScale)
             : Transform.Identity;
         _vm.SetSurfaceScale(SurfaceScale);
-        if (IsLoaded) PushCentres();
+        if (IsLoaded || PresentationSource.FromVisual(Card) is not null) PushCentres();
     }
 
     /// <summary>The theme preview's card-local target (the coordinator applies the resolved

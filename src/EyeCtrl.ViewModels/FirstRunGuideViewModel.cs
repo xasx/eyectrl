@@ -24,7 +24,8 @@ using EyeCtrl.ViewModels.Messages;
 /// SetDwellTime. Gaze routes through SampleMayDwell (gates !IsInGap, NOT IsPaused) —
 /// DwellActiveWhilePaused is true, so the guide stays usable under user-pause (§9).
 /// </summary>
-public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
+public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase,
+    IRecipient<DisplayGeometryChangedMessage>
 {
     /// <summary>The choice cards' radius, in DIP (Settings' ModalBtnRadius is an App-internal —
     /// the guide declares its own, r2 F3). Computed PER REGISTRATION: a static would freeze the
@@ -39,6 +40,7 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     private readonly LeaveBeforeArmLatch _latch;
     private readonly Dictionary<string, double> _choiceRadiiDip = new();
     private double _surfaceScale = 1.0;
+    private int _radiiRefreshCount;
     private PhysicalPoint _practiceCentre;
 
     [ObservableProperty] private string _title = string.Empty;
@@ -62,6 +64,10 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     public event Action<int>? DwellTimeChanged;
     /// <summary>A theme chip fired (theme name).</summary>
     public event Action<string>? ThemeChosen;
+    /// <summary>The display's addressable space changed while the guide is alive (dock/undock,
+    /// resolution or DPI scaling change). Fires on the UI thread after <c>DpiHelper</c> has already
+    /// been updated so the window can re-apply its viewport and re-push target centres.</summary>
+    public event Action<DisplayGeometry>? DisplayGeometryChanged;
 
     /// <summary>The guide is the overlay whose only dismissal is a dwell (the chrome Close), so it
     /// stays usable under user-pause (§9) — the base's opt-in; effects gate on their own sample.</summary>
@@ -117,7 +123,12 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
         var clamped = Math.Min(1.0, scale);
         if (Math.Abs(clamped - _surfaceScale) < 1e-12) return;
         _surfaceScale = clamped;
+        RefreshTargetRadii();
+    }
 
+    private void RefreshTargetRadii()
+    {
+        _radiiRefreshCount++;
         foreach (var target in DwellDetector.Targets)
         {
             if (_choiceRadiiDip.TryGetValue(target.Id, out var unscaledDip))
@@ -129,6 +140,18 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
             }
         }
         ReTimePracticeTarget();
+    }
+
+    /// <inheritdoc />
+    public void Receive(DisplayGeometryChangedMessage message)
+    {
+        if (!message.Geometry.IsUsable) return;
+        var before = _radiiRefreshCount;
+        DisplayGeometryChanged?.Invoke(message.Geometry);
+        // Pure DPI changes (e.g. 1920x1200@100% -> 3840x2400@200%) or windowless VM hosts may leave
+        // SurfaceScale unchanged; still re-derive every physical radius against the updated DpiHelper.
+        if (_radiiRefreshCount == before)
+            RefreshTargetRadii();
     }
 
     /// <summary>The two knob values the step-3 writes through (200–2000).</summary>

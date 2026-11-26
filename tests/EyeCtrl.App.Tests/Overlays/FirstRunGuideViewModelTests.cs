@@ -205,4 +205,25 @@ public class FirstRunGuideViewModelTests
         Check.ThatCode(() => vm.SetSurfaceScale(double.NaN)).Throws<ArgumentOutOfRangeException>();
         Check.ThatCode(() => vm.SetSurfaceScale(double.PositiveInfinity)).Throws<ArgumentOutOfRangeException>();
     }
+
+    [Fact]
+    public void DisplayGeometryChangedMessage_RaisesEventForUsableGeometry_IgnoresUnusable_AndStopsAfterDispose()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new FirstRunGuideViewModel(messenger, dwellCooldownMs: 0,
+            settings: new EyeCtrlSettings(), sink: null, dwellRegistry: null) { IsVisible = true };
+        var received = new List<DisplayGeometry>();
+        vm.DisplayGeometryChanged += g => received.Add(g);
+
+        messenger.Send(new DisplayGeometryChangedMessage(DisplayGeometry.Unscaled));
+        Check.That(received).IsEmpty();
+
+        var usable = new DisplayGeometry(1920, 1080, 1.5, 1.5);
+        messenger.Send(new DisplayGeometryChangedMessage(usable));
+        Check.That(received).ContainsExactly(usable);
+
+        vm.Dispose();
+        messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(1366, 768, 1.0, 1.0)));
+        Check.That(received).HasSize(1);
+    }
 }

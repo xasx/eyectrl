@@ -13,14 +13,17 @@
              backdrop/card distinction any more). Interaction is untouched: the window stays
              click-through and joins no dwell target of its own — the dwell targets are the
              VM-registered card visuals the code-behind builds. The approved geometry (the
-             DiagnosticGuideMockupFullscreen mockups) is the pinned layout: title 56 DIP top-left
-             at margin 64 (right margin ~500 keeps the title clear of the Close host), body 32 DIP
-             below it (max width ~1360), action cards 320×190 bottom-right at 64/64, knob cards
-             200×160 centered above them, Close card 280×160 alone top-right at 48. -->
+             DiagnosticGuideMockupFullscreen mockups) is the pinned layout at the 1920×1200 DIP
+             reference: title 56 DIP top-left at margin 64 (right margin ~500 keeps the title clear
+             of the Close host), body 32 DIP below it (max width ~1360), action cards 320×190
+             bottom-right at 64/64, knob cards 200×160 centered above them, Close arc 160×160 alone
+             top-right at 48. On viewports smaller than 1920×1200 DIP, LayoutRoot receives a uniform
+             ScaleTransform(s, s) with s = min(1, W/1920, H/1200) while Card stays edge-to-edge; on
+             1920×1200 and larger screens LayoutRoot keeps Transform.Identity (issue #372). -->
         <Border x:Name="Card"
                 Background="{DynamicResource BrushSurfaceDark}"
                 HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-            <Grid>
+            <Grid x:Name="LayoutRoot">
                 <TextBlock x:Name="TitleText" FontSize="56" FontWeight="Medium"
                            Text="{Binding Title}" TextWrapping="Wrap"
                            Margin="64,56,500,0"

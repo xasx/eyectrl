@@ -741,12 +741,12 @@ public partial class App : Application
             _eventCoordinator.SetRestartCoordinator(_restartCoordinator);
             _eventCoordinator.SetSupervisionToggle(supervisionToggle);
 
-            // C9 S6f: the „Erweitert" update/rollback/uninstall gateways. A FACTORY yields a fresh
-            // instance per Settings window, so the offer and the policy are re-probed on every
-            // visit (review 01 M1). The exit flow signals the clean shutdown EXPLICITLY with
-            // restartRequested: false and then shuts the App — the Supervisor must go idle (never
-            // relaunch: Setup's own windows take over), and a dormant RestartCoordinator keeps
-            // OnExit's final stamp false too.
+            // C9 S6f, retargeted by Ticket 04: the Backstage install row's update/rollback/uninstall
+            // gateways. A FACTORY yields a fresh instance per Backstage visit, so the offer and the
+            // policy are re-probed on every visit (review 01 M1). The exit flow signals the clean
+            // shutdown EXPLICITLY with restartRequested: false and then shuts the App — the
+            // Supervisor must go idle (never relaunch: Setup's own windows take over), and a dormant
+            // RestartCoordinator keeps OnExit's final stamp false too.
             var setupExitFlow = new SetupExitFlow(
                 restartRequested => _heartbeatPublisher?.SignalShuttingDown(restartRequested),
                 Shutdown);

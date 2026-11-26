@@ -109,9 +109,11 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Services/BackstageStatusSnapshot.cs", ["overlays"]),
         // Ticket 03: the fullscreen menu itself. Its restart-notice text comes through
         // RestartNotices (already language-recovery), so the window's code-behind stays one
-        // surface. The XAML carries no key literal; the facts/coordinator resolve none of their
-        // own (the coordinator passes the snapshot the window renders), so they need no grant.
-        ("src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs", ["overlays"]),
+        // surface for its own strings. Ticket 04 adds the install row: its cards and its own
+        // confirmations are `overlays`, while the update/rollback confirmations deliberately
+        // reuse the already-switched-on `update.*` / `rollback.*` questions (one key per surface,
+        // D3), so those two grants are real references, not optional.
+        ("src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs", ["overlays", "update", "rollback"]),
         // Sticky notes P1 D6 + F3: the keyboard window's UIA HelpText announces note targeting
         // from an overlays key, resolved in the keyboard window's code-behind.
         ("src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs", ["overlays"]),
@@ -158,10 +160,10 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Diagnostics/SubPixel/SubPixelProbeCoordinator.cs", ["settings"]),
         ("src/EyeCtrl.App/Diagnostics/SubPixel/SubPixelProbeWindow.cs", ["overlays"]),
 
-        // C9 S6f: the „Erweitert" page renders settings rows (labels/descriptions) AND the update
-        // flow's confirm texts (update/rollback surfaces) — one key per surface, D3.
-        ("src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
-            ["settings", "update", "rollback"]),
+        // C9 S6f, narrowed by Ticket 04: the „Erweitert" page no longer renders the setup rows;
+        // its remaining label/description texts are settings keys only. The update/rollback grants
+        // moved to BackstageWindow.xaml.cs with the rows themselves.
+        ("src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs", ["settings"]),
         // C9 S6f: the one-time setup-last notice speaks only the update surface, plus the
         // rollback failure sentence after review 01 N1.
         ("src/EyeCtrl.App/Services/SetupLastNoticeService.cs", ["update", "rollback"])

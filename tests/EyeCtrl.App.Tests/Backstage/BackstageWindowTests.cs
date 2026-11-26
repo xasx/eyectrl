@@ -66,7 +66,10 @@ public class BackstageWindowTests
                 () => OfferSupervisor,
                 () => Shutdowns.Add("shutdown"),
                 startSupervisor => Restarts.Add(startSupervisor),
-                () => RestartNotices.TargetLanguage(Settings.General.UiLanguage));
+                () => RestartNotices.TargetLanguage(Settings.General.UiLanguage),
+                setupGateways: null,
+                uninstallHandoff: null,
+                isPaused: () => false);
             Window.CalibrateRequested += () => Calibrations.Add("calibrate");
             Window.ShowBackstage();
             Window.UpdatePositions();
@@ -154,7 +157,10 @@ public class BackstageWindowTests
                 () => false,
                 () => { },
                 _ => { },
-                () => UiLanguage.English);
+                () => UiLanguage.English,
+                setupGateways: null,
+                uninstallHandoff: null,
+                isPaused: () => false);
             window.ShowBackstage();
             window.RefreshStatus();
 
@@ -267,7 +273,10 @@ public class BackstageWindowTests
                         "Installiert · UIAccess aktiv",
                         "Supervisor antwortet nicht"),
                     ShowSupervisor: true),
-                () => false, () => { }, _ => { }, () => UiLanguage.German);
+                () => false, () => { }, _ => { }, () => UiLanguage.German,
+                setupGateways: null,
+                uninstallHandoff: null,
+                isPaused: () => false);
             window.ShowBackstage();
             window.Width = BackstageWindow.ReferenceScreenWidthDip;
             window.Height = 760;

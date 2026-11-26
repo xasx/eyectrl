@@ -88,20 +88,4 @@ internal sealed class SettingsPageContext
     public Action<Action> Invoke { get; }
     public Action Close { get; }
     public Func<string> ReadClipboard { get; }
-
-    /// <summary>
-    /// C9 S6f's setup gateways — the „Erweitert" page's update/rollback/uninstall rows. Null in a
-    /// degraded host (headless test contexts, a host without the App composition): the Advanced
-    /// page then builds without the three setup rows, like the General page without supervision.
-    /// An init property, not a constructor parameter, for the same stability reason as above.
-    /// </summary>
-    public ISetupGateways? SetupGateways { get; init; }
-
-    /// <summary>
-    /// C9 S6e fixup-08: the uninstall hand-off presenter. When present, the uninstall row starts
-    /// the hand-off through it, so Settings hides while Setup's own Q8 is up and comes back on
-    /// every outcome that does not remove EyeCtrl. Null in a degraded host (headless contexts):
-    /// the row then calls the gateways directly, unchanged.
-    /// </summary>
-    public IUninstallHandoffPresenter? UninstallHandoff { get; init; }
 }

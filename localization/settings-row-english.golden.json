@@ -1186,19 +1186,6 @@
           "Modal": null
         },
         {
-          "Id": "g_restart",
-          "Label": "↻ Restart Now",
-          "Description": null,
-          "Modal": {
-            "Message": "Restart EyeCtrl now?\nA supervisor is installed. It restarts EyeCtrl if it ever fails, and can recover a restart that goes wrong.\nStarting it turns supervision on and leaves it on.",
-            "Choices": [
-              "↻ Restart with supervisor",
-              "↻ Restart without",
-              "✕ Cancel"
-            ]
-          }
-        },
-        {
           "Id": "g_reset",
           "Label": "Reset General Settings",
           "Description": null,

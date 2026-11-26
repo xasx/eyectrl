@@ -181,17 +181,41 @@ public class EventCoordinator : IEventCoordinator
         set { if (_settingsUi is not null) _settingsUi.StatusCardsFallback = value; }
     }
 
-    /// <summary>Hands the C9 S6f setup-gateways factory (the „Erweitert" update/rollback/uninstall
-    /// rows) to the settings window construction. Called once at startup; the factory yields a
-    /// FRESH instance per window (review 01 M1).</summary>
+    /// <summary>Hands the C9 S6f setup-gateways factory (the Backstage install row's update,
+    /// rollback and uninstall hand-offs) to <see cref="BackstageUiCoordinator"/>. Called once at
+    /// startup; the factory yields a FRESH instance per Backstage visit (review 01 M1). Ticket 04
+    /// moved this ownership here from Settings, which no longer renders any install surface.</summary>
     public void SetSetupGateways(Func<ISetupGateways> gatewaysFactory)
     {
         RequireInitialized(nameof(SetSetupGateways));
-        // Settings keeps its Advanced rows until Ticket 04 moves them; Backstage needs the SAME
-        // factory now for the status strip's installed/UIAccess facts (a fresh instance per visit).
-        _settingsUi!.SetSetupGateways(gatewaysFactory);
         _backstage!.SetSetupGateways(gatewaysFactory);
     }
+
+    /// <summary>
+    /// The composed note-gate suspend predicate (P2 D1). Two INDEPENDENT paths keep notes out from
+    /// under the fullscreen Backstage menu: the activation-offer coordinator's
+    /// <c>ModalSuspended</c> flag AND the direct <paramref name="backstageOpen"/> term. The
+    /// redundancy is DELIBERATE and behaviourally pinned by
+    /// <c>NoteGateBackstagePredicateTests</c>: removing either path alone leaves notes protected
+    /// (both single-path mutants stay green), and only removing both makes notes live under the
+    /// menu (red). Do not "simplify" one away believing the other is unpinned — that is how the
+    /// peer gate silently becomes a real bug.
+    /// </summary>
+    /// <param name="activationOffers">The offer coordinator whose combined modal suspension is the
+    /// flag path; null before it is constructed, in which case that path reads false.</param>
+    /// <param name="state">The interaction state; the shared helper decides which states own the
+    /// screen.</param>
+    /// <param name="modesMenuVisible">Whether the modes menu is up.</param>
+    /// <param name="backstageOpen">Whether the fullscreen Backstage menu owns the screen.</param>
+    internal static bool IsNoteSuspended(
+        ActivationOfferCoordinator? activationOffers,
+        InteractionState state,
+        bool modesMenuVisible,
+        bool backstageOpen) =>
+        (activationOffers?.ModalSuspended ?? false)
+        || NoteManager.InteractionStateSuspendsNotes(state)
+        || modesMenuVisible
+        || backstageOpen;
 
     /// <summary>
     /// Guards the sub-coordinator forwards that carry startup state (model services, restart
@@ -243,10 +267,11 @@ public class EventCoordinator : IEventCoordinator
         context.NoteManager.SetPausePoll(
             () => context.InteractionManager.CurrentState == InteractionState.Paused);
         context.NoteManager.SetSuspendPredicate(() =>
-            (_activationOffers?.ModalSuspended ?? false)
-            || NoteManager.InteractionStateSuspendsNotes(context.InteractionManager.CurrentState)
-            || context.ModesMenuVM.IsVisible
-            || _modal.BackstageOpen);
+            IsNoteSuspended(
+                _activationOffers,
+                context.InteractionManager.CurrentState,
+                context.ModesMenuVM.IsVisible,
+                _modal.BackstageOpen));
 
         // The notes' keyboard probe (P1 D5), wired once like the suspend predicate above: the
         // summon/release of the keyboard around Edit, the ⌨ control, the keyboard-gate on note

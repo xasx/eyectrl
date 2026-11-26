@@ -689,24 +689,6 @@
       "Reason": "A modal-choice dwell-target id."
     },
     {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
-      "Literal": "\"restart_cancel\"",
-      "Category": "id",
-      "Reason": "A modal-choice dwell-target id."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
-      "Literal": "\"restart_plain\"",
-      "Category": "id",
-      "Reason": "A modal-choice dwell-target id."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
-      "Literal": "\"restart_supervised\"",
-      "Category": "id",
-      "Reason": "A modal-choice dwell-target id."
-    },
-    {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/QuickActionsPageSource.cs",
       "Literal": "\"T\"",
       "Category": "glyph",
@@ -1661,36 +1643,6 @@
       "Reason": "C9 S6f: the shown-time marker file's name; never shown."
     },
     {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
-      "Literal": "\"setup_rollback_go\"",
-      "Category": "id",
-      "Reason": "C9 S6f: a modal-choice dwell-target id; never shown."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
-      "Literal": "\"setup_rollback_later\"",
-      "Category": "id",
-      "Reason": "C9 S6f: a modal-choice dwell-target id; never shown."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
-      "Literal": "\"setup_update_install\"",
-      "Category": "id",
-      "Reason": "C9 S6f: a modal-choice dwell-target id; never shown."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
-      "Literal": "\"setup_update_later\"",
-      "Category": "id",
-      "Reason": "C9 S6f: a modal-choice dwell-target id; never shown."
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/SetupProbeRebuild.cs",
-      "Literal": "\"Advanced\"",
-      "Category": "id",
-      "Reason": "C9 S6f: the Advanced tab id the probe completion compares against; never shown."
-    },
-    {
       "Path": "src/EyeCtrl.App/AudioSessionDiagnostics.cs",
       "Literal": "$\"Keyboard audio change: default device -> \\\"{endpointName}\\\"\"",
       "Category": "log",
@@ -1965,6 +1917,54 @@
       "Literal": "\"dddd\"",
       "Category": "data",
       "Reason": "The culture's full-weekday pattern specifier for the header clock's date; a .NET format string, never shown as text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_update_confirm\"",
+      "Category": "id",
+      "Reason": "The Install update confirmation's modal id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_rollback_confirm\"",
+      "Category": "id",
+      "Reason": "The Restore previous version confirmation's modal id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_uninstall_confirm\"",
+      "Category": "id",
+      "Reason": "The Uninstall EyeCtrl confirmation's modal id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_install_failed\"",
+      "Category": "id",
+      "Reason": "The failed Setup launch acknowledgement's modal id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_update_install\"",
+      "Category": "id",
+      "Reason": "The Install update confirmation's affirmative dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_rollback_go\"",
+      "Category": "id",
+      "Reason": "The Restore previous version confirmation's affirmative dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_uninstall_yes\"",
+      "Category": "id",
+      "Reason": "The Uninstall EyeCtrl confirmation's affirmative dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_install_dismiss\"",
+      "Category": "id",
+      "Reason": "The failed Setup launch acknowledgement's single dwell-target id; an identifier, never shown."
     }
   ]
 }

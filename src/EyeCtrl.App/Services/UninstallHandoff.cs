@@ -4,11 +4,11 @@ using System;
 using EyeCtrl.Setup;
 
 /// <summary>
-/// How one uninstall hand-off ended, as Settings must react to it (C9 S6e fixup-08). The owner's
-/// 06.11 decision: Settings hides while Setup's own Q8 is up and comes back on every outcome that
-/// does not remove EyeCtrl — cancel, „Nein, behalten", Esc, close, the five-minute timeout, a
-/// refused or a failed run. Only <see cref="Uninstalled" /> leaves it hidden, because Setup then
-/// ends the App as today.
+/// How one uninstall hand-off ended, as the surface that owned the screen must react to it
+/// (C9 S6e fixup-08). The owner's 06.11 decision: that surface hides while Setup's own Q8 is up and
+/// comes back on every outcome that does not remove EyeCtrl — cancel, „Nein, behalten", Esc, close,
+/// the five-minute timeout, a refused or a failed run. Only <see cref="Uninstalled" /> leaves it
+/// hidden, because Setup then ends the App as today.
 /// </summary>
 public enum UninstallHandoffEnd
 {
@@ -58,28 +58,54 @@ public interface IUninstallHandoffWatchFactory
 }
 
 /// <summary>
-/// The Settings side of the uninstall hand-off (C9 S6e fixup-08). Settings is an ordinary window
-/// but still topmost, and (since #316) it sits in ZBID_UIACCESS; Setup runs with
-/// <c>uiAccess="false"</c>, so its Q8 can never be raised above Settings. The only fix is for
-/// Settings to get out of the way for the length of Setup's window.
+/// The screen-owning surface as the uninstall hand-off drives it (C9 S6e fixup-08, retargeted to
+/// Backstage by Ticket 04). A seam, not a convenience: the hide/show contract is the ticket's
+/// whole acceptance list, and a test may never show a real window. Production wraps the real
+/// Backstage window; the tests record the calls.
 /// </summary>
-public interface IUninstallHandoffPresenter
+internal interface IUninstallHandoffWindowHandle
 {
-    /// <summary>
-    /// Starts the uninstall and, only on <see cref="SetupHandoffStart.Started" />, hides Settings
-    /// and starts the watch that brings it back on every non-uninstall end. A refusal
-    /// (<see cref="SetupHandoffStart.RefusedWhileActive" />) and a failed launch change nothing,
-    /// exactly as before fixup-08.
-    /// </summary>
-    /// <param name="gateways">The Settings page's setup gateways.</param>
-    /// <returns>What the hand-off did, for the page's failure line.</returns>
-    SetupHandoffStart Start(ISetupGateways gateways);
+    /// <summary>Whether the surface is on screen. A hidden surface is not.</summary>
+    bool IsVisible { get; }
+
+    /// <summary>Hides the surface without closing it, so its layout and view-model state survive
+    /// the hand-off.</summary>
+    void Hide();
+
+    /// <summary>Shows the hidden surface again, re-arming the screen claims it holds while open.</summary>
+    void Show();
 }
 
 /// <summary>
-/// The production presenter: hides Settings only once Setup really started, then hands the wait to
-/// a fresh <see cref="IUninstallHandoffWatch" />. Every seam is injected, so the contract
-/// (Started hides, Failed/Refused do not, a fault still brings Settings back) is headlessly
+/// The surface side of the uninstall hand-off (C9 S6e fixup-08). The surface is an ordinary window
+/// but still topmost, and (since #316) it sits in ZBID_UIACCESS; Setup runs with
+/// <c>uiAccess="false"</c>, so its Q8 can never be raised above it. The only fix is for the
+/// surface to get out of the way for the length of Setup's window.
+/// </summary>
+public interface IUninstallHandoffPresenter : IDisposable
+{
+    /// <summary>
+    /// Starts the uninstall and, only on <see cref="SetupHandoffStart.Started" />, hides the
+    /// surface and starts the watch that brings it back on every non-uninstall end. A refusal
+    /// (<see cref="SetupHandoffStart.RefusedWhileActive" />) and a failed launch change nothing,
+    /// exactly as before fixup-08.
+    /// </summary>
+    /// <param name="gateways">The surface's setup gateways.</param>
+    /// <returns>What the hand-off did, for the page's failure line.</returns>
+    SetupHandoffStart Start(ISetupGateways gateways);
+
+    /// <summary>
+    /// Stops the active watch without restoring the surface. Used when the owner brings the
+    /// surface back themselves during Setup's window: the watch's later end must not show it a
+    /// second time. Safe when no hand-off is in flight, and safe to call twice.
+    /// </summary>
+    void CancelWatch();
+}
+
+/// <summary>
+/// The production presenter: hides the surface only once Setup really started, then hands the wait
+/// to a fresh <see cref="IUninstallHandoffWatch" />. Every seam is injected, so the contract
+/// (Started hides, Failed/Refused do not, a fault still brings the surface back) is headlessly
 /// testable with recorders.
 /// </summary>
 public sealed class UninstallHandoffPresenter : IUninstallHandoffPresenter
@@ -90,17 +116,17 @@ public sealed class UninstallHandoffPresenter : IUninstallHandoffPresenter
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly Action<string> _warn;
 
-    // The watch of the hand-off that owns Settings right now, and a generation token. A later
+    // The watch of the hand-off that owns the surface right now, and a generation token. A later
     // hand-off supersedes an earlier watch: the earlier one is disposed, and its end is dropped
     // even if a watch (or a fake) still delivers one after Dispose — otherwise an old hand-off's
-    // end could restore Settings over the next hand-off's Q8 (review-08 L2).
+    // end could restore the surface over the next hand-off's Q8 (review-08 L2).
     private IUninstallHandoffWatch? _activeWatch;
     private long _generation;
 
     /// <summary>Creates the presenter.</summary>
-    /// <param name="hide">Hides Settings for the hand-off; returns whether it actually hid a
+    /// <param name="hide">Hides the surface for the hand-off; returns whether it actually hid a
     /// visible window (false means there is nothing to bring back).</param>
-    /// <param name="restore">Brings Settings back, or deliberately leaves it hidden for
+    /// <param name="restore">Brings the surface back, or deliberately leaves it hidden for
     /// <see cref="UninstallHandoffEnd.Uninstalled" />. Runs on the UI thread.</param>
     /// <param name="watches">Creates the one-shot watch.</param>
     /// <param name="utcNow">The clock captured before the launch; defaults to UtcNow.</param>
@@ -139,9 +165,9 @@ public sealed class UninstallHandoffPresenter : IUninstallHandoffPresenter
         }
         catch (Exception ex)
         {
-            // Setup is running; a hide that faulted leaves today's behaviour (Settings covers Q8)
-            // rather than a half-hidden window, and there is nothing to restore.
-            _warn($"uninstall hand-off: hiding Settings failed: {ex.GetType().Name}");
+            // Setup is running; a hide that faulted leaves today's behaviour (the surface covers
+            // Q8) rather than a half-hidden window, and there is nothing to restore.
+            _warn($"uninstall hand-off: hiding the surface failed: {ex.GetType().Name}");
             hidden = false;
         }
 
@@ -169,7 +195,7 @@ public sealed class UninstallHandoffPresenter : IUninstallHandoffPresenter
         }
         catch (Exception ex)
         {
-            // Never strand: if the watch cannot even start, Settings comes back at once.
+            // Never strand: if the watch cannot even start, the surface comes back at once.
             _warn($"uninstall hand-off: starting the completion watch failed: {ex.GetType().Name}");
             DisposeActiveWatch();
             _restore(UninstallHandoffEnd.Unknown, null);
@@ -177,6 +203,19 @@ public sealed class UninstallHandoffPresenter : IUninstallHandoffPresenter
 
         return start;
     }
+
+    /// <inheritdoc />
+    public void CancelWatch()
+    {
+        // A later Start also bumps the generation; doing it here means a watch that is already
+        // midway through delivering its end cannot restore the surface after the owner brought it
+        // back themselves.
+        unchecked { ++_generation; }
+        DisposeActiveWatch();
+    }
+
+    /// <summary>Stops a watch still waiting when the owning coordinator is disposed.</summary>
+    public void Dispose() => CancelWatch();
 
     /// <summary>Stops and drops the current watch; safe when there is none.</summary>
     private void DisposeActiveWatch()

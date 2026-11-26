@@ -154,6 +154,13 @@ internal static class AppFitMeasurers
             // measured with a real composed string rather than a raw {0} template.
             case "overlays.backstage.status.version":
                 return [string.Format(CultureInfo.InvariantCulture, item.Text, "10.99.9999.9999")];
+            // Ticket 04's install cards: measured with the worst realistic versions rather than a
+            // raw {0}/{1} template (both arguments are version strings the badges can show).
+            case "overlays.backstage.update.description":
+                return [string.Format(
+                    CultureInfo.InvariantCulture, item.Text, "10.99.9999.9999", "10.99.9999.9999")];
+            case "overlays.backstage.rollback.description":
+                return [string.Format(CultureInfo.InvariantCulture, item.Text, "10.99.9999.9999")];
         }
 
         if (item.Args.Count > 0)

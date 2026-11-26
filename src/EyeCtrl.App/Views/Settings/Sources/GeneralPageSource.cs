@@ -76,9 +76,6 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.general.guide.label"),
                     () => { _ctx.Close(); _ctx.Messenger.Send(new FirstRunGuideRequestedMessage()); },
                     ButtonKind.Reset, Width: 300, Height: 100) { Simple = true },
-                new ButtonSpec("g_restart",
-                    StringTable.Current.T("settings.general.restart.label"),
-                    OnRestart, ButtonKind.Reset, Width: 300, Height: 100),
                 new ButtonSpec("g_reset",
                     StringTable.Current.T("settings.general.reset.label"),
                     // N4 (round-1 review): the reset now includes the theme, which only
@@ -223,34 +220,5 @@ internal sealed class GeneralPageSource : ISettingsPageSource
         }
 
         yield return new LabelSpec(() => supervision.StatusText) { Simple = true };
-    }
-
-    private void OnRestart()
-    {
-        // Only offer what is installed and not already running. The multi-choice modal is built
-        // directly on the ViewModel (the same object ShowModal's two-button helper wraps).
-        if (_ctx.Restart.ShouldOfferSupervisor())
-        {
-            _ctx.ViewModel.ShowModal(
-                StringTable.Current.T("settings.general.restart.supervised.message"),
-                [
-                    new ModalChoice("restart_supervised",
-                        StringTable.Current.T("settings.general.restart.supervised.option"),
-                        ModalChoiceKind.Affirmative,
-                        () => _ctx.Messenger.Send(new RestartAppRequestedMessage(StartSupervisor: true))),
-                    new ModalChoice("restart_plain",
-                        StringTable.Current.T("settings.general.restart.plain.option"),
-                        ModalChoiceKind.Neutral,
-                        () => _ctx.Messenger.Send(new RestartAppRequestedMessage())),
-                    new ModalChoice("restart_cancel",
-                        StringTable.Current.T("settings.general.restart.cancel.option"),
-                        ModalChoiceKind.Negative, null),
-                ]);
-        }
-        else
-        {
-            _ctx.ShowModal(StringTable.Current.T("settings.general.restart.message"),
-                () => _ctx.Messenger.Send(new RestartAppRequestedMessage()));
-        }
     }
 }

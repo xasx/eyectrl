@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Tests.Keyboard;
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using EyeCtrl.Core.Interfaces;
@@ -184,6 +185,115 @@ public class KeyboardSensitiveCheckTests
         finally
         {
             release.Set();
+        }
+    }
+
+    [Fact]
+    public async Task ACompletedShowCheck_FreesItsSlotBeforeTheLine_SoTheFollowingHideIsNotBusy()
+    {
+        // The false `busy` from the 12th sitting: the show check's slot release rode its own
+        // continuation on the read, so the show line could be logged while the slot was still 1.
+        // The seam holds that read-owned release for as long as the test runs; only a release made
+        // inline — before Report — can free the slot for the hide. Deterministic: whether the
+        // continuation runs early or late, it never releases, and the hide must not report busy.
+        var log = new Capture();
+        var heldReleases = new ConcurrentQueue<Action>();
+        var poll = new FakePoll { Read = () => false };
+        var check = New(log, poll);
+        check.ReleaseReadSlotForTest = heldReleases.Enqueue;
+
+        try
+        {
+            await Done(check.Begin("show", evt: false, "msedge.exe", Counts));
+            await Done(check.Begin("hide", evt: false, "msedge.exe", Counts));
+
+            Check.WithCustomMessage("the hide must start its own read, not find the show's slot still held")
+                .That(poll.Reads).IsEqualTo(2);
+            Check.That(log.Messages()).ContainsExactly(
+                "Sensitive check at show: event=false poll=false proc=msedge.exe"
+                + " events=12 password=1 failures=2 own=3",
+                "Sensitive check at hide: event=false poll=false proc=msedge.exe"
+                + " events=12 password=1 failures=2 own=3");
+            Check.WithCustomMessage("a completed check must never log busy")
+                .That(log.Messages().Any(l => l.Contains("poll=busy", StringComparison.Ordinal))).IsFalse();
+        }
+        finally
+        {
+            check.ReleaseReadSlotForTest = null;
+            while (heldReleases.TryDequeue(out var release))
+                release();
+        }
+    }
+
+    [Fact]
+    public async Task ALateReleaseFromTheFinishedFirstRead_CannotFreeTheSlotOfTheReadThatReplacedIt()
+    {
+        // The trap in the fix: read 1 has finished, but its read-owned release continuation can
+        // still run AFTER read 2 has claimed the slot. A plain Exchange(0) there would free read 2's
+        // slot and let a third check start a second UIA read beside it. The seam holds read 1's
+        // release until read 2 is demonstrably in flight, then fires it — a real late release, not
+        // one that merely has not been scheduled yet.
+        var log = new Capture();
+        var heldReleases = new ConcurrentQueue<Action>();
+        using var read2Gate = new ManualResetEventSlim(false);
+        using var read2Started = new ManualResetEventSlim(false);
+        var reads = 0;
+        var poll = new FakePoll
+        {
+            Read = () =>
+            {
+                if (Interlocked.Increment(ref reads) == 1)
+                    return false;                       // read 1 answers at once; its check completes
+                read2Started.Set();
+                read2Gate.Wait(TimeSpan.FromSeconds(60));
+                return true;                            // read 2 stays in flight while it holds the slot
+            },
+        };
+        var check = New(log, poll, timeBoxMs: 60_000);
+        check.ReleaseReadSlotForTest = heldReleases.Enqueue;
+        Task? hide = null;
+
+        try
+        {
+            await Done(check.Begin("show", evt: false, "msedge.exe", Counts)); // read 1 done, release held
+
+            // Wait for the read-owned release to be queued, so the release below is genuinely late.
+            Check.WithCustomMessage("read 1's release continuation never ran")
+                .That(SpinWait.SpinUntil(() => !heldReleases.IsEmpty, TimeSpan.FromSeconds(30))).IsTrue();
+
+            hide = check.Begin("hide", evt: false, "msedge.exe", Counts);       // read 2 claims the slot
+            Check.WithCustomMessage("read 2 never claimed the freed slot")
+                .That(read2Started.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken))
+                .IsTrue();
+
+            Check.That(heldReleases.TryDequeue(out var lateRelease)).IsTrue();
+            lateRelease!();                             // read 1 releases late — after read 2's claim
+
+            // Owner-checked: the late release cannot free read 2's slot, so a third check is busy and
+            // starts no second read (busy is reported synchronously; no need to wait for read 2).
+            Check.WithCustomMessage("read 1's late release freed read 2's slot")
+                .That(check.Begin("show", evt: false, "msedge.exe", Counts).IsCompleted).IsTrue();
+            Check.That(log.Messages()).Contains(
+                "Sensitive check at show: event=false poll=busy proc=msedge.exe"
+                + " events=12 password=1 failures=2 own=3");
+            Check.WithCustomMessage("a third read started beside read 2")
+                .That(poll.Reads).IsEqualTo(2);
+
+            read2Gate.Set();
+            await Done(hide);
+            Check.That(log.Messages()).Contains(
+                "Sensitive check at hide: event=false poll=true proc=msedge.exe"
+                + " events=12 password=1 failures=2 own=3");
+        }
+        finally
+        {
+            check.ReleaseReadSlotForTest = null;
+            read2Gate.Set();
+            if (hide is not null)
+            {
+                try { await hide.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken); }
+                catch (Exception) { /* only unwinds a failed assertion's in-flight read */ }
+            }
         }
     }
 

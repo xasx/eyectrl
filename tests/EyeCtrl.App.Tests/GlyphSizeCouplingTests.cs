@@ -163,6 +163,67 @@ public class GlyphSizeCouplingTests
     }
 
     [StaFact]
+    public void BackstageCloseButton_KeepsItsConstAndItsGuttersInStepWithTheXaml()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        var window = new BackstageWindow();
+        try
+        {
+            var closeHost = window.FindName("CloseHost") as Border;
+            Check.WithCustomMessage("BackstageWindow has no Border named CloseHost.")
+                .That(closeHost).IsNotNull();
+
+            // B8 on the owner's only escape from a fullscreen Topmost surface: the disc is drawn
+            // at UIConstants.ButtonRadius inside CloseLayer, while the hit circle is registered at
+            // CloseHost.ActualWidth/2. If the XAML host grows or shrinks and CloseButtonSize does
+            // not follow, painted disc and hit target separate — 20 DIP of each at Width=140.
+            Check.WithCustomMessage(
+                    "BackstageWindow.CloseButtonSize has drifted from the Width the XAML declares "
+                    + $"on CloseHost. Const says {BackstageWindow.CloseButtonSize}, XAML renders "
+                    + $"{closeHost!.Width}. The drawn disc and the registered hit circle would no "
+                    + "longer coincide (B8 on the Quit screen's escape).")
+                .That(closeHost.Width).IsEqualTo(BackstageWindow.CloseButtonSize);
+            Check.WithCustomMessage("CloseHost is no longer square.")
+                .That(closeHost.Height).IsEqualTo(BackstageWindow.CloseButtonSize);
+
+            // The gutter is the other half of the header budget: StatusCellWidthDip subtracts
+            // both this margin and the close host, so a drifted gap silently moves the cells the
+            // backstageBadge fit class measures.
+            Check.WithCustomMessage(
+                    "BackstageWindow.CardGutterDip has drifted from CloseHost.Margin.Left. Const "
+                    + $"says {BackstageWindow.CardGutterDip}, XAML renders {closeHost.Margin.Left}. "
+                    + "StatusCellWidthDip and the close disc's gap no longer match the layout.")
+                .That(closeHost.Margin.Left).IsEqualTo(BackstageWindow.CardGutterDip);
+
+            // The outer content margin feeds BOTH CardWidthDip and StatusCellWidthDip. The
+            // reviewer's 52→92 probe left the full App suite green, so it was previously
+            // unguarded and is pinned here too. The top/bottom 36 is unrelated to this constant.
+            var root = window.Content as Grid;
+            var surface = root?.Children.OfType<Border>().FirstOrDefault();
+            var content = surface?.Child as Grid;
+            Check.WithCustomMessage("BackstageWindow's content root or surface grid is missing.")
+                .That(content).IsNotNull();
+            Check.WithCustomMessage(
+                    "BackstageWindow.OuterMarginDip has drifted from the outer content Grid's "
+                    + $"Margin.Left. Const says {BackstageWindow.OuterMarginDip}, XAML renders "
+                    + $"{content!.Margin.Left}. CardWidthDip and StatusCellWidthDip no longer match "
+                    + "the rendered card/header layout.")
+                .That(content.Margin.Left).IsEqualTo(BackstageWindow.OuterMarginDip);
+            Check.WithCustomMessage(
+                    "BackstageWindow.OuterMarginDip has drifted from the outer content Grid's "
+                    + $"Margin.Right. Const says {BackstageWindow.OuterMarginDip}, XAML renders "
+                    + $"{content.Margin.Right}. CardWidthDip and StatusCellWidthDip no longer match "
+                    + "the rendered card/header layout.")
+                .That(content.Margin.Right).IsEqualTo(BackstageWindow.OuterMarginDip);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [StaFact]
     public void QuickActionsTile_KeepsItsConstAndItsRatioInStepWithTheItemTemplate()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();

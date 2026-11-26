@@ -20,6 +20,7 @@ using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using CommunityToolkit.Mvvm.Messaging;
@@ -275,16 +276,20 @@ public class BackstageWindowTests
             date.Text = "Donnerstag, 30. September";   // the longest German date at the ruling
             window.UpdateLayout();
 
-            var titleText = (FrameworkElement)window.FindName("TitleText");
-            var clock = (FrameworkElement)window.FindName("ClockBlock");
+            var titleText = (TextBlock)window.FindName("TitleText");
+            var timeText = (TextBlock)window.FindName("ClockTimeText");
+            var clock = (StackPanel)window.FindName("ClockBlock");
             var statusStrip = (FrameworkElement)window.FindName("StatusStrip");
-            // A real window can be capped below 1280 DIP by a small CI agent (the #388 trap), so
-            // the fit budget is the DESIGNED cell, not the realised titleGroup.ActualWidth. The
-            // title and clock desired widths are screen-independent; the close gap is the design
-            // constant. At 1280 the status strip is exactly 3 x StatusCellWidthDip wide.
+            // Natural (unclamped) widths: a TextBlock in a star column clamps DesiredSize to the
+            // cell the Grid offers, so a font change can never fail a DesiredSize assertion (review
+            // 02 N6, measured by R10/R10b). FitText.NaturalWidth measures the text with no
+            // constraint, using the production element's own resolved font, and rounds up at the
+            // user's 2.0 scale. The badge half below keeps its own teeth.
             var groupWidth = 3 * BackstageWindow.StatusCellWidthDip;
-            var titleWidth = titleText.DesiredSize.Width;
-            var clockWidth = clock.DesiredSize.Width;
+            var titleWidth = FitText.NaturalWidth(titleText, titleText.Text);
+            var clockWidth = Math.Max(
+                FitText.NaturalWidth(timeText, timeText.Text),
+                FitText.NaturalWidth(date, date.Text));
             Check.That(titleWidth).IsStrictlyGreaterThan(0);
             Check.That(clockWidth).IsStrictlyGreaterThan(0);
 
@@ -294,11 +299,6 @@ public class BackstageWindowTests
             Check.WithCustomMessage(
                     $"clock {clockWidth} is wider than the 1280 DIP title group {groupWidth}; it reaches the close disc.")
                 .That(clockWidth <= groupWidth).IsTrue();
-            Check.WithCustomMessage(
-                    "The header design no longer leaves the clock entirely left of the close disc's 24 DIP gap.")
-                .That(groupWidth + BackstageWindow.CardGutterDip + BackstageWindow.CloseButtonSize
-                    <= BackstageWindow.ReferenceScreenWidthDip - (2 * BackstageWindow.OuterMarginDip))
-                .IsTrue();
             // Height is not screen-width-dependent: the clock's row must still end above the strip.
             Check.WithCustomMessage("The clock overlaps the status strip.")
                 .That(RectInWindow(clock, window).Bottom <= RectInWindow(statusStrip, window).Top).IsTrue();

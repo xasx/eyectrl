@@ -85,4 +85,21 @@ public class BackstagePrecedenceWiringTests
                 "if(Context.CursorVM.IsVisible&&!_modal.ProbeOpen&&!_modal.BackstageOpen)Context.OverlayManager.CursorCircle.Show();"))
             .IsTrue();
     }
+
+    [Fact]
+    public void QuitShutdownAction_IsHandedToTheEventCoordinator()
+    {
+        // The chain is: App → EventCoordinator.SetShutdownAction → BackstageUiCoordinator.SetShutdown
+        // → the window's Quit confirm. Only this first link lives in App.xaml.cs; the other two are
+        // pinned by EventCoordinatorTests and QuitConfirm_InvokesTheInjectedShutdown. A null seam
+        // here clears every target before dispatch and then invokes nothing, leaving a gaze-only
+        // owner on a dead Quit dialog with no close disc and no way back.
+        var source = AppSource();
+
+        Check.WithCustomMessage(
+                "App no longer calls _eventCoordinator.SetShutdownAction(Shutdown): the Backstage Quit "
+                + "confirm would clear every target and invoke a null shutdown, leaving the owner on a "
+                + "dead dialog with no close disc.")
+            .That(source.Contains("_eventCoordinator.SetShutdownAction(Shutdown);")).IsTrue();
+    }
 }

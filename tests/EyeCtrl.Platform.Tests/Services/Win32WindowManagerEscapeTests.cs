@@ -27,6 +27,14 @@ using Microsoft.Extensions.Logging;
 /// before the asynchronous seam: the four escape lines and the coordinator's summary keep their
 /// fields.
 /// </para>
+///
+/// <para>
+/// Every test that waits on the worker entering the fake's hang runs the scheduler on a
+/// <see cref="PausableTimeProvider"/>: the scheduler measures its start deadline (and completion
+/// budget) from the request, and the worker is a dedicated thread whose creation and scheduling
+/// are machine load — without the seam a busy box drops the first request before it starts, which
+/// is the failure this file's drop test was sighted with. See that type for the full story.
+/// </para>
 /// </summary>
 public class Win32WindowManagerEscapeTests
 {
@@ -43,10 +51,15 @@ public class Win32WindowManagerEscapeTests
     {
         var native = new FakeEscapeNative { HangInShowWindowAsync = Window };
         native.Minimised.Add(Window);
+        // Frozen clock (PausableTimeProvider): the start deadline must not count the worker
+        // thread's creation and scheduling latency — machine load, not product behaviour. Time
+        // resumes at the hang, so the completion budget below expires on the test's terms.
+        var time = new PausableTimeProvider();
         var (manager, logger) = Create(
             native,
             startDeadline: TimeSpan.FromSeconds(10),
-            completionBudget: TimeSpan.FromMilliseconds(150));
+            completionBudget: TimeSpan.FromMilliseconds(150),
+            time: time);
 
         var callerThread = Environment.CurrentManagedThreadId;
         EscapeWindowResult? result = null;
@@ -63,6 +76,7 @@ public class Win32WindowManagerEscapeTests
                 "BeginBringToFront blocked the caller: a hung target would freeze the gaze thread.")
             .That(elapsed.ElapsedMilliseconds).IsStrictlyLessThan(500);
         Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        time.Resume();
 
         // Past the budget, the target finally answers: the attempt must stop and say so once.
         Thread.Sleep(250);
@@ -271,10 +285,15 @@ public class Win32WindowManagerEscapeTests
     {
         var native = new FakeEscapeNative { HangInShowWindowAsync = Window };
         native.Minimised.Add(Window);
+        // Frozen clock (PausableTimeProvider): the first request's start deadline must not
+        // count its worker thread's scheduling latency. Resumed at the hang, so the second
+        // request's hand-off wait — the thing that abandons the first — runs on real time.
+        var time = new PausableTimeProvider();
         var (manager, logger) = Create(
             native,
             handoffTimeout: TimeSpan.FromMilliseconds(300),
-            startDeadline: TimeSpan.FromSeconds(10));
+            startDeadline: TimeSpan.FromSeconds(10),
+            time: time);
 
         EscapeWindowResult? firstResult = null;
         var firstCompleted = new ManualResetEventSlim();
@@ -284,6 +303,7 @@ public class Win32WindowManagerEscapeTests
             firstCompleted.Set();
         });
         Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        time.Resume();
 
         EscapeWindowResult? secondResult = null;
         var secondCompleted = new ManualResetEventSlim();
@@ -321,14 +341,24 @@ public class Win32WindowManagerEscapeTests
     {
         var native = new FakeEscapeNative { HangInShowWindowAsync = Window };
         native.Minimised.Add(Window);
+        // The 100 ms start deadline is what drops the SECOND request, and it stays 100 ms. It
+        // must not also drop the FIRST one because a busy machine scheduled its worker's
+        // dedicated thread late (the 778d7585 sighting: 2 failures in 4 runs right after a
+        // full-solution rebuild, 0 in 3 solo runs) — hence the frozen clock until the first
+        // request is observed inside the hang. The drop itself stays real and deterministic:
+        // the second request's hand-off wait runs on the resumed clock and alone exceeds the
+        // deadline, however quiet or busy the machine is.
+        var time = new PausableTimeProvider();
         var (manager, logger) = Create(
             native,
             handoffTimeout: TimeSpan.FromMilliseconds(300),
             startDeadline: TimeSpan.FromMilliseconds(100),
-            completionBudget: TimeSpan.FromSeconds(10));
+            completionBudget: TimeSpan.FromSeconds(10),
+            time: time);
 
         manager.BeginBringToFront(Window, _ => { });
         Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        time.Resume();
 
         EscapeWindowResult? droppedResult = new EscapeWindowResult(true, true, true);
         var completions = 0;
@@ -420,7 +450,12 @@ public class Win32WindowManagerEscapeTests
             HangInShowWindowCommand = NativeMethods.SW_MINIMIZE,
         };
         native.RefuseForeground(Window);
-        var (manager, logger) = Create(native, completionBudget: TimeSpan.FromMilliseconds(150));
+        // Frozen clock (PausableTimeProvider): the start deadline (the scheduler's default 1 s
+        // here) must not count the worker thread's scheduling latency. Resumed at the hang, so
+        // the sleep below — not the machine — is what pushes the attempt past its budget.
+        var time = new PausableTimeProvider();
+        var (manager, logger) = Create(
+            native, completionBudget: TimeSpan.FromMilliseconds(150), time: time);
 
         EscapeWindowResult? result = null;
         var completed = new ManualResetEventSlim();
@@ -431,6 +466,7 @@ public class Win32WindowManagerEscapeTests
         });
 
         Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        time.Resume();
         Thread.Sleep(250); // past the budget, inside the pair
         native.ReleaseHang.Set();
 
@@ -592,10 +628,12 @@ public class Win32WindowManagerEscapeTests
         TimeSpan? handoffTimeout = null,
         TimeSpan? startDeadline = null,
         TimeSpan? completionBudget = null,
-        TimeSpan? escapeFallbackWait = null)
+        TimeSpan? escapeFallbackWait = null,
+        TimeProvider? time = null)
     {
         var logger = new RecordingLogger();
-        var scheduler = new WindowActionScheduler(logger, handoffTimeout, startDeadline, completionBudget);
+        var scheduler = new WindowActionScheduler(
+            logger, handoffTimeout, startDeadline, completionBudget, time);
         return (
             new Win32WindowManager(
                 logger, new NamedIntegrityProbe(), native, scheduler, escapeFallbackWait),

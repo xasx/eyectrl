@@ -18,6 +18,14 @@ using Microsoft.Extensions.Logging;
 /// injected ALT events and simulate a window that has stopped answering. No real window is
 /// touched and no <c>SendInput</c> is ever called (the fake stands in for it).
 /// </para>
+///
+/// <para>
+/// The tests that wait on the worker entering the fake's hang run the scheduler on a
+/// <see cref="PausableTimeProvider"/>: the scheduler's start deadline and completion budget are
+/// measured from the request, and the worker is a dedicated thread whose creation and scheduling
+/// are machine load. See that type for why that must not be what drops a pick or expires its
+/// budget — the escape-drop test was sighted failing exactly that way.
+/// </para>
 /// </summary>
 public class Win32WindowManagerActionTests
 {
@@ -107,7 +115,11 @@ public class Win32WindowManagerActionTests
     {
         var native = new FakeWindowActionNative { HangInShowWindow = Window };
         native.Minimised.Add(Window);
-        var (manager, _, _) = Create(native);
+        // Frozen clock (PausableTimeProvider): the pick's worker is a dedicated thread whose
+        // scheduling latency must not eat the scheduler's 1 s default start deadline. Resumed at
+        // the hang, where the worker parks until released.
+        var time = new PausableTimeProvider();
+        var (manager, _, _) = Create(native, time: time);
 
         var elapsed = Stopwatch.StartNew();
         manager.BringToFront(Window);
@@ -118,6 +130,7 @@ public class Win32WindowManagerActionTests
             .That(elapsed.ElapsedMilliseconds).IsStrictlyLessThan(500);
         // The worker really is stuck inside the cross-process restore, not merely slow to start.
         Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        time.Resume();
         Check.That(native.SendInputBatches).IsEmpty();
 
         native.ReleaseHang.Set();
@@ -168,10 +181,16 @@ public class Win32WindowManagerActionTests
     {
         var native = new FakeWindowActionNative { HangInShowWindow = Window };
         native.Minimised.Add(Window);
-        var (manager, _, logger) = Create(native);
+        // Frozen clock (PausableTimeProvider): without it the 3 s budget also counts the
+        // worker's scheduling latency, which on a loaded box can push the target's answer past
+        // the budget for reasons the product does not control. Resumed at the hang, so the
+        // sleep below alone is what exceeds the budget.
+        var time = new PausableTimeProvider();
+        var (manager, _, logger) = Create(native, time: time);
 
         manager.BringToFront(Window);
         Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        time.Resume();
 
         // No second action: the target simply answers after the 3 s budget has run out.
         Thread.Sleep(3500);
@@ -194,10 +213,16 @@ public class Win32WindowManagerActionTests
     {
         var native = new FakeWindowActionNative { HangInShowWindow = Window };
         native.Minimised.Add(Window);
-        var (manager, _, logger) = Create(native);
+        // Frozen clock (PausableTimeProvider): the budget must stay under 3 s on the test's
+        // terms — machine-load latency must not be what tips a 1.5 s answer past the budget
+        // (that would flip this test's verdict). Resumed at the hang, so the sleep below alone
+        // is the answer's age.
+        var time = new PausableTimeProvider();
+        var (manager, _, logger) = Create(native, time: time);
 
         manager.BringToFront(Window);
         Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        time.Resume();
         Thread.Sleep(1500);
         native.ReleaseHang.Set();
 
@@ -217,13 +242,21 @@ public class Win32WindowManagerActionTests
     {
         var native = new FakeWindowActionNative { HangInShowWindow = Window };
         native.Minimised.Add(Window);
+        // Frozen clock (PausableTimeProvider): the 1 s start deadline is what drops the second
+        // pick, and it stays 1 s. It must not also drop the FIRST one because a busy machine
+        // scheduled its worker's dedicated thread late — the escape-drop test was sighted
+        // failing exactly that way (778d7585). The second pick's drop stays real: its 1.5 s
+        // hand-off wait runs on the resumed clock and alone exceeds the deadline.
+        var time = new PausableTimeProvider();
         var (manager, _, logger) = Create(
             native,
             handoffTimeout: TimeSpan.FromMilliseconds(1500),
-            startDeadline: TimeSpan.FromSeconds(1));
+            startDeadline: TimeSpan.FromSeconds(1),
+            time: time);
 
         manager.BringToFront(Window);
         Check.That(native.HangEntered.Wait(TimeSpan.FromSeconds(5))).IsTrue();
+        time.Resume();
 
         manager.BringToFront(Other);
 
@@ -389,10 +422,11 @@ public class Win32WindowManagerActionTests
         FakeWindowActionNative native,
         TimeSpan? handoffTimeout = null,
         TimeSpan? startDeadline = null,
-        TimeSpan? completionBudget = null)
+        TimeSpan? completionBudget = null,
+        TimeProvider? time = null)
     {
         var logger = new RecordingLogger();
-        var scheduler = new WindowActionScheduler(logger, handoffTimeout, startDeadline, completionBudget);
+        var scheduler = new WindowActionScheduler(logger, handoffTimeout, startDeadline, completionBudget, time);
         return (new Win32WindowManager(logger, new NullIntegrityProbe(), native, scheduler), native, logger);
     }
 

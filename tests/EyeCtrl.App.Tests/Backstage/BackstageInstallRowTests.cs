@@ -213,6 +213,11 @@ public class BackstageInstallRowTests
             PreviousAvailable = true,
         };
         using var h = new Harness(gateways);
+        // LOAD-BEARING: drain the open path's queued Loaded UpdatePositions pass BEFORE the probe
+        // completes. Without this line that pending pass repairs the rebuilt cards' rectangles
+        // after the mutant's synchronous call, and this test passes against the F1 bug. Reviewer
+        // round 2 proved it: same mutant, pump deleted -> GREEN; pump present -> RED, killed only
+        // by this test in 9040 cases. The control below makes the drain observable.
         h.Pump();
 
         // Control: the open path's Uninstall rectangle is live.

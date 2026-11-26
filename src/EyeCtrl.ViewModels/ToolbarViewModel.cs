@@ -233,6 +233,8 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 
     public override void Receive(GazeCursorMovedMessage message)
     {
+        NoteSamplePaused(message.IsPaused);
+
         // Cached before any early return: DwellDetector.TargetProgress fires from inside the
         // Update below and carries no timestamp of its own, so this is "when that progress happened".
         _lastSampleTimestampUs = message.TimestampMicroseconds;

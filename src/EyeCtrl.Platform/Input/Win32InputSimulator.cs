@@ -278,14 +278,26 @@ public class Win32InputSimulator : IInputSimulator
         };
     }
 
-    private static NativeMethods.INPUT CreateKeyboardInput(ushort vk, uint flags)
+    /// <summary>
+    /// Builds one VK-authoritative keyboard input with <c>wScan</c> populated from
+    /// <see cref="NativeMethods.MapVirtualKey"/> (<c>MAPVK_VK_TO_VSC</c>). <c>KEYEVENTF_SCANCODE</c>
+    /// stays OFF so <paramref name="vk"/> remains authoritative for local Win32 consumers, while
+    /// scan-code consumers (RDP, Hyper-V/VM clients, raw-input apps, games) also receive the
+    /// hardware scan code instead of dropping a <c>wScan = 0</c> key/modifier (#172).
+    /// </summary>
+    internal static NativeMethods.INPUT CreateKeyboardInput(ushort vk, uint flags)
     {
         return new NativeMethods.INPUT
         {
             Type = NativeMethods.INPUT_KEYBOARD,
             Union = new NativeMethods.INPUTUNION
             {
-                Keyboard = new NativeMethods.KEYBDINPUT { VirtualKey = vk, Flags = flags }
+                Keyboard = new NativeMethods.KEYBDINPUT
+                {
+                    VirtualKey = vk,
+                    ScanCode = (ushort)NativeMethods.MapVirtualKey(vk, NativeMethods.MAPVK_VK_TO_VSC),
+                    Flags = flags,
+                }
             }
         };
     }
@@ -452,14 +464,16 @@ public class Win32InputSimulator : IInputSimulator
     /// <summary>
     /// After a PARTIAL insert (0 &lt; sent &lt; count), builds releases for every down whose up did
     /// not land inside the injected prefix: mouse-ups first, the menu-mask pair before a
-    /// compensating Alt-up, then keyboard key-ups in reverse. A fully blocked batch (sent = 0)
-    /// injected nothing and needs none.
+    /// compensating Alt-up or Win-up (a bare <c>Win↓, Win↑</c> opens the Start menu just as a bare
+    /// <c>Alt↓, Alt↑</c> activates the menu bar — #172), then keyboard key-ups in reverse with
+    /// their extended-key flag preserved. A fully blocked batch (sent = 0) injected nothing and
+    /// needs none.
     /// </summary>
     internal static NativeMethods.INPUT[] BuildCompensatingReleases(int sent, NativeMethods.INPUT[] batch)
     {
         if (sent <= 0 || sent >= batch.Length) return Array.Empty<NativeMethods.INPUT>();
 
-        var heldKeys = new List<ushort>();
+        var heldKeys = new List<(ushort Vk, uint ExtendedFlag)>();
         var heldMouseUps = new List<uint>();
         for (var i = 0; i < sent; i++)
         {
@@ -467,8 +481,17 @@ public class Win32InputSimulator : IInputSimulator
             if (input.Type == NativeMethods.INPUT_KEYBOARD)
             {
                 var vk = input.Union.Keyboard.VirtualKey;
-                if ((input.Union.Keyboard.Flags & NativeMethods.KEYEVENTF_KEYUP) != 0) heldKeys.Remove(vk);
-                else heldKeys.Add(vk);
+                if ((input.Union.Keyboard.Flags & NativeMethods.KEYEVENTF_KEYUP) != 0)
+                {
+                    var idx = heldKeys.FindLastIndex(k => k.Vk == vk);
+                    if (idx >= 0) heldKeys.RemoveAt(idx);
+                }
+                else
+                {
+                    uint extended = (input.Union.Keyboard.Flags & NativeMethods.KEYEVENTF_EXTENDEDKEY)
+                        | (vk is NativeMethods.VK_LWIN or NativeMethods.VK_RWIN ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0u);
+                    heldKeys.Add((vk, extended));
+                }
             }
             else if (input.Type == NativeMethods.INPUT_MOUSE)
             {
@@ -494,14 +517,19 @@ public class Win32InputSimulator : IInputSimulator
             });
         }
 
-        if (heldKeys.Contains(NativeMethods.VK_MENU))
+        // Guard both Alt-up (menu-bar mode) and Win-up (Start menu) with the unassigned 0xE8 mask
+        // pair. Skip emitting a fresh mask down/up if the cut landed mid-mask-pair (0xE8↓ is
+        // already held and its 0xE8↑ rides in the reverse loop below).
+        bool needsMask = !heldKeys.Exists(k => k.Vk == MenuMaskVirtualKey)
+            && heldKeys.Exists(k => k.Vk is NativeMethods.VK_MENU or NativeMethods.VK_LWIN or NativeMethods.VK_RWIN);
+        if (needsMask)
         {
             releases.Add(CreateKeyboardInput(MenuMaskVirtualKey, 0));
             releases.Add(CreateKeyboardInput(MenuMaskVirtualKey, NativeMethods.KEYEVENTF_KEYUP));
         }
 
         for (var i = heldKeys.Count - 1; i >= 0; i--)
-            releases.Add(CreateKeyboardInput(heldKeys[i], NativeMethods.KEYEVENTF_KEYUP));
+            releases.Add(CreateKeyboardInput(heldKeys[i].Vk, NativeMethods.KEYEVENTF_KEYUP | heldKeys[i].ExtendedFlag));
 
         return releases.ToArray();
     }

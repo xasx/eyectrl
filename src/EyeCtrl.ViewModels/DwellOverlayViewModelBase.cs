@@ -34,6 +34,11 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     /// the grace it actually carries.</summary>
     internal DwellDetector DetectorForTest => DwellDetector;
 
+    /// <summary>Test seam (InternalsVisibleTo): reads <see cref="LastSampleWasPaused"/> on any
+    /// concrete subclass (including sealed ones) so pause-stamp invariant pins need no synthetic
+    /// subclass.</summary>
+    internal bool LastSampleWasPausedForTest => LastSampleWasPaused;
+
     /// <param name="pauseGraceSettings">
     /// The dwell settings whose <see cref="DwellSettings.DwellPauseGraceMs"/> this surface follows
     /// (forgiving dwell): the detector starts with its current value and every later change reaches

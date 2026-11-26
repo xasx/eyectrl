@@ -51,6 +51,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     private ISetupGateways? _openGateways;
     private Action? _shutdown;
     private SupervisionPresenceRefresher? _presenceRefresher;
+    private SupervisionPresenceRefresher? _lastPresenceRefresher;
     private Action? _presenceTick;
     private readonly string? _assemblyVersion;
 
@@ -97,8 +98,12 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     internal BackstageWindow? WindowForTest => _window;
 
     /// <summary>Test seam: whether the one 2 s refresher is actually running. The clock rides it,
-    /// so this is also the "no clock still ticking after close" proof.</summary>
-    internal bool PresenceRefresherRunningForTest => _presenceRefresher?.IsRunning ?? false;
+    /// so this is also the "no clock still ticking after close" proof. It reads the stopped
+    /// instance kept by <see cref="UnwindOpening"/> as well as the live one: a plain
+    /// <c>_presenceRefresher?.IsRunning ?? false</c> would read false after the unwind nulls the
+    /// field even if <c>Stop()</c> had been dropped, so the pin could not fail.</summary>
+    internal bool PresenceRefresherRunningForTest =>
+        _presenceRefresher?.IsRunning ?? _lastPresenceRefresher?.IsRunning ?? false;
 
     /// <summary>Test seam: runs the exact callback the refresher timer runs, so the clock's
     /// wiring into that poll is exercised without waiting two seconds.</summary>
@@ -312,6 +317,9 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
 
             if (_supervisionToggle is not null)
                 _supervisionToggle.StateChanged -= OnSupervisionStateChanged;
+            // Keep the instance so the test seam can still observe a missed Stop() after the
+            // field below is nulled; a leaked DispatcherTimer would otherwise be invisible.
+            _lastPresenceRefresher = _presenceRefresher;
             _presenceRefresher?.Stop();
             _presenceRefresher = null;
             _presenceTick = null;

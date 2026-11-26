@@ -296,6 +296,71 @@ public class BackstageUiCoordinatorTests
     }
 
     [StaFact]
+    public void BackstageRequestedMessage_OpensTheMenu_AndCloseMessage_ClosesIt()
+    {
+        using var h = new Harness();
+
+        h.Messenger.Send(new BackstageRequestedMessage());
+        Check.WithCustomMessage("BackstageRequestedMessage no longer reaches the coordinator's open path.")
+            .That(StaTestPump.PumpUntil(() => h.Coordinator.IsOpen, TimeSpan.FromSeconds(2))).IsTrue();
+
+        h.Messenger.Send(new CloseBackstageMessage());
+        Check.WithCustomMessage("CloseBackstageMessage no longer reaches the coordinator's close path.")
+            .That(StaTestPump.PumpUntil(() => !h.Coordinator.IsOpen, TimeSpan.FromSeconds(2))).IsTrue();
+    }
+
+    [StaFact]
+    public void QuitConfirm_InvokesTheInjectedShutdown()
+    {
+        using var h = new Harness();
+        h.Coordinator.ShowBackstage();
+
+        h.BackstageVm.ActivateForMouse(BackstageViewModel.QuitCardId);
+        h.BackstageVm.ActivateForMouse(BackstageWindow.QuitConfirmChoiceId);
+
+        Check.That(h.Shutdowns).ContainsExactly("shutdown");
+    }
+
+    [StaFact]
+    public void Quit_ShutdownSeesSupervisorRelaunchRequestedFalse()
+    {
+        // The ticket's acceptance criterion: Quit must leave the supervisor on standby. The real
+        // AppRestartCoordinator's flag is read at the shutdown callback; Quit must never have set
+        // it (only a restart does).
+        using var h = new Harness();
+        var restart = new AppRestartCoordinator(
+            h.Messenger,
+            h.Settings,
+            tryReachSupervisor: () => false,
+            selfRestart: () => RestartOutcome.Started,
+            shutdown: () => { },
+            reportInProgress: () => { },
+            reportUnavailable: _ => { },
+            runInBackground: work => work(),
+            postToUi: work => work(),
+            supervisorInstalled: () => false,
+            bringUp: NoBringUp(h.Settings));
+        h.Coordinator.SetRestartCoordinator(restart);
+
+        bool? atShutdown = null;
+        h.Coordinator.SetShutdown(() => atShutdown = restart.SupervisorRelaunchRequested);
+        h.Coordinator.ShowBackstage();
+        h.BackstageVm.ActivateForMouse(BackstageViewModel.QuitCardId);
+        h.BackstageVm.ActivateForMouse(BackstageWindow.QuitConfirmChoiceId);
+
+        Check.That(atShutdown).IsNotNull();
+        Check.That(atShutdown!.Value).IsFalse();
+    }
+
+    private static SupervisorBringUp NoBringUp(EyeCtrlSettings settings) =>
+        new(settings,
+            enablePublishing: () => { },
+            launchSupervisor: () => false,
+            persistEnabled: _ => { },
+            reconcileRunKey: () => { },
+            tryReachSupervisor: () => false);
+
+    [StaFact]
     public void AnUnexpectedWindowClose_ReleasesTheClaims()
     {
         // Alt+F4 / an OS close: the window has already run its own OnClosed, so the coordinator

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.App.Overlays;
@@ -47,7 +48,6 @@ public class BackstageWindowTests
         public List<bool> Restarts { get; } = new();
         public bool OfferSupervisor { get; set; }
         public List<string> Calibrations { get; } = new();
-        public List<string> Dismissals { get; } = new();
 
         public Harness(Func<DateTime>? clockNow = null)
         {
@@ -66,7 +66,6 @@ public class BackstageWindowTests
                 () => Shutdowns.Add("shutdown"),
                 startSupervisor => Restarts.Add(startSupervisor),
                 () => RestartNotices.TargetLanguage(Settings.General.UiLanguage));
-            Window.DismissRequested += () => Dismissals.Add("dismiss");
             Window.CalibrateRequested += () => Calibrations.Add("calibrate");
             Window.ShowBackstage();
             Window.UpdatePositions();
@@ -276,37 +275,43 @@ public class BackstageWindowTests
             date.Text = "Donnerstag, 30. September";   // the longest German date at the ruling
             window.UpdateLayout();
 
-            var titleGroup = (FrameworkElement)window.FindName("TitleGroup");
             var titleText = (FrameworkElement)window.FindName("TitleText");
-            var statusStrip = (FrameworkElement)window.FindName("StatusStrip");
             var clock = (FrameworkElement)window.FindName("ClockBlock");
-            var close = (FrameworkElement)window.FindName("CloseHost");
-            var titleRect = RectInWindow(titleText, window);
-            var statusRect = RectInWindow(statusStrip, window);
-            var clockRect = RectInWindow(clock, window);
-            var closeRect = RectInWindow(close, window);
+            var statusStrip = (FrameworkElement)window.FindName("StatusStrip");
+            // A real window can be capped below 1280 DIP by a small CI agent (the #388 trap), so
+            // the fit budget is the DESIGNED cell, not the realised titleGroup.ActualWidth. The
+            // title and clock desired widths are screen-independent; the close gap is the design
+            // constant. At 1280 the status strip is exactly 3 x StatusCellWidthDip wide.
+            var groupWidth = 3 * BackstageWindow.StatusCellWidthDip;
+            var titleWidth = titleText.DesiredSize.Width;
+            var clockWidth = clock.DesiredSize.Width;
+            Check.That(titleWidth).IsStrictlyGreaterThan(0);
+            Check.That(clockWidth).IsStrictlyGreaterThan(0);
 
-            Check.WithCustomMessage($"clock {clockRect} overlaps the title text {titleRect}.")
-                .That(clockRect.Left >= titleRect.Right).IsTrue();
-            Check.WithCustomMessage($"clock {clockRect} reaches the close disc at {closeRect}.")
-                .That(clockRect.Right <= closeRect.Left).IsTrue();
-            Check.WithCustomMessage($"clock {clockRect} overlaps the status strip {statusRect}.")
-                .That(clockRect.Bottom <= statusRect.Top).IsTrue();
-            Check.WithCustomMessage("The clock runs past the right content margin.")
-                .That(clockRect.Right <= BackstageWindow.ReferenceScreenWidthDip - BackstageWindow.OuterMarginDip)
+            Check.WithCustomMessage(
+                    $"title {titleWidth} + gap {clock.Margin.Left} + clock {clockWidth} exceeds the 1280 DIP title group {groupWidth}.")
+                .That(titleWidth + clock.Margin.Left + clockWidth <= groupWidth).IsTrue();
+            Check.WithCustomMessage(
+                    $"clock {clockWidth} is wider than the 1280 DIP title group {groupWidth}; it reaches the close disc.")
+                .That(clockWidth <= groupWidth).IsTrue();
+            Check.WithCustomMessage(
+                    "The header design no longer leaves the clock entirely left of the close disc's 24 DIP gap.")
+                .That(groupWidth + BackstageWindow.CardGutterDip + BackstageWindow.CloseButtonSize
+                    <= BackstageWindow.ReferenceScreenWidthDip - (2 * BackstageWindow.OuterMarginDip))
                 .IsTrue();
+            // Height is not screen-width-dependent: the clock's row must still end above the strip.
+            Check.WithCustomMessage("The clock overlaps the status strip.")
+                .That(RectInWindow(clock, window).Bottom <= RectInWindow(statusStrip, window).Top).IsTrue();
 
-            Check.That(titleGroup.ActualWidth).IsStrictlyGreaterThan(0);
             Check.That(date.Text).IsEqualTo("Donnerstag, 30. September");
-            var cell = titleGroup.ActualWidth / 3;
             foreach (var hostName in new[] { "VersionBadgeHost", "InstallBadgeHost", "SupervisorBadgeHost" })
             {
                 var host = (ContentControl)window.FindName(hostName);
                 var badge = (FrameworkElement)host.Content;
                 Check.WithCustomMessage($"{hostName} drew no pill: the fit assertion would be vacuous.")
                     .That(badge.ActualWidth).IsStrictlyGreaterThan(0);
-                Check.WithCustomMessage($"{hostName}: pill {badge.ActualWidth} vs strip cell {cell}.")
-                    .That(badge.ActualWidth <= cell).IsTrue();
+                Check.WithCustomMessage($"{hostName}: pill {badge.ActualWidth} vs designed cell {BackstageWindow.StatusCellWidthDip}.")
+                    .That(badge.ActualWidth <= BackstageWindow.StatusCellWidthDip).IsTrue();
             }
         }
         finally
@@ -333,6 +338,37 @@ public class BackstageWindowTests
         h.ViewModel.ActivateForMouse(BackstageWindow.QuitConfirmChoiceId);
         Check.That(h.Shutdowns).ContainsExactly("shutdown");
         Check.That(h.Restarts).IsEmpty();
+    }
+
+    [StaFact]
+    public void ModalChoices_RegisterTheDrawnButtonRectangle_NotTheFallbackCircle()
+    {
+        // B8 at the only seam that can break it: the VM API is correct, but the window must CALL
+        // the rectangular overload with the drawn face's real half-extents. Registering the 70 DIP
+        // fallback circle would leave most of a 460x100 Quit/Cancel face dead to gaze.
+        using var h = new Harness();
+        h.ViewModel.ActivateForMouse(BackstageViewModel.QuitCardId);
+
+        Check.That(h.Window.ModalChoices.Children.Count).IsEqualTo(2);
+        foreach (var choiceId in h.Window.ModalChoiceIds)
+        {
+            var button = h.Window.ModalChoices.Children.OfType<Border>().Single(b =>
+                AutomationProperties.GetAutomationId(b) == "Backstage_Choice_" + choiceId);
+            var topLeft = button.PointToScreen(new Point(0, 0));
+            var bottomRight = button.PointToScreen(
+                new Point(button.ActualWidth, button.ActualHeight));
+            var drawn = new PhysicalRect(
+                topLeft.X, topLeft.Y,
+                bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+
+            var target = h.ViewModel.DetectorForTest.Targets.Single(t => t.Id == choiceId);
+            Check.WithCustomMessage(
+                    $"{choiceId}: the modal choice is a circular fallback, not the drawn rectangle.")
+                .That(target.Bounds.HasValue).IsTrue();
+            Check.WithCustomMessage($"{choiceId}: target {target.Bounds} != drawn {drawn}.")
+                .That(target.Bounds!.Value).IsEqualTo(drawn);
+            Check.That(target.Radius).IsEqualTo(0);
+        }
     }
 
     [StaFact]
@@ -423,28 +459,21 @@ public class BackstageWindowTests
     public void Closing_UnregistersTheRestartNotices_SoTheyCannotShowOnAClosedMenu()
     {
         // "Unregistered early" is as bad as missing: a notice delivered after the menu closed must
-        // go to the App-level floating card, not into a window nobody can see.
+        // go to the App-level floating card, not into a window nobody can see. Sending the message
+        // alone cannot fail (ShowRestartRefused early-returns once _vm is null), so assert the
+        // registration itself is gone.
         var h = new Harness();
+        Check.That(h.Messenger.IsRegistered<RestartUnavailableMessage>(h.Window)).IsTrue();
+        Check.That(h.Messenger.IsRegistered<RestartInProgressMessage>(h.Window)).IsTrue();
+
         h.Window.HideBackstage();
+        Check.That(h.Messenger.IsRegistered<RestartUnavailableMessage>(h.Window)).IsFalse();
+        Check.That(h.Messenger.IsRegistered<RestartInProgressMessage>(h.Window)).IsFalse();
         h.ViewModel.Dispose();
 
         h.Messenger.Send(new RestartUnavailableMessage("late reason"));
 
         Check.That(h.ViewModel.IsModalOpen).IsFalse();
-    }
-
-    [StaFact]
-    public void Escape_DismissesTheOpenModalFirst_AndOtherwiseRequestsClose()
-    {
-        using var h = new Harness();
-
-        h.ViewModel.ActivateForMouse(BackstageViewModel.QuitCardId);
-        h.Window.HandleEscape();
-        Check.That(h.ViewModel.IsModalOpen).IsFalse();
-        Check.That(h.Dismissals).IsEmpty();
-
-        h.Window.HandleEscape();
-        Check.That(h.Dismissals).ContainsExactly("dismiss");
     }
 
     [StaFact]

@@ -226,10 +226,6 @@ public class EventCoordinator : IEventCoordinator
     /// </summary>
     internal ToolbarLifecycleCoordinator? ToolbarLifecycle => _toolbar;
 
-    /// <summary>The fullscreen Backstage sub-coordinator, for the lifecycle/precedence tests.
-    /// Null before Initialize and after Dispose.</summary>
-    internal BackstageUiCoordinator? Backstage => _backstage;
-
     public void Initialize(EventCoordinationContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));

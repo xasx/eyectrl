@@ -363,18 +363,6 @@ public partial class BackstageWindow : OverlayWindow
             UpdateModalChoicePositions();
     }
 
-    /// <summary>Esc: dismiss an open modal first, otherwise the coordinator closes the menu.</summary>
-    internal void HandleEscape()
-    {
-        if (_vm is null)
-            return;
-
-        if (_vm.IsModalOpen)
-            DismissModal();
-        else
-            DismissRequested?.Invoke();
-    }
-
     /// <summary>Dismisses the modal and restores the main surface (the coordinator's Esc/Tab path
     /// and the notice buttons call this).</summary>
     internal void DismissModal()

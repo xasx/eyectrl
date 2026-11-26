@@ -109,6 +109,35 @@ public class EventCoordinatorTests
     }
 
     [Fact]
+    public void Initialize_WiresTheBackstageExerciseGateAndShutdownAction()
+    {
+        // The Backstage coordinator itself is behaviour-tested (BackstageUiCoordinatorTests). This
+        // pins the two composition-root joins that no test can reach because Initialize needs the
+        // whole window/VM graph: the exercise message actually feeds the predicate the coordinator
+        // was constructed with, and SetShutdownAction actually reaches the coordinator's Quit seam.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "EventCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "EventCoordinator no longer feeds EyeCareExerciseActiveMessage into _exerciseActive: " +
+                "the Backstage exercise refusal is then dead.")
+            .That(source.Contains("_exerciseActive=message.Active;")).IsTrue();
+        Check.WithCustomMessage(
+                "EventCoordinator no longer hands the Backstage coordinator the _exerciseActive predicate.")
+            .That(source.Contains(
+                "_backstage=newBackstageUiCoordinator(_modal,_quickActions,_toolbar,()=>_exerciseActive);"))
+            .IsTrue();
+        Check.WithCustomMessage(
+                "EventCoordinator.SetShutdownAction no longer forwards the App shutdown to the Backstage coordinator.")
+            .That(source.Contains(
+                "RequireInitialized(nameof(SetShutdownAction));_backstage!.SetShutdown(shutdown);"))
+            .IsTrue();
+    }
+
+    [Fact]
     public void Initialize_WiresTheLostGazeExit()
     {
         // Source pin over comment-stripped, whitespace-collapsed code: Initialize needs the whole

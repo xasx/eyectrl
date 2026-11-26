@@ -24,17 +24,23 @@ using EyeCtrl.ViewModels.Messages;
 /// SetDwellTime. Gaze routes through SampleMayDwell (gates !IsInGap, NOT IsPaused) —
 /// DwellActiveWhilePaused is true, so the guide stays usable under user-pause (§9).
 /// </summary>
-public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
+public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase,
+    IRecipient<DisplayGeometryChangedMessage>
 {
     /// <summary>The choice cards' radius, in DIP (Settings' ModalBtnRadius is an App-internal —
     /// the guide declares its own, r2 F3). Computed PER REGISTRATION: a static would freeze the
     /// DPI (r2 F18).</summary>
     private const double ChoiceRadiusDip = 70;
 
+    /// <summary>The practice target's unscaled radius, in DIP — matches the 220-DIP ring.</summary>
+    private const double PracticeRingRadiusDip = 110;
+
     private readonly EyeCtrlSettings _settings;
     private readonly DwellDetector _practiceDetector;
     private readonly LeaveBeforeArmLatch _latch;
-    private readonly double _releaseMarginPhysical;
+    private readonly Dictionary<string, double> _choiceRadiiDip = new();
+    private double _surfaceScale = 1.0;
+    private int _radiiRefreshCount;
     private PhysicalPoint _practiceCentre;
 
     [ObservableProperty] private string _title = string.Empty;
@@ -58,12 +64,24 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     public event Action<int>? DwellTimeChanged;
     /// <summary>A theme chip fired (theme name).</summary>
     public event Action<string>? ThemeChosen;
+    /// <summary>The display's addressable space changed while the guide is alive (dock/undock,
+    /// resolution or DPI scaling change). Fires on the UI thread after <c>DpiHelper</c> has already
+    /// been updated so the window can re-apply its viewport and re-push target centres.</summary>
+    public event Action<DisplayGeometry>? DisplayGeometryChanged;
 
     /// <summary>The guide is the overlay whose only dismissal is a dwell (the chrome Close), so it
     /// stays usable under user-pause (§9) — the base's opt-in; effects gate on their own sample.</summary>
     protected override bool DwellActiveWhilePaused => true;
 
     internal bool DwellActiveWhilePausedForTest => DwellActiveWhilePaused;
+
+    /// <summary>The practice ring's dedicated detector, exposed for headless geometry tests.</summary>
+    internal DwellDetector PracticeDetectorForTest => _practiceDetector;
+
+    /// <summary>Uniform surface scale set by the fullscreen window (<c>min(1, W/1920, H/1200)</c>),
+    /// always in <c>(0, 1]</c>. Scales unscaled layout DIP radii and the leave-before-arm release
+    /// margin so dwell catchments match the visually scaled controls 1:1 (issue #372).</summary>
+    public double SurfaceScale => _surfaceScale;
 
     /// <summary>Whether the chrome detector may accumulate on <paramref name="id"/> right now —
     /// the latch's filter, exposed for tests.</summary>
@@ -77,7 +95,6 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
                dwellRegistry: dwellRegistry, pauseGraceSettings: settings.Dwell)
     {
         _settings = settings;
-        _releaseMarginPhysical = DpiHelper.LogicalToPhysicalX(SettingsWindowViewModel.LatchReleaseMarginDip);
         _practiceDetector = new DwellDetector(_settings.Dwell.DwellCooldownMs, DwellContext.Other, sink,
             pauseGraceMs: _settings.Dwell.DwellPauseGraceMs) { OtherTargetReleasesHold = true };
         _practiceDetector.TargetActivated += _ =>
@@ -86,8 +103,55 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
             Messenger.Send(new DwellActivationMessage());   // the base pattern (:96-101): cue the fire
         };
         _practiceDetector.TargetProgress += (_, p) => PracticeProgress?.Invoke(p);
+        // Evaluated dynamically so both live DPI updates and viewport surface scaling apply to the
+        // leave-before-arm hysteresis without freezing either at construction time.
         _latch = new LeaveBeforeArmLatch(DwellDetector,
-            releaseMarginPhysical: () => _releaseMarginPhysical);
+            releaseMarginPhysical: () => DpiHelper.LogicalToPhysicalX(
+                SettingsWindowViewModel.LatchReleaseMarginDip * _surfaceScale));
+    }
+
+    /// <summary>Updates the uniform surface scale (issue #372) used to convert unscaled layout DIP
+    /// radii (choice catchments, the 110-DIP practice ring, and the leave-before-arm release
+    /// margin) into physical screen pixels. Values above 1.0 clamp to 1.0 (never upscales past the
+    /// 1920×1200 reference); non-positive or non-finite values throw. Re-scales any currently
+    /// registered chrome and practice targets in place.</summary>
+    public void SetSurfaceScale(double scale)
+    {
+        if (!double.IsFinite(scale) || scale <= 0)
+            throw new ArgumentOutOfRangeException(nameof(scale), scale,
+                "Surface scale must be finite and strictly positive.");
+        var clamped = Math.Min(1.0, scale);
+        if (Math.Abs(clamped - _surfaceScale) < 1e-12) return;
+        _surfaceScale = clamped;
+        RefreshTargetRadii();
+    }
+
+    private void RefreshTargetRadii()
+    {
+        _radiiRefreshCount++;
+        foreach (var target in DwellDetector.Targets)
+        {
+            if (_choiceRadiiDip.TryGetValue(target.Id, out var unscaledDip))
+            {
+                DwellDetector.AddTarget(new DwellTarget(
+                    target.Id, target.Center,
+                    DpiHelper.LogicalToPhysicalX(unscaledDip * _surfaceScale),
+                    _settings.Dwell.ToolbarButtonDwellMs));
+            }
+        }
+        ReTimePracticeTarget();
+    }
+
+    /// <inheritdoc />
+    public void Receive(DisplayGeometryChangedMessage message)
+    {
+        if (!message.Geometry.IsUsable) return;
+        var before = _radiiRefreshCount;
+        DisplayGeometryChanged?.Invoke(message.Geometry);
+        // Pure DPI changes (e.g. 1920x1200@100% -> 3840x2400@200%) or windowless VM hosts may leave
+        // SurfaceScale unchanged; still re-derive every physical radius against the updated DpiHelper.
+        if (_radiiRefreshCount == before)
+            RefreshTargetRadii();
     }
 
     /// <summary>The two knob values the step-3 writes through (200–2000).</summary>
@@ -124,11 +188,15 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     /// before dispatching (the Settings precedent, :317-318) — the wiring re-renders the card
     /// when the press did not change the step (r4 F3). <paramref name="radiusDip"/> defaults to
     /// <see cref="ChoiceRadiusDip"/> (70, the modal fallback); the window passes each card's
-    /// half-diagonal so the WHOLE visible card dwells (the fullscreen cards' live check).</summary>
+    /// unscaled half-diagonal, which is multiplied by <see cref="SurfaceScale"/> so the WHOLE
+    /// rendered card dwells without overlapping neighbours on smaller screens.</summary>
     public void RegisterChoice(string id, double? radiusDip = null)
     {
+        var unscaledRadiusDip = radiusDip ?? ChoiceRadiusDip;
+        _choiceRadiiDip[id] = unscaledRadiusDip;
         DwellDetector.AddTarget(new DwellTarget(id, new PhysicalPoint(0, 0),
-            DpiHelper.LogicalToPhysicalX(radiusDip ?? ChoiceRadiusDip), _settings.Dwell.ToolbarButtonDwellMs));
+            DpiHelper.LogicalToPhysicalX(unscaledRadiusDip * _surfaceScale),
+            _settings.Dwell.ToolbarButtonDwellMs));
         _latch.Hold(id);
     }
 
@@ -136,6 +204,7 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     /// its knob).</summary>
     public void RemoveChromeChoice(string id)
     {
+        _choiceRadiiDip.Remove(id);
         DwellDetector.RemoveTarget(id);
         _latch.Forget(id);
     }
@@ -153,6 +222,7 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
     /// re-registering a new card's set).</summary>
     public void ClearChoices()
     {
+        _choiceRadiiDip.Clear();
         DwellDetector.ClearTargets();
         _latch.Clear();
     }
@@ -162,10 +232,11 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
         _practiceDetector.RemoveTarget("guide_practice");
         if (PracticeVisible)
             // The dwell radius must match the VISUAL: the owner-approved fullscreen ring is
-            // 220 DIP, so the practice target's radius is its 110-DIP radius (was 60 for the
-            // old 120 ring).
+            // 220 DIP (110-DIP radius) at scale 1.0, scaled uniformly with SurfaceScale on smaller
+            // viewports so the catchment never outgrows the drawn ring.
             _practiceDetector.AddTarget(new DwellTarget("guide_practice", _practiceCentre,
-                radius: DpiHelper.LogicalToPhysicalX(110), dwellTimeMs: _settings.Dwell.ActivationButtonDwellMs));
+                radius: DpiHelper.LogicalToPhysicalX(PracticeRingRadiusDip * _surfaceScale),
+                dwellTimeMs: _settings.Dwell.ActivationButtonDwellMs));
     }
 
     /// <summary>The view pushes the practice target's real centre at layout and on DPI change
@@ -207,6 +278,7 @@ public sealed partial class FirstRunGuideViewModel : DwellOverlayViewModelBase
 
     protected override void OnTargetActivated(string targetId)
     {
+        _choiceRadiiDip.Clear();
         DwellDetector.ClearTargets();       // Settings precedent: clear before dispatching (:317-318)
         _latch.Clear();
         if (targetId == "guide_close") { CloseRequested?.Invoke(); return; }

@@ -52,6 +52,7 @@ public class InvisibleTestWindowTests
                      new ToolbarWindow(), new EdgeButtonBarWindow(), new EyeCareBannerWindow(),
                      new EyeCareExerciseWindow(), new ActionMenuWindow(), new KeyboardWindow(),
                      new PauseIndicatorWindow(), new ManualSelectionGazeIndicatorWindow(),
+                     new BackstageWindow(),
                  })
         {
             try { AssertPrepared(window); }
@@ -205,6 +206,7 @@ public class InvisibleTestWindowTests
         ("KeyboardWindow", "Overlays/KeyboardWindow"),
         ("PauseIndicatorWindow", "Overlays/PauseIndicatorWindow"),
         ("ManualSelectionGazeIndicatorWindow", "Overlays/ManualSelectionGazeIndicatorWindow"),
+        ("BackstageWindow", "Overlays/BackstageWindow"),
         ("SettingsWindow", "Views/SettingsWindow"),
     ];
 

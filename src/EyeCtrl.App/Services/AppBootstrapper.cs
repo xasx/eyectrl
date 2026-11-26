@@ -472,6 +472,14 @@ public class AppBootstrapper
             dwellRegistry: sp.GetRequiredService<IDwellDetectorRegistry>(),
             isFeedbackSuppressed: () => sp.GetRequiredService<IFeedbackGate>().IsFeedbackSuppressed,
             logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<ToolbarViewModel>()));
+        // Ticket 03: the fullscreen Backstage menu's headless half. Full-arity factory for the same
+        // reason as ToolbarViewModel above — the optional sink/registry parameters silently disable
+        // telemetry and adaptation routing when MS DI fills them with null.
+        services.AddSingleton(sp => new BackstageViewModel(
+            WeakReferenceMessenger.Default,
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            sink: sp.GetRequiredService<IStruggleTelemetrySink>(),
+            dwellRegistry: sp.GetRequiredService<IDwellDetectorRegistry>()));
         services.AddSingleton<KeyboardViewModel>();
         services.AddSingleton<ManualSelectionGazeIndicatorViewModel>();
         services.AddSingleton<GlassBackdropViewModel>();

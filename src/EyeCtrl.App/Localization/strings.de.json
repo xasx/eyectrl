@@ -255,8 +255,8 @@
     "src": "8a888f50"
   },
   "guide.calibrate.body": {
-    "text": "Die Kalibrierung von EyeCtrl sorgt dafür, dass der Cursor Ihren Augen folgt. Sie können auch später in den Einstellungen kalibrieren.",
-    "src": "3f39f3f4"
+    "text": "Die Kalibrierung von EyeCtrl sorgt dafür, dass der Cursor Ihren Augen folgt. Zum erneuten Kalibrieren öffnen Sie später über die Symbolleiste das Menü „EyeCtrl verwalten“ oder wählen in den Einstellungen „Jetzt kalibrieren“.",
+    "src": "db9cd940"
   },
   "guide.calibrate.now": {
     "text": "Kalibrieren",
@@ -566,37 +566,109 @@
     "text": "{0}% {1}",
     "src": "3dfdbbd4"
   },
+  "overlays.backstage.calibrate.description": {
+    "text": "Startet die Kalibrierung von EyeCtrl. Dieses Menü wird vorher geschlossen.",
+    "src": "0b030d17"
+  },
+  "overlays.backstage.calibrate.title": {
+    "text": "Kalibrieren",
+    "src": "3ef4210a"
+  },
+  "overlays.backstage.modal.cancel": {
+    "text": "Abbrechen – nichts ändern",
+    "src": "0679cf3f"
+  },
+  "overlays.backstage.quit.confirm.action": {
+    "text": "EyeCtrl beenden",
+    "src": "01cb6daa"
+  },
+  "overlays.backstage.quit.confirm.body": {
+    "text": "EyeCtrl wird jetzt beendet. Kein Ersatzprogramm startet, und der Supervisor startet EyeCtrl nicht neu. Läuft keine andere Blicksteuerung, lässt sich dieser PC nicht mehr per Blick steuern, bis jemand EyeCtrl wieder startet.",
+    "src": "61d24040"
+  },
+  "overlays.backstage.quit.confirm.title": {
+    "text": "EyeCtrl beenden?",
+    "src": "cecc8cb7"
+  },
+  "overlays.backstage.quit.description": {
+    "text": "Beendet EyeCtrl sauber. Nichts startet es wieder.",
+    "src": "705789c5"
+  },
+  "overlays.backstage.quit.title": {
+    "text": "EyeCtrl beenden",
+    "src": "d06d17a9"
+  },
+  "overlays.backstage.restart.confirm.action": {
+    "text": "Neu starten",
+    "src": "1bf723d5"
+  },
+  "overlays.backstage.restart.confirm.body": {
+    "text": "EyeCtrl wird beendet und startet danach von selbst neu. Die Einstellungen bleiben unverändert.",
+    "src": "5afdf2b8"
+  },
+  "overlays.backstage.restart.confirm.supervisedBody": {
+    "text": "Der Supervisor ist installiert. Er startet EyeCtrl neu, falls es einmal ausfällt, und kann einen misslungenen Neustart retten. Wird er gestartet, schaltet das die Überwachung ein, und sie bleibt eingeschaltet.",
+    "src": "3b082702"
+  },
+  "overlays.backstage.restart.confirm.supervisor": {
+    "text": "Mit Supervisor neu starten",
+    "src": "17b3825a"
+  },
+  "overlays.backstage.restart.confirm.title": {
+    "text": "EyeCtrl neu starten?",
+    "src": "cfd6ce26"
+  },
+  "overlays.backstage.restart.confirm.withoutSupervisor": {
+    "text": "Ohne Supervisor neu starten",
+    "src": "93d2781e"
+  },
+  "overlays.backstage.restart.description": {
+    "text": "Startet EyeCtrl sauber neu; die Einstellungen bleiben erhalten.",
+    "src": "60c58275"
+  },
+  "overlays.backstage.restart.title": {
+    "text": "EyeCtrl neu starten",
+    "src": "9d00d0b4"
+  },
+  "overlays.backstage.session": {
+    "text": "Sitzung",
+    "src": "9e2c9fed"
+  },
   "overlays.backstage.status.devBuild": {
     "text": "Entwicklungsversion",
-    "src": "480b6e6c"
+    "src": "00beea45"
   },
   "overlays.backstage.status.installed.standard": {
     "text": "Installiert · Standard",
-    "src": "b09e685b"
+    "src": "f0889cd2"
   },
   "overlays.backstage.status.installed.uiAccess": {
     "text": "Installiert · UIAccess aktiv",
-    "src": "4ee3c680"
+    "src": "27dad9c8"
+  },
+  "overlays.backstage.status.paused": {
+    "text": "Pausiert · Menü geöffnet",
+    "src": "04f75e09"
   },
   "overlays.backstage.status.supervisor.connected": {
     "text": "Supervisor verbunden",
-    "src": "a87965d2"
+    "src": "855237ec"
   },
   "overlays.backstage.status.supervisor.notAnswering": {
     "text": "Supervisor antwortet nicht",
-    "src": "f0c9797f"
+    "src": "182e91d8"
   },
   "overlays.backstage.status.supervisor.off": {
     "text": "Überwachung aus",
-    "src": "1d296d25"
+    "src": "a840604a"
   },
   "overlays.backstage.status.supervisor.unavailable": {
     "text": "Supervisor nicht installiert",
-    "src": "e0c6858f"
+    "src": "0f40472e"
   },
   "overlays.backstage.status.version": {
     "text": "Version {0}",
-    "src": "ad821408"
+    "src": "026ad8f2"
   },
   "overlays.blocked.detail": {
     "text": "Blockierendes Fenster: {0}",

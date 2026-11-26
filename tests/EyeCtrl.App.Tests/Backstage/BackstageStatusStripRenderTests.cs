@@ -17,16 +17,17 @@ using EyeCtrl.Tests.TestSupport;
 /// width still fits the 1920 DIP reference work area.
 ///
 /// <para>
-/// <b>The German FIT of these badges is UNGATED until Ticket 03</b> adds the real badge/strip fit
-/// class and measurer with <c>BackstageWindow</c>. This test must not be read as that gate: a
-/// horizontal <c>StackPanel</c> measures children with infinite width, so per-badge "no clip /
-/// no trim / natural ≤ actual" checks are tautological and are deliberately not written here.
-/// The tenfold-label probe at the end only proves the total-width check can fail.
+/// <b>The German FIT gate is now <c>backstageBadge</c></b> (Ticket 03): <c>GermanFitTests</c>
+/// measures every status pill in <c>BackstageWindow.BuildStatusBadge</c> against one third of the
+/// 1280 DIP header strip. This test must not be read as that gate: a horizontal
+/// <c>StackPanel</c> measures children with infinite width, so per-badge "no clip / no trim /
+/// natural ≤ actual" checks are tautological and are deliberately not written here. The tenfold
+/// probe at the end only proves the total-width check can fail.
 /// </para>
 ///
 /// <para>
-/// The badge padding and gap are this probe's generous assumptions; Ticket 03's real strip
-/// geometry replaces them. No fit class and no string-table metadata are added here.
+/// The badge padding and gap are this probe's generous assumptions; the real strip geometry lives
+/// in <c>BackstageWindow</c> and its fit class.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]

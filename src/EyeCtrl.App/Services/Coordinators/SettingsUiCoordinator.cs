@@ -833,7 +833,10 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         // could leak "settings" until Settings is opened and closed again. (Before claims, this
         // guard existed because the probe's Restore resumed the shared bool for everyone.)
         _quickActions.SetSummonSuspended("settings", false);
-        if (Context.CursorVM.IsVisible && !_modal.ProbeOpen)
+        // Backstage is a screen-owning surface too: the Settings close that Backstage's open
+        // posts (CloseSettingsMessage is deferred) lands AFTER Backstage has hidden the ring, so
+        // without this term closing Settings would repaint the ring over the fullscreen menu.
+        if (Context.CursorVM.IsVisible && !_modal.ProbeOpen && !_modal.BackstageOpen)
             Context.OverlayManager.CursorCircle.Show();
     }
 
@@ -874,7 +877,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         _modal.SettingsOpenChanged?.Invoke(false);
         _toolbar.SetAutoHideSuspended("settings", false);
         _quickActions.SetSummonSuspended("settings", false);
-        if (Context.CursorVM.IsVisible && !_modal.ProbeOpen)
+        if (Context.CursorVM.IsVisible && !_modal.ProbeOpen && !_modal.BackstageOpen)
             Context.OverlayManager.CursorCircle.Show();
 
         Log.Information("Settings hidden for the uninstall hand-off");

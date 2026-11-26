@@ -108,6 +108,11 @@ FIT_CLASSES = [
     "B260x3",
     "C-fallback",
     "C-alert",
+    # Ticket 03: a Backstage status pill in one third of the header strip (350 DIP at the 1280
+    # minimum layout), and a Backstage action card's title/description in the 376 x 164 DIP face.
+    # Kept in StringTableSchema.FitClasses's order — StringsEnumParityTests compares the lists.
+    "backstageBadge",
+    "backstageCard",
     # T09: fixed boxes that were classed row, so no gate measured them. modalW is a one-line
     # modal button W DIP wide; btnWxH is a wrapping Settings DwellButton of W x H DIP. The fit
     # harness (tests/EyeCtrl.App.Tests/Localization/Fit) measures each in its production control.

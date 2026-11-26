@@ -26,6 +26,16 @@ using EyeCtrl.ViewModels;
 /// RE-REGISTERS (r5 F2: a re-render cleared the targets). No Close() member (r4 F2).
 ///
 /// <para>
+/// Responsive scaling (issue #372): the approved fullscreen literals are authored for a 1920×1200
+/// DIP reference screen. On viewports smaller than 1920×1200 DIP, <c>LayoutRoot</c> receives a
+/// uniform <see cref="ScaleTransform"/> of <c>min(1, W/1920, H/1200)</c> while <c>Card</c> stays
+/// edge-to-edge, guaranteeing at least 1920×1200 DIP of virtual layout space so controls never
+/// clip or collide; <see cref="FirstRunGuideViewModel.SetSurfaceScale"/> scales the registered
+/// dwell radii and latch hysteresis by the same factor so hit catchments match the rendered
+/// visuals 1:1. On 1920×1200 DIP and larger screens the scale is 1.0 (<see cref="Transform.Identity"/>).
+/// </para>
+///
+/// <para>
 /// The cards ARE the Settings control (owner follow-up, 2026-11-18: „use the same controls as
 /// settings"): every card is a <see cref="DwellButton"/> built the way the Settings modal builds
 /// its buttons — the per-kind fill/label pairing comes from <see cref="ModalButtonPalette"/>
@@ -64,6 +74,12 @@ using EyeCtrl.ViewModels;
 /// </summary>
 public sealed partial class FirstRunGuideWindow : OverlayWindow
 {
+    /// <summary>Logical viewport width (DIP) of the owner-approved fullscreen mockups.</summary>
+    internal const double ReferenceWidthDip = 1920.0;
+
+    /// <summary>Logical viewport height (DIP) of the owner-approved fullscreen mockups.</summary>
+    internal const double ReferenceHeightDip = 1200.0;
+
     private readonly FirstRunGuideViewModel _vm;
     private readonly InertRegistrar _registrar = new();
     private readonly Dictionary<string, DwellButton> _choiceButtons = new();
@@ -85,7 +101,26 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     /// theme until the pick is applied app-wide).</summary>
     private ITheme _previewTheme;
 
+    /// <summary>Uniform layout scale applied to <c>LayoutRoot</c>, in <c>(0, 1]</c>. Exactly
+    /// <c>1.0</c> on 1920×1200 DIP and larger viewports.</summary>
+    internal double SurfaceScale { get; private set; } = 1.0;
+
+    /// <summary>Computes the uniform downscale factor for a logical viewport in DIP:
+    /// <c>min(1, widthDip / 1920, heightDip / 1200)</c>, falling back to <c>1.0</c> for
+    /// non-positive or non-finite inputs.</summary>
+    internal static double ComputeSurfaceScale(double widthDip, double heightDip)
+    {
+        if (!double.IsFinite(widthDip) || !double.IsFinite(heightDip) || widthDip <= 0 || heightDip <= 0)
+            return 1.0;
+        return Math.Min(1.0, Math.Min(widthDip / ReferenceWidthDip, heightDip / ReferenceHeightDip));
+    }
+
     public FirstRunGuideWindow(FirstRunGuideViewModel vm)
+        : this(vm, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight)
+    {
+    }
+
+    internal FirstRunGuideWindow(FirstRunGuideViewModel vm, double viewportWidthDip, double viewportHeightDip)
     {
         InitializeComponent();
         DataContext = vm;
@@ -94,8 +129,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
 
         Left = 0;
         Top = 0;
-        Width = SystemParameters.PrimaryScreenWidth;
-        Height = SystemParameters.PrimaryScreenHeight;
+        ApplyViewport(viewportWidthDip, viewportHeightDip);
 
         // Progress bindings (r3 F7): the practice fill follows the VM; the cards' progress rides
         // the control's own bar through SetChoiceProgress.
@@ -107,6 +141,21 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         {
             if (_dwellValue is { } value) value.Text = $"{ms} ms";
         };
+    }
+
+    /// <summary>Sizes the window to the given logical viewport and updates <c>LayoutRoot</c>'s
+    /// uniform <see cref="ScaleTransform"/> together with the ViewModel's surface scale so visuals
+    /// and dwell catchments stay 1:1.</summary>
+    internal void ApplyViewport(double widthDip, double heightDip)
+    {
+        Width = widthDip;
+        Height = heightDip;
+        SurfaceScale = ComputeSurfaceScale(widthDip, heightDip);
+        LayoutRoot.LayoutTransform = SurfaceScale < 1.0
+            ? new ScaleTransform(SurfaceScale, SurfaceScale)
+            : Transform.Identity;
+        _vm.SetSurfaceScale(SurfaceScale);
+        if (IsLoaded) PushCentres();
     }
 
     /// <summary>The theme preview's card-local target (the coordinator applies the resolved
@@ -148,6 +197,16 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         PushCentres();
     }
 
+    /// <summary>The dwell catchment for one card: the HALF-DIAGONAL of the visible button, so
+    /// the WHOLE card dwells — the owner's live check found the fullscreen cards caught only the
+    /// text's small central circle (the old 70-DIP modal radius). The 96-DIP gaps keep adjacent
+    /// circles clear (action row centres 416 apart vs 2×186; ± row 296 vs 2×128; chips span the
+    /// 1920-DIP reference band across 4 star columns — 480 apart vs 2×206, 68 of daylight, and on
+    /// smaller viewports <see cref="SurfaceScale"/> scales both the layout and the registered
+    /// radii by the same factor so the daylight scales proportionally instead of overlapping).</summary>
+    private static double CardDwellRadiusDip(double widthDip, double heightDip) =>
+        Math.Sqrt(widthDip * widthDip / 4 + heightDip * heightDip / 4);
+
     /// <summary>Builds one card: a <see cref="DwellButton"/> coloured by the per-kind
     /// <see cref="ModalButtonPalette"/> pairing (the SAME colours the Settings modal button with
     /// this kind wears — no colour is invented here), then shaped to the owner-approved
@@ -172,16 +231,6 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     /// mechanism the hand-built cards' bars rode before this became a DwellButton.
     /// </para>
     /// </summary>
-    /// <summary>The dwell catchment for one card: the HALF-DIAGONAL of the visible button, so
-    /// the WHOLE card dwells — the owner's live check found the fullscreen cards caught only the
-    /// text's small central circle (the old 70-DIP modal radius). The 96-DIP gaps keep adjacent
-    /// circles clear (action row centres 416 apart vs 2×186; ± row 296 vs 2×128; chips
-    /// StepContent÷4 apart — 480 on the reference 1920-DIP screen vs 2×206, 68 of daylight;
-    /// below ~1650 DIP of width the circles overlap and the detector's nearest-wins rule
-    /// resolves it — see the responsive-layout follow-up).</summary>
-    private static double CardDwellRadiusDip(double widthDip, double heightDip) =>
-        Math.Sqrt(widthDip * widthDip / 4 + heightDip * heightDip / 4);
-
     private DwellButton BuildCard(string label, string id, ModalChoiceKind kind,
         double width, double height, double fontSize, Thickness margin)
     {
@@ -192,7 +241,7 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             width: width, height: height, textBrush: labelBrush);
         // radiusPhysical/dwellMs are inert: the control never self-registers (the registrar is
         // the InertRegistrar below) — the VM's RegisterChoice owns the real radius (per-card
-        // default, 40 for the chips) and the chrome dwell time.
+        // half-diagonal scaled by SurfaceScale) and the chrome dwell time.
         button.Root.Margin = margin;
         button.Root.CornerRadius = new CornerRadius(12);   // the approved mockups' card radius
         ((TextBlock)button.Content).FontSize = fontSize;   // the approved fullscreen label scale
@@ -349,12 +398,13 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
         }
     }
 
-    /// <summary>The Theme step's four chips as a 2×2 grid in StepContent (r5 F4's geometry — one
-    /// right-aligned row would run off the surface and the chrome circles would overlap). Each
-    /// chip is a Neutral card (the same SurfaceMedium surface the old hand-built chips wore)
-    /// registering at its full half-diagonal catchment through
-    /// <see cref="FirstRunGuideViewModel.RegisterChoice(string, double?)"/> — one ROW, because
-    /// a 2×2 grid's 248-DIP vertical centre distance cannot fit full-card circles. Idempotent; the
+    /// <summary>The Theme step's four chips as a single row across the 1920-DIP reference band
+    /// in StepContent (four equal star columns = 480 DIP each vs 2×206-DIP dwell radius = 68 DIP
+    /// of daylight; stretched up to <see cref="ReferenceWidthDip"/> rather than shrink-wrapped at
+    /// HorizontalAlignment.Center, which collapsed the columns to 408 DIP and made adjacent
+    /// 206-DIP dwell circles overlap by 3.8 DIP). Each chip is a Neutral card registering at its
+    /// full half-diagonal catchment through
+    /// <see cref="FirstRunGuideViewModel.RegisterChoice(string, double?)"/>. Idempotent; the
     /// already-built branch RE-REGISTERS (r5 F2). Chips live in `_themeButtons` — `SetChoices`
     /// never clears them.</summary>
     public void SetThemeGrid(bool visible, IReadOnlyList<(string Label, string Id)> chips)
@@ -365,8 +415,9 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
             {
                 var grid = new Grid
                 {
-                    HorizontalAlignment = HorizontalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
                     VerticalAlignment = VerticalAlignment.Center,
+                    MaxWidth = ReferenceWidthDip,
                 };
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -484,37 +535,42 @@ public sealed partial class FirstRunGuideWindow : OverlayWindow
     /// so SizeChanged never fires — an explicit push per build is the mechanism. The geometry
     /// element is the control's <see cref="DwellControl.Root"/> — the Border the approved sizes
     /// land on.</summary>
-    private void PushCentres()
+    private void PushCentres() => _ = Dispatcher.BeginInvoke(PushCentresNow);
+
+    /// <summary>Synchronous centre push shared by <see cref="PushCentres"/> and headless geometry
+    /// tests (where <c>Card</c> is hosted inside <c>FitHost</c> with a real
+    /// <see cref="PresentationSource"/>). Uses <c>Card.UpdateLayout()</c> so layout completes
+    /// whether <c>Card</c> lives in this window or a headless <c>HwndSource</c>, and skips
+    /// cleanly if the surface is not yet (or no longer) attached to a visual source.</summary>
+    internal void PushCentresNow()
     {
-        _ = Dispatcher.BeginInvoke(() =>
+        if (PresentationSource.FromVisual(Card) is null) return;
+        Card.UpdateLayout();
+        if (_chromeCloseCanvas is { IsVisible: true } closeCanvas)
         {
-            UpdateLayout();
-            if (_chromeCloseCanvas is { IsVisible: true } closeCanvas)
-            {
-                var centre = closeCanvas.PointToScreen(new Point(80, 80));
-                _vm.UpdateChoiceCentre("guide_close", new PhysicalPoint(centre.X, centre.Y));
-            }
-            foreach (var (id, button) in _choiceButtons)
-            {
-                var root = button.Root;
-                if (!root.IsVisible) continue;
-                var centre = root.PointToScreen(new Point(root.ActualWidth / 2, root.ActualHeight / 2));
-                _vm.UpdateChoiceCentre(id, new PhysicalPoint(centre.X, centre.Y));
-            }
-            if (StepContent.Content is Grid { Children.Count: > 1 } grid
-                && grid.Children[0] is Ellipse ring && ring.IsVisible)
-            {
-                var centre = ring.PointToScreen(new Point(ring.ActualWidth / 2, ring.ActualHeight / 2));
-                _vm.SetPracticeCentre(new PhysicalPoint(centre.X, centre.Y));
-            }
-            foreach (var (id, button) in _themeButtons)                   // the chip grid's centres
-            {
-                var root = button.Root;
-                if (!root.IsVisible) continue;
-                var centre = root.PointToScreen(new Point(root.ActualWidth / 2, root.ActualHeight / 2));
-                _vm.UpdateChoiceCentre(id, new PhysicalPoint(centre.X, centre.Y));
-            }
-        });
+            var centre = closeCanvas.PointToScreen(new Point(80, 80));
+            _vm.UpdateChoiceCentre("guide_close", new PhysicalPoint(centre.X, centre.Y));
+        }
+        foreach (var (id, button) in _choiceButtons)
+        {
+            var root = button.Root;
+            if (!root.IsVisible) continue;
+            var centre = root.PointToScreen(new Point(root.ActualWidth / 2, root.ActualHeight / 2));
+            _vm.UpdateChoiceCentre(id, new PhysicalPoint(centre.X, centre.Y));
+        }
+        if (StepContent.Content is Grid { Children.Count: > 1 } grid
+            && grid.Children[0] is Ellipse ring && ring.IsVisible)
+        {
+            var centre = ring.PointToScreen(new Point(ring.ActualWidth / 2, ring.ActualHeight / 2));
+            _vm.SetPracticeCentre(new PhysicalPoint(centre.X, centre.Y));
+        }
+        foreach (var (id, button) in _themeButtons)                   // the chip grid's centres
+        {
+            var root = button.Root;
+            if (!root.IsVisible) continue;
+            var centre = root.PointToScreen(new Point(root.ActualWidth / 2, root.ActualHeight / 2));
+            _vm.UpdateChoiceCentre(id, new PhysicalPoint(centre.X, centre.Y));
+        }
     }
 
     /// <summary>The registrar the guide's DwellButtons are constructed with — INERT on the

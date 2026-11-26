@@ -25,6 +25,9 @@ public class KeyboardSensitiveCheckTests
         private readonly object _gate = new();
         private readonly List<(LogLevel Level, string Message)> _lines = new();
 
+        /// <summary>Runs after every line is recorded; lets a test act at the moment the line exists.</summary>
+        public Action<string>? OnLine;
+
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
         public bool IsEnabled(LogLevel logLevel) => true;
@@ -32,7 +35,9 @@ public class KeyboardSensitiveCheckTests
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            lock (_gate) _lines.Add((logLevel, formatter(state, exception)));
+            var message = formatter(state, exception);
+            lock (_gate) _lines.Add((logLevel, message));
+            OnLine?.Invoke(message);
         }
 
         public (LogLevel Level, string Message)[] Snapshot() { lock (_gate) return _lines.ToArray(); }
@@ -294,6 +299,94 @@ public class KeyboardSensitiveCheckTests
                 try { await hide.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken); }
                 catch (Exception) { /* only unwinds a failed assertion's in-flight read */ }
             }
+        }
+    }
+
+    [Fact]
+    public async Task TheShowLine_IsLoggedWithTheSlotAlreadyFree()
+    {
+        // F1: a hide started FROM the show line — the earliest moment a reader of the day file can act
+        // — must find the slot free. It is started synchronously inside Log, so a release placed after
+        // Report cannot hide behind the Begin task's completion. The read-owned releases are held by
+        // the seam, so the line's own check cannot free the slot later.
+        var log = new Capture();
+        var heldReleases = new ConcurrentQueue<Action>();
+        var poll = new FakePoll { Read = () => false };
+        var check = New(log, poll, timeBoxMs: 60_000);
+        check.ReleaseReadSlotForTest = heldReleases.Enqueue;
+        Task? hide = null;
+        log.OnLine = line =>
+        {
+            if (hide is null && line.StartsWith("Sensitive check at show", StringComparison.Ordinal))
+                hide = check.Begin("hide", evt: false, "msedge.exe", Counts);
+        };
+
+        try
+        {
+            await Done(check.Begin("show", evt: false, "msedge.exe", Counts));
+            Check.WithCustomMessage("the show line never started the hide").That(hide).IsNotNull();
+            await Done(hide!);
+
+            Check.WithCustomMessage("the hide started from the show line found the slot still held")
+                .That(log.Messages().Any(l => l.Contains("poll=busy", StringComparison.Ordinal))).IsFalse();
+            Check.That(poll.Reads).IsEqualTo(2);
+            Check.That(log.Messages()).ContainsExactly(
+                "Sensitive check at show: event=false poll=false proc=msedge.exe"
+                + " events=12 password=1 failures=2 own=3",
+                "Sensitive check at hide: event=false poll=false proc=msedge.exe"
+                + " events=12 password=1 failures=2 own=3");
+        }
+        finally
+        {
+            check.ReleaseReadSlotForTest = null;
+            while (heldReleases.TryDequeue(out var release))
+                release();
+        }
+    }
+
+    [Fact]
+    public async Task AfterAnAbandonedReadEnds_TheSlotRecovers()
+    {
+        // F2: owner attribution made recovery load-bearing — a release that never runs, or one whose
+        // generation was overwritten, would leave every later check in the sitting `busy` and blank the
+        // PW1 evidence. Seam-free on purpose: the production read-owned release must free the slot once
+        // the hung read really ends. The poll until read #2 is a hang guard, not a timing assertion.
+        var log = new Capture();
+        using var gate = new ManualResetEventSlim(false);
+        var reads = 0;
+        var poll = new FakePoll
+        {
+            Read = () =>
+            {
+                if (Interlocked.Increment(ref reads) == 1)
+                    gate.Wait(TimeSpan.FromSeconds(60));
+                return false;
+            },
+        };
+        var check = New(log, poll, timeBoxMs: 50);
+
+        try
+        {
+            await Done(check.Begin("show", evt: false, "msedge.exe", Counts)); // times out, read 1 hangs
+            await Done(check.Begin("hide", evt: false, "msedge.exe", Counts)); // must not start a second read
+            Check.That(log.Messages().Last()).Contains("poll=busy");
+            Check.That(poll.Reads).IsEqualTo(1);
+
+            gate.Set();
+
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (Volatile.Read(ref poll.Reads) < 2 && DateTime.UtcNow < deadline)
+            {
+                await Done(check.Begin("show", evt: false, "msedge.exe", Counts));
+                await Task.Delay(10, TestContext.Current.CancellationToken);
+            }
+
+            Check.WithCustomMessage("the slot never recovered after the abandoned read ended")
+                .That(Volatile.Read(ref poll.Reads)).IsEqualTo(2);
+        }
+        finally
+        {
+            gate.Set();
         }
     }
 

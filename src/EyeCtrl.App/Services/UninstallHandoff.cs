@@ -13,7 +13,7 @@ using EyeCtrl.Setup;
 public enum UninstallHandoffEnd
 {
     /// <summary>Setup recorded <see cref="SetupOutcome.Uninstalled" />: EyeCtrl is being removed,
-    /// so Settings must stay hidden.</summary>
+    /// so the surface must stay hidden.</summary>
     Uninstalled,
 
     /// <summary>Setup recorded a terminal outcome for this uninstall that is not „uninstalled" —

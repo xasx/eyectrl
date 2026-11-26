@@ -22,7 +22,7 @@ public static class BackstageIcons
     public static IconGeometry Restart { get; } = IconGeometry.FromPathData(
         "M21,12 A9,9 0 1 1 17.8,4.9 L21,8 M21,3 L21,8 L16,8");
 
-    /// <summary>The toolbar's crosshair - the EyeCtrl's own calibration.</summary>
+    /// <summary>The toolbar's crosshair — the EyeCtrl's own calibration.</summary>
     public static IconGeometry Calibrate => ToolbarIcons.For(ToolbarIconKey.Calibrate);
 
     /// <summary>A down arrow into a tray - install an update.</summary>

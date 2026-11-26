@@ -318,6 +318,9 @@ public partial class BackstageWindow : OverlayWindow
         _vm.ShowOverlay();
         RegisterNotices();
         Show();
+        // A probe that settled while the hand-off hid the menu left its rebuild deferred; the
+        // menu is visible again now, so apply it (it also re-reads the gateways offer).
+        FlushDeferredInstallRebuild();
         // After Show(), because RefreshClock deliberately no-ops while the window is hidden:
         // the first rendered frame still carries the time.
         RefreshClock();
@@ -633,7 +636,11 @@ public partial class BackstageWindow : OverlayWindow
             StringTable.Current.T("overlays.backstage.uninstall.description"),
             BackstageIcons.Uninstall, danger: true);
 
-        UpdatePositions();
+        // The new faces have not been laid out in this dispatcher turn. A synchronous
+        // UpdatePositions here would read ActualWidth/Height == 0 and register every card at a
+        // zero-size rectangle, killing the whole row for the rest of the visit (review-01 F1).
+        // Queue it after WPF's render/layout pass, exactly as ShowSession does.
+        Dispatcher.BeginInvoke(new Action(UpdatePositions), DispatcherPriority.Loaded);
     }
 
     /// <summary>
@@ -905,6 +912,8 @@ public partial class BackstageWindow : OverlayWindow
         ModalTitle.Text = title;
         ModalTitle.Visibility = string.IsNullOrEmpty(title) ? Visibility.Collapsed : Visibility.Visible;
         ModalBody.Text = body;
+        // The rollback confirmation has no detail body; leave no empty gap above the choices.
+        ModalBody.Visibility = string.IsNullOrEmpty(body) ? Visibility.Collapsed : Visibility.Visible;
 
         ModalChoices.Children.Clear();
         _modalChoices.Clear();

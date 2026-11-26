@@ -12,6 +12,7 @@ using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Services;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Input;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -34,16 +35,41 @@ public class BackstageUninstallHandoffTests
 {
     private sealed class FakeGateways : ISetupGateways
     {
-        public bool Installed => true;
-        public bool PreviousAvailable => false;
-        public string? PreviousVersion => null;
-        public bool PolicyBlocks => false;
-        public SetupUpdateOffer? UpdateOffer => null;
-        public bool UpdateOfferPending => false;
-        public void BeginUpdateOfferProbe(Action whenDone) { }
+        public bool Installed { get; set; } = true;
+        public bool PreviousAvailable { get; set; } = true;
+        public string? PreviousVersion { get; set; } = "1.0.0";
+        public bool PolicyBlocks { get; set; }
+        public SetupUpdateOffer? UpdateOffer { get; set; }
+        public bool UpdateOfferPending { get; set; }
+        public Action? WhenDone { get; private set; }
+
+        public void BeginUpdateOfferProbe(Action whenDone) => WhenDone = whenDone;
         public SetupHandoffStart StartUpdateHandoff(SetupUpdateOffer offer) => SetupHandoffStart.Failed;
         public SetupHandoffStart StartRollbackHandoff() => SetupHandoffStart.Failed;
         public SetupHandoffStart StartUninstallHandoff() => SetupHandoffStart.Started;
+    }
+
+    private sealed class RecordingHandoff : IUninstallHandoffPresenter
+    {
+        public int Cancels { get; private set; }
+        public int Disposals { get; private set; }
+
+        public SetupHandoffStart Start(ISetupGateways gateways) => SetupHandoffStart.Started;
+        public void CancelWatch() => Cancels++;
+        public void Dispose() => Disposals++;
+    }
+
+    private sealed class ToggleIntegrityProbe : IInputIntegrityProbe
+    {
+        public bool Throw { get; set; }
+
+        public SelfTokenFacts ReadSelf() => Throw
+            ? throw new InvalidOperationException("token probe failed")
+            : new SelfTokenFacts(0x2000, Elevated: false, HasUIAccess: false);
+
+        public ProcessTokenFacts InspectForeground() => ProcessTokenFacts.Unknown;
+        public ProcessTokenFacts InspectPoint(PhysicalPoint point) => ProcessTokenFacts.Unknown;
+        public ProcessTokenFacts InspectWindow(IntPtr hwnd) => ProcessTokenFacts.Unknown;
     }
 
     private sealed class FakeWatch : IUninstallHandoffWatch
@@ -105,6 +131,9 @@ public class BackstageUninstallHandoffTests
         public TestFakes.FakeEscapeHatch Escape { get; } = new();
         public RecordingCursorCircle Cursor { get; } = new();
         public TestFakes.FakeToolbarOverlay ToolbarOverlay { get; } = new() { OnScreen = true };
+        public GazeEngine Gaze { get; }
+        public FakeGateways Gateways { get; } = new();
+        public ToggleIntegrityProbe Probe { get; } = new();
         public CursorCircleViewModel CursorVm { get; }
         public ToolbarViewModel ToolbarVm { get; }
         public KeyboardViewModel KeyboardVm { get; }
@@ -130,6 +159,8 @@ public class BackstageUninstallHandoffTests
             QuickActionsVm = new QuickActionsGridViewModel(new FakeQuickActionsStore(), Settings, Messenger);
             ActionMenuVm = new ActionMenuViewModel(Settings, Messenger);
             BackstageVm = new BackstageViewModel(Messenger, Settings);
+            Gaze = new GazeEngine(
+                new TestFakes.FakeGazeProvider(), new TestFakes.FakeInputSimulator(), Settings);
 
             var overlayManager = TestFakes.MakeOverlayManager(
                 cursorCircle: Cursor,
@@ -147,8 +178,8 @@ public class BackstageUninstallHandoffTests
                 QuickActionsGridVM = QuickActionsVm,
                 BackstageVM = BackstageVm,
                 OverlayManager = overlayManager,
-                GazeEngine = new GazeEngine(
-                    new TestFakes.FakeGazeProvider(), new TestFakes.FakeInputSimulator(), Settings),
+                GazeEngine = Gaze,
+                InputIntegrityProbe = Probe,
                 InteractionManager = new InteractionManager(),
                 Settings = Settings,
                 Dispatcher = Dispatcher.CurrentDispatcher,
@@ -168,7 +199,7 @@ public class BackstageUninstallHandoffTests
                 Modal, QuickActions, Toolbar, () => false);
             Coordinator.CreateWindowForTest = static () => InvisibleTestWindow.Prepare(new BackstageWindow());
             Coordinator.SetShutdown(() => { });
-            Coordinator.SetSetupGateways(() => new FakeGateways());
+            Coordinator.SetSetupGateways(() => Gateways);
             Coordinator.SetUninstallHandoffWatches(Watches);
             Coordinator.Initialize(context);
             QuickActions.Initialize(context);
@@ -212,6 +243,8 @@ public class BackstageUninstallHandoffTests
             .That(h.Toolbar.IsAutoHideSuspended).IsFalse();
         Check.WithCustomMessage($"{because}: the quick-actions summon claim")
             .That(h.QuickActions.IsSummonSuspended).IsFalse();
+        Check.WithCustomMessage($"{because}: the fixation claim (SuppressFixation blocks all activation)")
+            .That(h.Gaze.SuppressFixation).IsFalse();
     }
 
     private static void AssertOpenClaims(Harness h, string because)
@@ -224,6 +257,8 @@ public class BackstageUninstallHandoffTests
             .That(h.Toolbar.IsAutoHideSuspended).IsTrue();
         Check.WithCustomMessage($"{because}: the quick-actions summon claim")
             .That(h.QuickActions.IsSummonSuspended).IsTrue();
+        Check.WithCustomMessage($"{because}: the fixation claim (SuppressFixation blocks all activation)")
+            .That(h.Gaze.SuppressFixation).IsTrue();
     }
 
     [StaFact]
@@ -330,4 +365,125 @@ public class BackstageUninstallHandoffTests
         Check.That(h.Coordinator.WindowForTest).IsNull();
         Check.That(h.Modal.BackstageOpen).IsFalse();
     }
+
+    [StaFact]
+    public void AFailedRestore_ReleasesEveryClaim_AndTheOwnerCanAskBackstageBack()
+    {
+        // Review-01 F3: the restore takes the claims BEFORE showing, and ShowSession can throw
+        // ahead of Show() via RefreshStatus. If the catch left them taken, the fixation claim
+        // would block the very Backstage request that exists to retry.
+        using var h = new Harness();
+        h.Show();
+        h.StartUninstall();
+        AssertHiddenClaims(h, "before the failed restore");
+
+        h.Probe.Throw = true;
+        h.Watches.Watch.Ended!.Invoke(UninstallHandoffEnd.NotUninstalled, SetupOutcome.Cancelled);
+
+        Check.That(h.Coordinator.HandoffHiddenForTest).IsTrue();
+        Check.That(h.Coordinator.WindowForTest!.IsVisible).IsFalse();
+        Check.That(h.Modal.BackstageOpen).IsFalse();
+        Check.WithCustomMessage("a failed restore left fixation suppressed (no activation can start)")
+            .That(h.Gaze.SuppressFixation).IsFalse();
+        Check.That(h.Toolbar.IsAutoHideSuspended).IsFalse();
+        Check.That(h.QuickActions.IsSummonSuspended).IsFalse();
+
+        // The retry still exists, and it now succeeds.
+        h.Probe.Throw = false;
+        h.Coordinator.ShowBackstage();
+
+        AssertOpenClaims(h, "the retried show");
+        Check.That(h.Coordinator.HandoffHiddenForTest).IsFalse();
+    }
+
+    [StaFact]
+    public void TheRestore_DismissesTransientOverlays_ThatCameUpWhileHidden()
+    {
+        // The hide hands the toolbar and ring back so the owner can drive Setup's Q8; they are
+        // expected to interact. The restore must clear any transient surface they opened.
+        using var h = new Harness();
+        h.Show();
+        h.StartUninstall();
+        h.ActionMenuVm.IsVisible = true;
+        Check.WithCustomMessage("the control overlay was not up before the restore")
+            .That(h.ActionMenuVm.IsVisible).IsTrue();
+
+        h.Watches.Watch.Ended!.Invoke(UninstallHandoffEnd.NotUninstalled, SetupOutcome.Cancelled);
+
+        Check.WithCustomMessage("the fullscreen menu returned over a live action menu")
+            .That(h.ActionMenuVm.IsVisible).IsFalse();
+        AssertOpenClaims(h, "the restored menu");
+    }
+
+    [StaFact]
+    public void ADeferredProbeRebuild_IsFlushedWhenTheMenuReturns()
+    {
+        // Review-01 F5: the probe lands under the uninstall confirmation, then the hand-off hides
+        // the menu. ShowSession must flush the deferred rebuild, or the returned menu still shows
+        // "checking" with no Update card until an unrelated modal is dismissed.
+        using var h = new Harness();
+        h.Gateways.UpdateOfferPending = true;
+        h.Show();
+        h.Pump();   // let the open layout pass run
+
+        h.BackstageVm.ActivateForMouse(BackstageViewModel.UninstallCardId);
+        Check.That(h.BackstageVm.IsModalOpen).IsTrue();
+
+        h.Gateways.UpdateOffer = Offer;
+        h.Gateways.UpdateOfferPending = false;
+        h.Gateways.WhenDone!.Invoke();
+        h.Pump();
+        Check.WithCustomMessage("the probe completion rebuilt the row under the confirmation")
+            .That(h.Coordinator.WindowForTest!.CardFace(BackstageViewModel.UpdateCardId)).IsNull();
+
+        h.BackstageVm.ActivateForMouse(BackstageWindow.UninstallConfirmChoiceId);
+        Check.That(h.Coordinator.HandoffHiddenForTest).IsTrue();
+        h.Watches.Watch.Ended!.Invoke(UninstallHandoffEnd.NotUninstalled, SetupOutcome.Cancelled);
+        h.Pump();
+
+        Check.WithCustomMessage("the deferred install rebuild was lost across the hand-off hide")
+            .That(h.Coordinator.WindowForTest!.CardFace(BackstageViewModel.UpdateCardId)).IsNotNull();
+        var bounds = h.BackstageVm.DetectorForTest.Targets
+            .Single(t => t.Id == BackstageViewModel.UpdateCardId).Bounds;
+        Check.That(bounds).IsNotNull();
+        Check.That(bounds!.Value.Width).IsStrictlyGreaterThan(0);
+    }
+
+    [StaFact]
+    public void WithoutAVisibleWindow_ThereIsNothingToHide()
+    {
+        // Review-01 F6: without the IsVisible guard the coordinator releases every claim, returns
+        // true and starts a watch for a window nobody saw.
+        using var h = new Harness();
+        h.Show();
+        h.Coordinator.WindowForTest!.Hide();   // a direct hide, not the hand-off
+        Check.That(h.Coordinator.WindowForTest.IsVisible).IsFalse();
+
+        Check.That(h.Coordinator.HideBackstageForUninstallHandoff()).IsFalse();
+
+        Check.That(h.Coordinator.HandoffHiddenForTest).IsFalse();
+        Check.That(h.Modal.BackstageOpen).IsTrue();
+        Check.That(h.Gaze.SuppressFixation).IsTrue();
+        Check.That(h.Watches.Watch.Disposed).IsFalse();
+    }
+
+    [StaFact]
+    public void Dispose_DisposesTheUninstallHandoffPresenter()
+    {
+        // Review-01 F7: OnDispose's presenter disposal, independent of UnwindOpening's cancel.
+        using var h = new Harness();
+        var recording = new RecordingHandoff();
+        h.Coordinator.SetUninstallHandoff(recording);
+        h.Show();
+        h.Coordinator.HideBackstageForUninstallHandoff();
+        Check.That(h.Coordinator.HandoffHiddenForTest).IsTrue();
+
+        h.Coordinator.Dispose();
+
+        Check.That(recording.Cancels).IsEqualTo(1);
+        Check.That(recording.Disposals).IsEqualTo(1);
+    }
+
+    private static readonly SetupUpdateOffer Offer =
+        new(@"C:\inbox\2.0.0", @"C:\inbox\2.0.0\EyeCtrl.Setup.exe", "2.0.0", "1.0.0");
 }

@@ -357,22 +357,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
         StopPresenceRefresh();
 
         window.Hide();
-
-        _modal.BackstageOpen = false;
-        context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Backstage);
-        _toolbar.SetAutoHideSuspended("backstage", false);
-        _quickActions.SetSummonSuspended("backstage", false);
-
-        if (context.OverlayManager.Toolbar.IsOnScreen)
-            context.ToolbarVM.SetActive(true, freshEntry: true);
-
-        if (context.CursorVM.IsVisible
-            && !_modal.SettingsOpen
-            && !_modal.ProbeOpen
-            && !_modal.GuideOpen)
-        {
-            context.OverlayManager.CursorCircle.Show();
-        }
+        ReleaseBackstageClaims(context);
 
         Log.Information("Backstage hidden for the uninstall hand-off");
         return true;
@@ -414,29 +399,70 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
             return;
         }
 
-        _modal.BackstageOpen = true;
-        context.GazeEngine.AcquireFixationSuppression(FixationSuppressor.Backstage);
-        _toolbar.SetAutoHideSuspended("backstage", true);
-        _quickActions.SetSummonSuspended("backstage", true);
-        context.ToolbarVM.SetActive(false);
-        context.OverlayManager.CursorCircle.Hide();
-
         try
         {
+            // The hide deliberately gave the toolbar and ring back so the owner could drive
+            // Setup's Q8. They are expected to have interacted, so a transient peer may be up;
+            // the open path dismisses them for the same reason, and the restore must too.
+            DismissTransientOverlays(context);
+
+            _modal.BackstageOpen = true;
+            context.GazeEngine.AcquireFixationSuppression(FixationSuppressor.Backstage);
+            _toolbar.SetAutoHideSuspended("backstage", true);
+            _quickActions.SetSummonSuspended("backstage", true);
+            context.ToolbarVM.SetActive(false);
+            context.OverlayManager.CursorCircle.Hide();
+
             window.Show();
             _handoffHidden = false;
         }
         catch (Exception ex)
         {
-            // Keep the flag so a later Backstage request retries the show instead of reporting a
-            // window that is still hidden as open.
+            // A failed show must not leave the screen claims taken: with fixation suppressed the
+            // owner cannot even ask for Backstage back. Release them, hide any half-shown window,
+            // and KEEP the flag so a later Backstage request retries the show.
             Log.Warning(ex, "Could not show Backstage after the uninstall hand-off");
+            try
+            {
+                window.Hide();
+            }
+            catch (Exception hideEx)
+            {
+                Log.Warning(hideEx, "Could not hide the half-shown Backstage window after a failed restore");
+            }
+
+            ReleaseBackstageClaims(context);
             return;
         }
 
         StartPresenceRefresh();
         Log.Information(
             "Backstage restored after the uninstall hand-off: {End} ({Outcome})", end, outcome);
+    }
+
+    /// <summary>
+    /// Releases every claim the menu holds while open. One path for the open unwind, the
+    /// uninstall hide and a failed restore, so the three can never diverge: the flag, the fixation
+    /// claim, both holder names, the toolbar re-arm and the ring restore. Every release tolerates a
+    /// claim that was never taken.
+    /// </summary>
+    private void ReleaseBackstageClaims(EventCoordinationContext context)
+    {
+        _modal.BackstageOpen = false;
+        context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Backstage);
+        _toolbar.SetAutoHideSuspended("backstage", false);
+        _quickActions.SetSummonSuspended("backstage", false);
+
+        if (context.OverlayManager.Toolbar.IsOnScreen)
+            context.ToolbarVM.SetActive(true, freshEntry: true);
+
+        if (context.CursorVM.IsVisible
+            && !_modal.SettingsOpen
+            && !_modal.ProbeOpen
+            && !_modal.GuideOpen)
+        {
+            context.OverlayManager.CursorCircle.Show();
+        }
     }
 
     /// <summary>
@@ -528,25 +554,11 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
 
             _viewModel?.HideOverlay();
 
-            _modal.BackstageOpen = false;
-            context?.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Backstage);
-            _toolbar.SetAutoHideSuspended("backstage", false);
-            _quickActions.SetSummonSuspended("backstage", false);
-
-            if (context is not null && context.OverlayManager.Toolbar.IsOnScreen)
-                context.ToolbarVM.SetActive(true, freshEntry: true);
-
             // The ring comes back only when no other modal owns the screen. In particular the
             // Settings window's Closed handler (posted by CloseSettingsMessage) may run after this
-            // unwind; it checks BackstageOpen itself, which this method has just cleared.
-            if (context is not null
-                && context.CursorVM.IsVisible
-                && !_modal.SettingsOpen
-                && !_modal.ProbeOpen
-                && !_modal.GuideOpen)
-            {
-                context.OverlayManager.CursorCircle.Show();
-            }
+            // unwind; it checks BackstageOpen itself, which the helper has just cleared.
+            if (context is not null)
+                ReleaseBackstageClaims(context);
 
             _openGateways = null;
         }

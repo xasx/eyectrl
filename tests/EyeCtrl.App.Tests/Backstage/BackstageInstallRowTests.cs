@@ -14,6 +14,7 @@ using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
@@ -139,6 +140,9 @@ public class BackstageInstallRowTests
         public void Pump() =>
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
 
+        public PhysicalRect? Bounds(string cardId) =>
+            ViewModel.DetectorForTest.Targets.SingleOrDefault(t => t.Id == cardId)?.Bounds;
+
         public bool IsRegistered(string cardId) =>
             ViewModel.DetectorForTest.Targets.Any(t => t.Id == cardId);
 
@@ -180,6 +184,7 @@ public class BackstageInstallRowTests
     public void InstalledWithoutOfferOrPrevious_ShowsOnlyUninstall()
     {
         using var h = new Harness(new FakeGateways { Installed = true });
+        h.Pump();
 
         Check.That(h.Window.InstallSectionVisible).IsTrue();
         Check.That(h.Window.CardFace(BackstageViewModel.UpdateCardId)).IsNull();
@@ -188,13 +193,61 @@ public class BackstageInstallRowTests
         Check.That(uninstall).IsNotNull();
         Check.That(uninstall!.Root.BorderBrush).IsSameReferenceAs(Tokens.BrushAccentDanger);
         Check.That(h.IsRegistered(BackstageViewModel.UninstallCardId)).IsTrue();
+        var bounds = h.Bounds(BackstageViewModel.UninstallCardId);
+        Check.That(bounds).IsNotNull();
+        Check.That(bounds!.Value.Width).IsStrictlyGreaterThan(0);
         Check.That(h.Gateways!.ProbeStarts).IsEqualTo(1);
+    }
+
+    [StaFact]
+    public void ProbeCompletion_RegistersTheNewCardsWithLiveRectangles()
+    {
+        // Review-01 F1: the rebuild runs in the same dispatcher turn that adds the faces. A
+        // synchronous UpdatePositions reads ActualWidth/Height == 0 and registers the whole row
+        // (including the Uninstall card that worked before) at a zero-size rectangle. This pins
+        // the registered Bounds, not just the id: the id-only assertion passed against the bug.
+        var gateways = new FakeGateways
+        {
+            Installed = true,
+            UpdateOfferPending = true,
+            PreviousAvailable = true,
+        };
+        using var h = new Harness(gateways);
+        h.Pump();
+
+        // Control: the open path's Uninstall rectangle is live.
+        var before = h.Bounds(BackstageViewModel.UninstallCardId);
+        Check.WithCustomMessage("the open path's Uninstall card is already dead")
+            .That(before).IsNotNull();
+        Check.That(before!.Value.Width).IsStrictlyGreaterThan(0);
+
+        h.Gateways!.UpdateOffer = Offer;
+        h.Gateways.UpdateOfferPending = false;
+        h.CompleteProbe();
+        h.Pump();
+
+        Check.That(h.Window.CardFace(BackstageViewModel.UpdateCardId)).IsNotNull();
+        var update = h.Bounds(BackstageViewModel.UpdateCardId);
+        Check.WithCustomMessage("the rebuilt Update card is registered at a zero-size rectangle")
+            .That(update).IsNotNull();
+        Check.That(update!.Value.Width).IsStrictlyGreaterThan(0);
+        Check.That(update.Value.Height).IsStrictlyGreaterThan(0);
+
+        var rollback = h.Bounds(BackstageViewModel.RollbackCardId);
+        Check.That(rollback).IsNotNull();
+        Check.That(rollback!.Value.Width).IsStrictlyGreaterThan(0);
+
+        var uninstall = h.Bounds(BackstageViewModel.UninstallCardId);
+        Check.WithCustomMessage("the rebuild left the previously working Uninstall card at zero")
+            .That(uninstall).IsNotNull();
+        Check.That(uninstall!.Value.Width).IsStrictlyGreaterThan(0);
     }
 
     [StaFact]
     public void VerifiedNewerOffer_ShowsTheUpdateCard_WithBothVersionsInTheDescription()
     {
         using var h = new Harness(new FakeGateways { Installed = true, UpdateOffer = Offer });
+        h.Pump();
 
         var update = h.Window.CardFace(BackstageViewModel.UpdateCardId);
         Check.That(update).IsNotNull();
@@ -202,6 +255,9 @@ public class BackstageInstallRowTests
             .IsEqualTo(StringTable.Current.T("overlays.backstage.update.title"));
         Check.That(update.Description.Text).Contains("2.0.0").And.Contains("1.0.0");
         Check.That(h.IsRegistered(BackstageViewModel.UpdateCardId)).IsTrue();
+        var bounds = h.Bounds(BackstageViewModel.UpdateCardId);
+        Check.That(bounds).IsNotNull();
+        Check.That(bounds!.Value.Width).IsStrictlyGreaterThan(0);
     }
 
     [StaFact]

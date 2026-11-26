@@ -51,6 +51,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     private ISetupGateways? _openGateways;
     private Action? _shutdown;
     private SupervisionPresenceRefresher? _presenceRefresher;
+    private Action? _presenceTick;
     private readonly string? _assemblyVersion;
 
     private bool _open;
@@ -94,6 +95,14 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
 
     /// <summary>The live window, or null when closed (test seam).</summary>
     internal BackstageWindow? WindowForTest => _window;
+
+    /// <summary>Test seam: whether the one 2 s refresher is actually running. The clock rides it,
+    /// so this is also the "no clock still ticking after close" proof.</summary>
+    internal bool PresenceRefresherRunningForTest => _presenceRefresher?.IsRunning ?? false;
+
+    /// <summary>Test seam: runs the exact callback the refresher timer runs, so the clock's
+    /// wiring into that poll is exercised without waiting two seconds.</summary>
+    internal void TickPresenceForTest() => _presenceTick?.Invoke();
 
     /// <summary>
     /// Test seam: constructs the window. A test supplies a factory that wraps the real window in
@@ -200,12 +209,16 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
             window.ShowBackstage();
 
             // The presence refresh only raises SupervisionToggleService.StateChanged on a real
-            // change, so the strip rebuilds at most twice a second and never flaps its pills.
-            _presenceRefresher = new SupervisionPresenceRefresher(() =>
+            // change, so the strip rebuilds at most twice a second and never flaps its pills. The
+            // clock rides the same tick: a minute-resolution clock needs no second timer, and a
+            // second timer would be a second thing to leak on teardown.
+            _presenceTick = () =>
             {
                 _supervisionToggle?.RefreshConnection();
                 _window?.RefreshStatus();
-            });
+                _window?.RefreshClock();
+            };
+            _presenceRefresher = new SupervisionPresenceRefresher(_presenceTick);
             _presenceRefresher.Start();
             if (_supervisionToggle is not null)
                 _supervisionToggle.StateChanged += OnSupervisionStateChanged;
@@ -301,6 +314,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
                 _supervisionToggle.StateChanged -= OnSupervisionStateChanged;
             _presenceRefresher?.Stop();
             _presenceRefresher = null;
+            _presenceTick = null;
 
             var window = _window;
             _window = null;

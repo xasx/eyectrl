@@ -1953,6 +1953,18 @@
       "Literal": "\"backstage_restart_supervisor\"",
       "Category": "id",
       "Reason": "The Backstage Restart confirmation's with-Supervisor dwell-target id; an identifier, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/BackstageClock.cs",
+      "Literal": "\"t\"",
+      "Category": "data",
+      "Reason": "The culture's short-time pattern specifier for the header clock; a .NET format string, never shown as text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/BackstageClock.cs",
+      "Literal": "\"dddd\"",
+      "Category": "data",
+      "Reason": "The culture's full-weekday pattern specifier for the header clock's date; a .NET format string, never shown as text."
     }
   ]
 }

@@ -122,6 +122,7 @@ public partial class BackstageWindow : OverlayWindow
     private BackstageModal _modal = BackstageModal.None;
     private bool _noticesRegistered;
     private bool _configured;
+    private Func<DateTime> _clockNow = static () => DateTime.Now;
 
     /// <summary>The coordinator's dismissal path: the Close disc, Esc, or a card that hands the
     /// screen back. The window never closes itself.</summary>
@@ -136,6 +137,11 @@ public partial class BackstageWindow : OverlayWindow
         InitializeComponent();
 
         CreateCloseDisc();
+
+        // The clock's time is deliberately larger than the title, but still from the token ramp:
+        // RawGeometryLiteralTests rejects a raw FontSize literal, and a named const would not be
+        // token-backed either. Display + Subtitle is 52 DIP at the shipped theme (the mockup's 54).
+        ClockTimeText.FontSize = Tokens.FontSizeDisplay + Tokens.FontSizeSubtitle;
 
         // The window covers the primary screen. Width/Height are DIP, like every WPF measure; the
         // dwell targets are computed from the realised faces through PointToScreen, never from
@@ -169,6 +175,22 @@ public partial class BackstageWindow : OverlayWindow
     /// <summary>The one label the refusal pin reads, so the test can fail on the text the user
     /// actually sees rather than on an id alone.</summary>
     internal string? ModalBodyText => ModalBody.Text;
+
+    /// <summary>Test seam for the clock's local time source. Production is <see cref="DateTime.Now"/>.</summary>
+    internal Func<DateTime> ClockNow
+    {
+        get => _clockNow;
+        set => _clockNow = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
+    /// <summary>How many rendered clock strings actually changed (both fields counted). A poll
+    /// that re-renders identical text is exactly what the change-only rule forbids, so the test
+    /// asserts this stays put across a same-minute tick.</summary>
+    internal int ClockTextChangesForTest { get; private set; }
+
+    /// <summary>Test read of the rendered time/date, without reaching through FindName.</summary>
+    internal string ClockTimeForTest => ClockTimeText.Text;
+    internal string ClockDateForTest => ClockDateText.Text;
 
     /// <summary>
     /// Wires the window to its view model and the coordinator's actions. A fresh window is built
@@ -226,6 +248,9 @@ public partial class BackstageWindow : OverlayWindow
         _vm!.ShowOverlay();
         RegisterNotices();
         Show();
+        // After Show(), because RefreshClock deliberately no-ops while the window is hidden:
+        // the first rendered frame still carries the time.
+        RefreshClock();
         Dispatcher.BeginInvoke(new Action(UpdatePositions), DispatcherPriority.Loaded);
     }
 
@@ -262,6 +287,35 @@ public partial class BackstageWindow : OverlayWindow
         SupervisorBadgeHost.Visibility = view.ShowSupervisor ? Visibility.Visible : Visibility.Collapsed;
 
         ApplyPausedBadge();
+    }
+
+    /// <summary>
+    /// Re-renders the read-only clock from the local time, in the UI-LANGUAGE culture (never
+    /// <c>CurrentCulture</c>). Called on open and from the coordinator's existing 2 s supervision
+    /// poll — there is deliberately NO timer here. It touches the TextBlocks only when the
+    /// rendered string actually changes, so a same-minute poll cannot churn the header in a gaze
+    /// user's peripheral vision, and it is inert once the menu is hidden (the close path is the
+    /// window's own IsVisible false, before the coordinator drops the window).
+    /// </summary>
+    internal void RefreshClock()
+    {
+        if (!IsVisible)
+            return;
+
+        var text = BackstageClock.Format(
+            ClockNow(), StringTable.Current.FormatProviderFor("overlays"));
+
+        if (!string.Equals(ClockTimeText.Text, text.Time, StringComparison.Ordinal))
+        {
+            ClockTimeText.Text = text.Time;
+            ClockTextChangesForTest++;
+        }
+
+        if (!string.Equals(ClockDateText.Text, text.Date, StringComparison.Ordinal))
+        {
+            ClockDateText.Text = text.Date;
+            ClockTextChangesForTest++;
+        }
     }
 
     /// <summary>

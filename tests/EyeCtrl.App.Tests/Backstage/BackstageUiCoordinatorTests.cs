@@ -275,6 +275,27 @@ public class BackstageUiCoordinatorTests
     }
 
     [StaFact]
+    public void PresencePoll_RefreshesTheClock_AndTheOneRefresherStopsOnClose()
+    {
+        using var h = new Harness();
+        h.Coordinator.ShowBackstage();
+        Check.That(h.Coordinator.PresenceRefresherRunningForTest).IsTrue();
+
+        var window = h.Coordinator.WindowForTest!;
+        var fixedTime = new DateTime(2026, 11, 25, 14, 32, 0);
+        window.ClockNow = () => fixedTime;
+        h.Coordinator.TickPresenceForTest();
+        Check.That(window.ClockTimeForTest).IsEqualTo("14:32");
+
+        h.Coordinator.CloseBackstage();
+        Check.That(h.Coordinator.PresenceRefresherRunningForTest).IsFalse();
+        var afterClose = window.ClockTimeForTest;
+        window.ClockNow = () => fixedTime.AddMinutes(5);
+        h.Coordinator.TickPresenceForTest();
+        Check.That(window.ClockTimeForTest).IsEqualTo(afterClose);
+    }
+
+    [StaFact]
     public void AnUnexpectedWindowClose_ReleasesTheClaims()
     {
         // Alt+F4 / an OS close: the window has already run its own OnClosed, so the coordinator

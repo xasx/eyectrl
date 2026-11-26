@@ -49,11 +49,13 @@ public class BackstageWindowTests
         public List<string> Calibrations { get; } = new();
         public List<string> Dismissals { get; } = new();
 
-        public Harness()
+        public Harness(Func<DateTime>? clockNow = null)
         {
             WpfApplicationGate.EnsureApplicationWithTokens();
             ViewModel = new BackstageViewModel(Messenger, Settings);
             Window = InvisibleTestWindow.Prepare(new BackstageWindow());
+            if (clockNow is not null)
+                Window.ClockNow = clockNow;
             Window.Configure(
                 Messenger,
                 ViewModel,
@@ -180,6 +182,142 @@ public class BackstageWindowTests
         h.Messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(10, 10), 30_000) { IsPaused = false });
         Check.That(host.Visibility).IsEqualTo(Visibility.Collapsed);
     }
+
+    [StaFact]
+    public void Clock_IsReadOnly_AndAddsNoGazeTarget()
+    {
+        using var h = new Harness();
+        var clock = (FrameworkElement)h.Window.FindName("ClockBlock");
+
+        Check.That(clock.IsHitTestVisible).IsFalse();
+        var ids = h.ViewModel.DetectorForTest.Targets.Select(t => t.Id).ToList();
+        Check.That(ids).HasSize(4);   // three cards + close disc, nothing else
+        Check.WithCustomMessage("A clock-shaped dwell target appeared: the read-only clock must never be one.")
+            .That(ids.Count(id => id.Contains("clock", StringComparison.OrdinalIgnoreCase))).IsEqualTo(0);
+    }
+
+    [StaFact]
+    public void ShowBackstage_RendersTheClockImmediately_WithoutWaitingForATick()
+    {
+        var fixedTime = new DateTime(2025, 11, 25, 14, 32, 0);
+        using var h = new Harness(() => fixedTime);
+        var expected = BackstageClock.Format(
+            fixedTime, StringTable.Current.FormatProviderFor("overlays"));
+
+        Check.That(h.Window.ClockTimeForTest).IsEqualTo(expected.Time);
+        Check.That(h.Window.ClockDateForTest).IsEqualTo(expected.Date);
+    }
+
+    [StaFact]
+    public void Clock_ChangesOnlyWhenTheRenderedTextChanges_AndStopsWhenHidden()
+    {
+        using var h = new Harness();
+        var window = h.Window;
+        var fixedTime = new DateTime(2026, 11, 25, 14, 32, 0);
+
+        window.ClockNow = () => fixedTime;
+        window.RefreshClock();
+        var expected = BackstageClock.Format(
+            fixedTime, StringTable.Current.FormatProviderFor("overlays"));
+        Check.That(window.ClockTimeForTest).IsEqualTo(expected.Time);
+        Check.That(window.ClockDateForTest).IsEqualTo(expected.Date);
+        var firstTime = window.ClockTimeForTest;
+
+        var changes = window.ClockTextChangesForTest;
+        window.RefreshClock();
+        Check.WithCustomMessage("A same-minute poll re-rendered identical clock text.")
+            .That(window.ClockTextChangesForTest).IsEqualTo(changes);
+
+        window.ClockNow = () => fixedTime.AddMinutes(1);
+        window.RefreshClock();
+        Check.That(window.ClockTextChangesForTest).IsEqualTo(changes + 1);
+        Check.That(window.ClockTimeForTest).IsNotEqualTo(firstTime);
+
+        // After close the clock is not a live surface: a queued/late tick must not touch it.
+        window.HideBackstage();
+        var timeBlock = (TextBlock)window.FindName("ClockTimeText");
+        var dateBlock = (TextBlock)window.FindName("ClockDateText");
+        timeBlock.Text = "sentinel-time";
+        dateBlock.Text = "sentinel-date";
+        var afterClose = window.ClockTextChangesForTest;
+        window.ClockNow = () => fixedTime.AddHours(2);
+        window.RefreshClock();
+
+        Check.That(timeBlock.Text).IsEqualTo("sentinel-time");
+        Check.That(dateBlock.Text).IsEqualTo("sentinel-date");
+        Check.That(window.ClockTextChangesForTest).IsEqualTo(afterClose);
+    }
+
+    [StaFact]
+    public void HeaderAtThe1280Minimum_ClockClearsTheTitleAndClose_AndWidestGermanBadgesFit()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new BackstageViewModel(messenger, settings);
+        var window = InvisibleTestWindow.Prepare(new BackstageWindow());
+        try
+        {
+            window.Configure(
+                messenger,
+                vm,
+                () => new BackstageStatusView(
+                    new BackstageStatusSnapshot(
+                        "Version 10.99.9999.9999",
+                        "Installiert · UIAccess aktiv",
+                        "Supervisor antwortet nicht"),
+                    ShowSupervisor: true),
+                () => false, () => { }, _ => { }, () => UiLanguage.German);
+            window.ShowBackstage();
+            window.Width = BackstageWindow.ReferenceScreenWidthDip;
+            window.Height = 760;
+
+            var date = (TextBlock)window.FindName("ClockDateText");
+            date.Text = "Donnerstag, 30. September";   // the longest German date at the ruling
+            window.UpdateLayout();
+
+            var titleGroup = (FrameworkElement)window.FindName("TitleGroup");
+            var titleText = (FrameworkElement)window.FindName("TitleText");
+            var statusStrip = (FrameworkElement)window.FindName("StatusStrip");
+            var clock = (FrameworkElement)window.FindName("ClockBlock");
+            var close = (FrameworkElement)window.FindName("CloseHost");
+            var titleRect = RectInWindow(titleText, window);
+            var statusRect = RectInWindow(statusStrip, window);
+            var clockRect = RectInWindow(clock, window);
+            var closeRect = RectInWindow(close, window);
+
+            Check.WithCustomMessage($"clock {clockRect} overlaps the title text {titleRect}.")
+                .That(clockRect.Left >= titleRect.Right).IsTrue();
+            Check.WithCustomMessage($"clock {clockRect} reaches the close disc at {closeRect}.")
+                .That(clockRect.Right <= closeRect.Left).IsTrue();
+            Check.WithCustomMessage($"clock {clockRect} overlaps the status strip {statusRect}.")
+                .That(clockRect.Bottom <= statusRect.Top).IsTrue();
+            Check.WithCustomMessage("The clock runs past the right content margin.")
+                .That(clockRect.Right <= BackstageWindow.ReferenceScreenWidthDip - BackstageWindow.OuterMarginDip)
+                .IsTrue();
+
+            Check.That(titleGroup.ActualWidth).IsStrictlyGreaterThan(0);
+            Check.That(date.Text).IsEqualTo("Donnerstag, 30. September");
+            var cell = titleGroup.ActualWidth / 3;
+            foreach (var hostName in new[] { "VersionBadgeHost", "InstallBadgeHost", "SupervisorBadgeHost" })
+            {
+                var host = (ContentControl)window.FindName(hostName);
+                var badge = (FrameworkElement)host.Content;
+                Check.WithCustomMessage($"{hostName} drew no pill: the fit assertion would be vacuous.")
+                    .That(badge.ActualWidth).IsStrictlyGreaterThan(0);
+                Check.WithCustomMessage($"{hostName}: pill {badge.ActualWidth} vs strip cell {cell}.")
+                    .That(badge.ActualWidth <= cell).IsTrue();
+            }
+        }
+        finally
+        {
+            window.HideBackstage();
+            vm.Dispose();
+        }
+    }
+
+    private static Rect RectInWindow(FrameworkElement element, Window window) =>
+        element.TransformToAncestor(window).TransformBounds(new Rect(element.RenderSize));
 
     [StaFact]
     public void Quit_OpensTheDestructiveConfirmation_AndTheConfirmCallsShutdown()

@@ -32,11 +32,47 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" VerticalAlignment="Top">
-                        <TextBlock x:Name="TitleText"
-                                   Foreground="{StaticResource BrushTextPrimary}"
-                                   FontSize="{StaticResource FontSizeDisplay}"
-                                   FontWeight="{StaticResource FontWeightStrong}"/>
+                    <!-- The title row holds the title and the clock; the status strip stays a
+                         full-width row BENEATH them. That is deliberate: the three badges keep
+                         the exact backstageBadge 350.67 DIP cells (the title group is the same
+                         width it was before the clock), rather than being squeezed by a clock
+                         column. Placement B's "left of the close disc" is met by the clock's
+                         right alignment at the title group's edge. -->
+                    <StackPanel x:Name="TitleGroup" Grid.Column="0" VerticalAlignment="Top">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="TitleText" Grid.Column="0"
+                                       Foreground="{StaticResource BrushTextPrimary}"
+                                       FontSize="{StaticResource FontSizeDisplay}"
+                                       FontWeight="{StaticResource FontWeightStrong}"/>
+                            <!-- Placement B (owner-approved): a read-only clock in the empty
+                                 header space, right-aligned, left of the close disc. It is NOT a
+                                 fourth badge: no pill, no border, no dwell target and
+                                 IsHitTestVisible=False, so it adds no gaze target next to Quit.
+                                 The time is the culture's short-time pattern; the date is the
+                                 full weekday + MonthDayPattern (no year), both in the UI
+                                 language's own culture. The time size is raised in code from the
+                                 token ramp (RawGeometryLiteralTests: no raw font literals). -->
+                            <StackPanel x:Name="ClockBlock" Grid.Column="1"
+                                        Margin="32,0,0,0" VerticalAlignment="Top"
+                                        HorizontalAlignment="Right" IsHitTestVisible="False">
+                                <TextBlock x:Name="ClockTimeText"
+                                           HorizontalAlignment="Right" TextAlignment="Right"
+                                           Foreground="{StaticResource BrushTextPrimary}"
+                                           FontSize="{StaticResource FontSizeDisplay}"
+                                           FontWeight="{StaticResource FontWeightStrong}"
+                                           Typography.NumeralAlignment="Tabular"/>
+                                <TextBlock x:Name="ClockDateText"
+                                           Margin="0,4,0,0"
+                                           HorizontalAlignment="Right" TextAlignment="Right"
+                                           Foreground="{StaticResource BrushTextSecondary}"
+                                           FontSize="{StaticResource FontSizeSubtitle}"
+                                           TextWrapping="NoWrap"/>
+                            </StackPanel>
+                        </Grid>
                         <UniformGrid x:Name="StatusStrip" Columns="3" Margin="0,12,0,0">
                             <ContentControl x:Name="VersionBadgeHost" HorizontalContentAlignment="Left"/>
                             <ContentControl x:Name="InstallBadgeHost" HorizontalContentAlignment="Left"/>

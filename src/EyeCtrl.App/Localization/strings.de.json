@@ -574,9 +574,21 @@
     "text": "Kalibrieren",
     "src": "3ef4210a"
   },
+  "overlays.backstage.install.label": {
+    "text": "Installation und Wartung",
+    "src": "7fafca29"
+  },
+  "overlays.backstage.install.startFailed": {
+    "text": "EyeCtrl.Setup ließ sich nicht starten. Bitte die Betreuungsperson holen.",
+    "src": "95d7271d"
+  },
   "overlays.backstage.modal.cancel": {
     "text": "Abbrechen – nichts ändern",
     "src": "0679cf3f"
+  },
+  "overlays.backstage.modal.dismiss": {
+    "text": "Meldung schließen",
+    "src": "54ba03cc"
   },
   "overlays.backstage.quit.confirm.action": {
     "text": "EyeCtrl beenden",
@@ -630,6 +642,14 @@
     "text": "EyeCtrl neu starten",
     "src": "9d00d0b4"
   },
+  "overlays.backstage.rollback.description": {
+    "text": "Wechselt zurück zu Version {0}. EyeCtrl startet dabei von selbst neu.",
+    "src": "9cb1e7e6"
+  },
+  "overlays.backstage.rollback.title": {
+    "text": "Zur vorherigen Version",
+    "src": "8748107e"
+  },
   "overlays.backstage.session": {
     "text": "Sitzung",
     "src": "9e2c9fed"
@@ -669,6 +689,46 @@
   "overlays.backstage.status.version": {
     "text": "Version {0}",
     "src": "026ad8f2"
+  },
+  "overlays.backstage.uninstall.confirm.action": {
+    "text": "Deinstallation starten",
+    "src": "e0cd16ab"
+  },
+  "overlays.backstage.uninstall.confirm.body": {
+    "text": "Als Nächstes öffnet sich EyeCtrl.Setup und fragt, ob Einstellungen und Protokolle bleiben. Wenn Sie dort deinstallieren, wird EyeCtrl entfernt und startet nicht wieder. Läuft keine andere Blicksteuerung, lässt sich dieser PC danach nicht mehr per Blick steuern, bis jemand EyeCtrl wieder installiert. Ein Abbruch in Setup ändert nichts.",
+    "src": "a7fa0852"
+  },
+  "overlays.backstage.uninstall.confirm.paused": {
+    "text": "EyeCtrl ist pausiert. Klicks auf dem Desktop bleiben pausiert, solange Setup geöffnet ist; danach in der Symbolleiste „Fortsetzen“ wählen.",
+    "src": "3150799a"
+  },
+  "overlays.backstage.uninstall.confirm.title": {
+    "text": "EyeCtrl deinstallieren?",
+    "src": "29c0c045"
+  },
+  "overlays.backstage.uninstall.description": {
+    "text": "Entfernt EyeCtrl von diesem PC. Vorher wird gefragt, ob Einstellungen und Protokolle bleiben.",
+    "src": "2de012fb"
+  },
+  "overlays.backstage.uninstall.title": {
+    "text": "EyeCtrl deinstallieren",
+    "src": "d6fb8273"
+  },
+  "overlays.backstage.update.blocked": {
+    "text": "Updates verlangen zurzeit eine Bestätigung von Windows, die per Blick nicht erreichbar ist. Bitte die Betreuungsperson holen.",
+    "src": "8229ade8"
+  },
+  "overlays.backstage.update.checking": {
+    "text": "Suche nach Updates",
+    "src": "3f2db290"
+  },
+  "overlays.backstage.update.description": {
+    "text": "Version {0} ist bereit (installiert: {1}). EyeCtrl beendet sich kurz und startet von selbst neu.",
+    "src": "a4e98e21"
+  },
+  "overlays.backstage.update.title": {
+    "text": "Update installieren",
+    "src": "763748c7"
   },
   "overlays.blocked.detail": {
     "text": "Blockierendes Fenster: {0}",
@@ -1674,14 +1734,6 @@
     "text": "Einstellungen unter „Erweitert“ auf Standardwerte zurücksetzen?",
     "src": "4b4e58ec"
   },
-  "settings.advanced.rollback.description": {
-    "text": "Wechselt zurück zu Version {0}. EyeCtrl startet dabei von selbst neu.",
-    "src": "115a1119"
-  },
-  "settings.advanced.rollback.label": {
-    "text": "Vorherige Version wiederherstellen",
-    "src": "ba1cb824"
-  },
   "settings.advanced.scroll_sensitivity.description": {
     "text": "Wie schnell das Scrollen per Blick durch Dokumente läuft.",
     "src": "3471379e"
@@ -1697,34 +1749,6 @@
   "settings.advanced.scroll_stop.label": {
     "text": "Scrollen beenden (ms)",
     "src": "8e6548e1"
-  },
-  "settings.advanced.setup.startFailed": {
-    "text": "EyeCtrl.Setup ließ sich nicht starten. Bitte die Betreuungsperson holen.",
-    "src": "95d7271d"
-  },
-  "settings.advanced.uninstall.description": {
-    "text": "Entfernt EyeCtrl von diesem PC. Vorher wird gefragt, ob Einstellungen und Protokolle bleiben.",
-    "src": "d6cf7fcd"
-  },
-  "settings.advanced.uninstall.label": {
-    "text": "EyeCtrl deinstallieren",
-    "src": "260c1819"
-  },
-  "settings.advanced.update.blocked": {
-    "text": "Updates verlangen zurzeit eine Bestätigung von Windows, die per Blick nicht erreichbar ist. Bitte die Betreuungsperson holen.",
-    "src": "8229ade8"
-  },
-  "settings.advanced.update.checking": {
-    "text": "Suche nach Updates",
-    "src": "fc0e5711"
-  },
-  "settings.advanced.update.description": {
-    "text": "Version {0} ist bereit (installiert: {1}). EyeCtrl beendet sich kurz und startet von selbst neu.",
-    "src": "da964e32"
-  },
-  "settings.advanced.update.label": {
-    "text": "Update installieren",
-    "src": "c5b74b38"
   },
   "settings.calibration.clear.label": {
     "text": "Kalibrierung löschen",
@@ -2353,30 +2377,6 @@
   "settings.general.resetall.message": {
     "text": "ALLE Einstellungen auf Standardwerte zurücksetzen?\nDas lässt sich nicht rückgängig machen.",
     "src": "92c16160"
-  },
-  "settings.general.restart.cancel.option": {
-    "text": "✕ Abbrechen",
-    "src": "0b1a0314"
-  },
-  "settings.general.restart.label": {
-    "text": "↻ Neu starten",
-    "src": "c9479f2e"
-  },
-  "settings.general.restart.message": {
-    "text": "EyeCtrl jetzt neu starten?",
-    "src": "942ea4cd"
-  },
-  "settings.general.restart.plain.option": {
-    "text": "↻ Ohne Supervisor neu starten",
-    "src": "d6291a12"
-  },
-  "settings.general.restart.supervised.message": {
-    "text": "EyeCtrl jetzt neu starten?\nDer Supervisor ist installiert. Er startet EyeCtrl neu, falls es einmal ausfällt, und kann einen misslungenen Neustart retten.\nWird er gestartet, schaltet das die Überwachung ein, und sie bleibt eingeschaltet.",
-    "src": "194bc120"
-  },
-  "settings.general.restart.supervised.option": {
-    "text": "↻ Mit Supervisor neu starten",
-    "src": "65276443"
   },
   "settings.general.restart_notice.description": {
     "text": "Wie lange der Blick auf der Schaltfläche des Neustart-Hinweises ruhen muss. 0 = gleiche Verweilzeit wie der Aktivator.",

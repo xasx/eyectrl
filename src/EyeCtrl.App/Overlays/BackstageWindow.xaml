@@ -92,7 +92,7 @@
 
                 <!-- Session row. Three equal cards with 24 DIP gutters; the card faces are built
                      in code because each carries its own icon, danger styling and bottom-edge
-                     dwell bar. The install row is reserved and collapsed until Ticket 04. -->
+                     dwell bar. The install row is populated conditionally by Ticket 04. -->
                 <StackPanel Grid.Row="1" Margin="0,32,0,0">
                     <TextBlock x:Name="SessionLabel"
                                Foreground="{StaticResource BrushTextSecondary}"

@@ -13,19 +13,20 @@ using Xunit;
 public class GeneralPageSourceTests
 {
     [Fact]
-    public void General_OnePageWithThemeBootPauseTrackAndThreeButtons()
+    public void General_OnePageWithThemeBootPauseTrackAndTwoResetButtons()
     {
         var rows = new GeneralPageSource(TestSettingsPageContext.Build()).Build().Single().Rows;
         Check.That(rows.OfType<ComboBoxSpec>().Single(c => c.Id == "g_theme").Id).IsEqualTo("g_theme");
         Check.That(rows.OfType<ToggleSpec>().Select(t => t.Id))
             .Contains(new[] { "g_boot", "g_pause", "g_track" });
         var buttons = rows.OfType<ButtonSpec>().ToList();
-        Check.That(buttons.Select(b => b.Id)).Contains(new[] { "g_restart", "g_reset", "g_resetall" });
-        // The General page has THREE reset buttons (g_restart, g_reset, g_resetall), so
-        // ContainsExactly(ButtonKind.Reset) would wrongly pin count=1 and fail. NFluent 3.1.0 has
-        // no ContainsOnly on IEnumerable<T> (CS1061 — the AGENTS.md cheat sheet lists
-        // ContainsOnlyElementsThatMatch, not ContainsOnly). This asserts "all (any count) buttons
-        // are Reset kind" without pinning the count.
+        Check.That(buttons.Select(b => b.Id)).Contains(new[] { "g_reset", "g_resetall" });
+        Check.WithCustomMessage(
+                "Ticket 04 removed the standalone Restart button: Restart lives on a Backstage card now. " +
+                "The language-change restart prompt is a different flow and must stay (it has its own tests).")
+            .That(buttons.Any(b => b.Id == "g_restart")).IsFalse();
+        // The General page has TWO reset buttons (g_reset, g_resetall); the guide button is Reset
+        // kind too. This asserts "all (any count) buttons are Reset kind" without pinning the count.
         Check.That(buttons.Select(b => b.Kind)).ContainsOnlyElementsThatMatch(k => k == ButtonKind.Reset);
     }
 

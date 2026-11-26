@@ -8,6 +8,8 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Input;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Setup;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
@@ -49,6 +51,13 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     private SupervisionToggleService? _supervisionToggle;
     private Func<ISetupGateways>? _setupGatewaysFactory;
     private ISetupGateways? _openGateways;
+    private IUninstallHandoffPresenter? _uninstallHandoff;
+    private IUninstallHandoffWatchFactory? _uninstallWatches;
+    // Ticket 04: the open window as the uninstall hand-off drives it, and whether THIS hand-off
+    // hid it. The window is HIDDEN, never closed, so its layout and view model survive; the flag
+    // is what makes the owner's manual reopen cancel the watch instead of showing a second time.
+    private IUninstallHandoffWindowHandle? _handoffWindow;
+    private bool _handoffHidden;
     private Action? _shutdown;
     private SupervisionPresenceRefresher? _presenceRefresher;
     private SupervisionPresenceRefresher? _lastPresenceRefresher;
@@ -86,6 +95,37 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     /// </summary>
     internal void SetSetupGateways(Func<ISetupGateways> factory) =>
         _setupGatewaysFactory = factory ?? throw new ArgumentNullException(nameof(factory));
+
+    /// <summary>
+    /// Test seam: hands the uninstall presenter in. Production builds it lazily over this
+    /// coordinator's hide/restore delegates, so the real hide-watch-restore loop is what the
+    /// production composition runs.
+    /// </summary>
+    internal void SetUninstallHandoff(IUninstallHandoffPresenter presenter) =>
+        _uninstallHandoff = presenter ?? throw new ArgumentNullException(nameof(presenter));
+
+    /// <summary>
+    /// Test seam: the one-shot watch factory the lazily built presenter uses. Production is
+    /// <see cref="UninstallHandoffWatchFactory.CreateForProduction" />; a test supplies a watch it
+    /// can end on demand, and still drives the REAL presenter.
+    /// </summary>
+    internal void SetUninstallHandoffWatches(IUninstallHandoffWatchFactory watches) =>
+        _uninstallWatches = watches ?? throw new ArgumentNullException(nameof(watches));
+
+    /// <summary>Test/diagnostic seam: whether the hand-off currently owns the hidden window.</summary>
+    internal bool HandoffHiddenForTest => _handoffHidden;
+
+    /// <summary>
+    /// The presenter the next Backstage visit uses. Built once, lazily; every hand-off creates a
+    /// fresh one-shot watch. Ticket 04 moved this ownership here from Settings, which no longer
+    /// owns any install surface.
+    /// </summary>
+    private IUninstallHandoffPresenter UninstallHandoff =>
+        _uninstallHandoff ??= new UninstallHandoffPresenter(
+            HideBackstageForUninstallHandoff,
+            RestoreBackstageAfterUninstallHandoff,
+            _uninstallWatches ?? UninstallHandoffWatchFactory.CreateForProduction(),
+            warn: line => Log.Warning("{UninstallHandoff}", line));
 
     /// <summary>Hands in <c>Application.Current.Shutdown</c> (a seam so tests never shut down).</summary>
     internal void SetShutdown(Action shutdown) =>
@@ -142,6 +182,11 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
         if (_open)
             UnwindOpening();
 
+        // A watch still waiting when the App tears down must not keep a timer (or a Setup mutex
+        // read) alive, and must never try to show a window whose owner is gone.
+        _uninstallHandoff?.Dispose();
+        _uninstallHandoff = null;
+
         if (Context is not null)
             Context.EscapeHatch.EscapePressed -= OnEscapePressed;
     }
@@ -172,6 +217,15 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     /// </summary>
     internal void ShowBackstage()
     {
+        // The owner's manual reopen during the uninstall hand-off: cancel the watch first, so its
+        // later end cannot show the menu a second time, then bring the SAME hidden window back.
+        if (_handoffHidden)
+        {
+            _uninstallHandoff?.CancelWatch();
+            RestoreBackstageAfterUninstallHandoff(UninstallHandoffEnd.NotUninstalled, null);
+            return;
+        }
+
         if (_open || _window is not null)
             return;
 
@@ -199,6 +253,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
 
             var window = CreateWindowForTest?.Invoke() ?? new BackstageWindow();
             _window = window;
+            _handoffWindow = new BackstageWindowHandle(window);
             window.DismissRequested += OnDismissRequested;
             window.CalibrateRequested += OnCalibrateRequested;
             window.Closed += OnWindowClosed;
@@ -209,24 +264,13 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
                 () => _restartCoordinator?.ShouldOfferSupervisor() ?? false,
                 () => _shutdown?.Invoke(),
                 startSupervisor => _restartCoordinator?.HandleRestart(startSupervisor),
-                TargetLanguage);
+                TargetLanguage,
+                _openGateways,
+                UninstallHandoff,
+                () => context.InteractionManager.CurrentState == InteractionState.Paused);
 
             window.ShowBackstage();
-
-            // The presence refresh only raises SupervisionToggleService.StateChanged on a real
-            // change, so the strip rebuilds at most twice a second and never flaps its pills. The
-            // clock rides the same tick: a minute-resolution clock needs no second timer, and a
-            // second timer would be a second thing to leak on teardown.
-            _presenceTick = () =>
-            {
-                _supervisionToggle?.RefreshConnection();
-                _window?.RefreshStatus();
-                _window?.RefreshClock();
-            };
-            _presenceRefresher = new SupervisionPresenceRefresher(_presenceTick);
-            _presenceRefresher.Start();
-            if (_supervisionToggle is not null)
-                _supervisionToggle.StateChanged += OnSupervisionStateChanged;
+            StartPresenceRefresh();
         }
         catch (Exception ex)
         {
@@ -283,6 +327,177 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     private UiLanguage TargetLanguage() =>
         RestartNotices.TargetLanguage(Context!.Settings.General.UiLanguage);
 
+    // ── Ticket 04: the uninstall hand-off's hide / come-back ────────────────────────────────────
+    //
+    // The reason is z-order, not taste: Backstage runs in ZBID_UIACCESS (band 2) while Setup runs
+    // at uiAccess=false, so Setup's topmost Q8 can never be raised above it. Hiding is the only
+    // thing that works, and the menu must be HIDDEN rather than closed so the same session (and
+    // its window) comes back on every end that does not remove EyeCtrl.
+
+    /// <summary>
+    /// Hides the open menu for the hand-off, releasing every screen claim it holds while open —
+    /// <see cref="ModalInteractionState.BackstageOpen"/>, the fixation claim, the toolbar
+    /// auto-hide suspension and the quick-actions summon claim — so the owner keeps a usable
+    /// toolbar and ring next to Setup's window and gaze can drive its Q8. Returns whether a visible
+    /// window was hidden; false means there is nothing to bring back.
+    /// </summary>
+    internal bool HideBackstageForUninstallHandoff()
+    {
+        var context = Context;
+        if (context is null) return false;
+        if (_handoffHidden) return false;
+        if (_handoffWindow is not { IsVisible: true } window) return false;
+
+        // Set the flag first: a throw below must not leave the coordinator believing the menu is
+        // still on screen when the window has already gone.
+        _handoffHidden = true;
+
+        // The menu is no longer on screen, so the 2 s poll has nothing to refresh. Keep the
+        // instance so PresenceRefresherRunningForTest can still observe a missed Stop().
+        StopPresenceRefresh();
+
+        window.Hide();
+        ReleaseBackstageClaims(context);
+
+        Log.Information("Backstage hidden for the uninstall hand-off");
+        return true;
+    }
+
+    /// <summary>
+    /// The watch's end. Only <see cref="UninstallHandoffEnd.Uninstalled" /> keeps the menu hidden:
+    /// Setup stops the App in the same run, and a fullscreen menu raised over the removal would be
+    /// the last thing the owner sees. Everything else — cancel, „Nein, behalten", Esc, close, the
+    /// five-minute timeout, a refusal, a failure, a watcher that never learned the outcome —
+    /// re-takes the claims and shows the same window again. A restore that arrives after the owner
+    /// already reopened Backstage (or after the window was closed) does nothing.
+    /// </summary>
+    internal void RestoreBackstageAfterUninstallHandoff(
+        UninstallHandoffEnd end, SetupOutcome? outcome = null)
+    {
+        var context = Context;
+        if (context is null) return;
+
+        if (end == UninstallHandoffEnd.Uninstalled)
+        {
+            Log.Information("Backstage stays hidden: the uninstall completed");
+            return;
+        }
+
+        if (!_handoffHidden)
+        {
+            // The owner already reopened it: nothing to show, but the end still belongs in the log.
+            Log.Information(
+                "Uninstall hand-off ended after the owner reopened Backstage: {End} ({Outcome})",
+                end, outcome);
+            return;
+        }
+
+        if (_handoffWindow is not { } window)
+        {
+            // The window closed while hidden: the close path has already released every claim.
+            _handoffHidden = false;
+            return;
+        }
+
+        try
+        {
+            // The hide deliberately gave the toolbar and ring back so the owner could drive
+            // Setup's Q8. They are expected to have interacted, so a transient peer may be up;
+            // the open path dismisses them for the same reason, and the restore must too.
+            DismissTransientOverlays(context);
+
+            _modal.BackstageOpen = true;
+            context.GazeEngine.AcquireFixationSuppression(FixationSuppressor.Backstage);
+            _toolbar.SetAutoHideSuspended("backstage", true);
+            _quickActions.SetSummonSuspended("backstage", true);
+            context.ToolbarVM.SetActive(false);
+            context.OverlayManager.CursorCircle.Hide();
+
+            window.Show();
+            _handoffHidden = false;
+        }
+        catch (Exception ex)
+        {
+            // A failed show must not leave the screen claims taken: with fixation suppressed the
+            // owner cannot even ask for Backstage back. Release them, hide any half-shown window,
+            // and KEEP the flag so a later Backstage request retries the show.
+            Log.Warning(ex, "Could not show Backstage after the uninstall hand-off");
+            try
+            {
+                window.Hide();
+            }
+            catch (Exception hideEx)
+            {
+                Log.Warning(hideEx, "Could not hide the half-shown Backstage window after a failed restore");
+            }
+
+            ReleaseBackstageClaims(context);
+            return;
+        }
+
+        StartPresenceRefresh();
+        Log.Information(
+            "Backstage restored after the uninstall hand-off: {End} ({Outcome})", end, outcome);
+    }
+
+    /// <summary>
+    /// Releases every claim the menu holds while open. One path for the open unwind, the
+    /// uninstall hide and a failed restore, so the three can never diverge: the flag, the fixation
+    /// claim, both holder names, the toolbar re-arm and the ring restore. Every release tolerates a
+    /// claim that was never taken.
+    /// </summary>
+    private void ReleaseBackstageClaims(EventCoordinationContext context)
+    {
+        _modal.BackstageOpen = false;
+        context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Backstage);
+        _toolbar.SetAutoHideSuspended("backstage", false);
+        _quickActions.SetSummonSuspended("backstage", false);
+
+        if (context.OverlayManager.Toolbar.IsOnScreen)
+            context.ToolbarVM.SetActive(true, freshEntry: true);
+
+        if (context.CursorVM.IsVisible
+            && !_modal.SettingsOpen
+            && !_modal.ProbeOpen
+            && !_modal.GuideOpen)
+        {
+            context.OverlayManager.CursorCircle.Show();
+        }
+    }
+
+    /// <summary>
+    /// Starts the menu's one 2 s presence refresh. The strip rebuilds only when the supervision
+    /// service raises a real change, so it never flaps its pills; the clock rides the same tick
+    /// (a minute-resolution clock needs no second timer, and a second timer would be a second
+    /// thing to leak on teardown).
+    /// </summary>
+    private void StartPresenceRefresh()
+    {
+        _presenceTick = () =>
+        {
+            _supervisionToggle?.RefreshConnection();
+            _window?.RefreshStatus();
+            _window?.RefreshClock();
+        };
+        _presenceRefresher = new SupervisionPresenceRefresher(_presenceTick);
+        _presenceRefresher.Start();
+        if (_supervisionToggle is not null)
+            _supervisionToggle.StateChanged += OnSupervisionStateChanged;
+    }
+
+    /// <summary>Stops the presence refresh, keeping the stopped instance observable to the test seam.</summary>
+    private void StopPresenceRefresh()
+    {
+        if (_supervisionToggle is not null)
+            _supervisionToggle.StateChanged -= OnSupervisionStateChanged;
+        // Keep the instance so the test seam can still observe a missed Stop() after the
+        // field below is nulled; a leaked DispatcherTimer would otherwise be invisible.
+        _lastPresenceRefresher = _presenceRefresher;
+        _presenceRefresher?.Stop();
+        _presenceRefresher = null;
+        _presenceTick = null;
+    }
+
     /// <summary>
     /// Dismisses the transient overlays a fullscreen menu must not be painted over. Each call is
     /// the one its own owner already exposes; Settings is the exception — it closes through its
@@ -315,14 +530,16 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
         {
             var context = Context;
 
-            if (_supervisionToggle is not null)
-                _supervisionToggle.StateChanged -= OnSupervisionStateChanged;
-            // Keep the instance so the test seam can still observe a missed Stop() after the
-            // field below is nulled; a leaked DispatcherTimer would otherwise be invisible.
-            _lastPresenceRefresher = _presenceRefresher;
-            _presenceRefresher?.Stop();
-            _presenceRefresher = null;
-            _presenceTick = null;
+            // Closing while the hand-off hid the menu: the watch must not raise a window the close
+            // path is about to close for good.
+            if (_handoffHidden)
+            {
+                _uninstallHandoff?.CancelWatch();
+                _handoffHidden = false;
+            }
+
+            _handoffWindow = null;
+            StopPresenceRefresh();
 
             var window = _window;
             _window = null;
@@ -337,25 +554,11 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
 
             _viewModel?.HideOverlay();
 
-            _modal.BackstageOpen = false;
-            context?.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Backstage);
-            _toolbar.SetAutoHideSuspended("backstage", false);
-            _quickActions.SetSummonSuspended("backstage", false);
-
-            if (context is not null && context.OverlayManager.Toolbar.IsOnScreen)
-                context.ToolbarVM.SetActive(true, freshEntry: true);
-
             // The ring comes back only when no other modal owns the screen. In particular the
             // Settings window's Closed handler (posted by CloseSettingsMessage) may run after this
-            // unwind; it checks BackstageOpen itself, which this method has just cleared.
-            if (context is not null
-                && context.CursorVM.IsVisible
-                && !_modal.SettingsOpen
-                && !_modal.ProbeOpen
-                && !_modal.GuideOpen)
-            {
-                context.OverlayManager.CursorCircle.Show();
-            }
+            // unwind; it checks BackstageOpen itself, which the helper has just cleared.
+            if (context is not null)
+                ReleaseBackstageClaims(context);
 
             _openGateways = null;
         }

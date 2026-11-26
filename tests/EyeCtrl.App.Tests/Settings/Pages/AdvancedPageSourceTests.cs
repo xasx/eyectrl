@@ -20,6 +20,18 @@ public class AdvancedPageSourceTests
     }
 
     [Fact]
+    public void NoInstallMaintenanceRows_RemainOnTheAdvancedPage()
+    {
+        // Ticket 04 moved every setup row to Backstage. A reappearing row here would be a second,
+        // unowned install surface — and the Settings page has no uninstall hand-off presenter to
+        // hide it for Setup's Q8 any more.
+        var ids = Rows().Where(r => r.Id.Length > 0).Select(r => r.Id).ToList();
+        foreach (var moved in new[] { "av_update", "av_rollback", "av_uninstall", "av_update_probe" })
+            Check.WithCustomMessage($"{moved} is back on Settings → Advanced")
+                .That(ids.Contains(moved)).IsFalse();
+    }
+
+    [Fact]
     public void Build_SectionOrder_BackdropDragScrollRepeatExternalDwell()
     {
         var ids = Rows().Where(r => r.Id.Length > 0).Select(r => r.Id).ToList();

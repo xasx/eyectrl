@@ -24,4 +24,16 @@ public static class BackstageIcons
 
     /// <summary>The toolbar's crosshair — the EyeCtrl's own calibration.</summary>
     public static IconGeometry Calibrate => ToolbarIcons.For(ToolbarIconKey.Calibrate);
+
+    /// <summary>A down arrow into a tray - install an update.</summary>
+    public static IconGeometry InstallUpdate { get; } = IconGeometry.FromPathData(
+        "M12,4 L12,15 M8,11 L12,15 L16,11 M5,19 L19,19");
+
+    /// <summary>A counter-clockwise circulation arrow - restore the previous version.</summary>
+    public static IconGeometry Rollback { get; } = IconGeometry.FromPathData(
+        "M3,12 A9,9 0 1 0 6.2,5.1 L3,8 M3,3 L3,8 L8,8");
+
+    /// <summary>A lidded bin - uninstall.</summary>
+    public static IconGeometry Uninstall { get; } = IconGeometry.FromPathData(
+        "M4,7 L20,7 M9,7 L9,4 L15,4 L15,7 M7,7 L8,20 L16,20 L17,7");
 }

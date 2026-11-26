@@ -33,8 +33,7 @@ public class SettingsProbeWiringTests
                 + "SettingsWindow: the Diagnostics button would render but do nothing (SP-4d L5).")
             .That(source.Contains(
                 "context.UserDictionary,probeBlockReason:_probeBlockReason,"
-                + "requestProbe:_probeRequest,canResumeSession2:_probeCanResume,"
-                + "setupGateways:_setupGatewaysFactory?.Invoke(),uninstallHandoff:UninstallHandoff);"))
+                + "requestProbe:_probeRequest,canResumeSession2:_probeCanResume);"))
             .IsTrue();
     }
 

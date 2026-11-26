@@ -27,9 +27,7 @@ internal static class TestSettingsPageContext
         Action<string>? showError = null,
         Func<string>? readClipboard = null,
         SupervisionToggleService? supervision = null,
-        UserDictionaryService? dictionary = null,
-        ISetupGateways? setupGateways = null,
-        IUninstallHandoffPresenter? uninstallHandoff = null) => new(
+        UserDictionaryService? dictionary = null) => new(
         settings ?? new EyeCtrlSettings(),
         viewModel!, registry!, modelManagement!,
         calibration ?? new CalibrationService(),
@@ -40,9 +38,5 @@ internal static class TestSettingsPageContext
         showModal: showModal ?? ((_, _) => { }),
         showError: showError ?? (_ => { }),
         applyAndSave: () => { }, rebuildContent: () => { }, invoke: _ => { },
-        close: () => { }, readClipboard: readClipboard ?? (() => ""))
-    {
-        SetupGateways = setupGateways,
-        UninstallHandoff = uninstallHandoff,
-    };
+        close: () => { }, readClipboard: readClipboard ?? (() => ""));
 }

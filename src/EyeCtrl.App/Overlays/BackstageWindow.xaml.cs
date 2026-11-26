@@ -21,6 +21,7 @@ using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Setup;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
@@ -83,17 +84,36 @@ public partial class BackstageWindow : OverlayWindow
     internal const double CardIconSizeDip = 28;
     internal const double CardProgressBarHeightDip = 6;
 
+    /// <summary>
+    /// The sentence separator for the uninstall confirmation's composed body. A named const, not a
+    /// literal at the call site and not a text-literal exception: the ratchet never records a
+    /// letterless literal, so an exception entry would be stale by construction.
+    /// </summary>
+    private const string SentenceJoin = "\n\n";
+
     /// <summary>Modal choice ids, stable so a test and the View agree without reading text.</summary>
     internal const string QuitConfirmChoiceId = "backstage_quit_yes";
     internal const string CancelChoiceId = "backstage_cancel";
     internal const string RestartChoiceId = "backstage_restart_yes";
     internal const string RestartSupervisorChoiceId = "backstage_restart_supervisor";
 
+    // Ticket 04: the install row's confirmations. The update/rollback questions reuse the
+    // already-switched-on `update.*` / `rollback.*` strings; the uninstall question is an
+    // `overlays` key because it is EyeCtrl's own confirmation, not Setup's Q8.
+    internal const string UpdateInstallChoiceId = "backstage_update_install";
+    internal const string RollbackGoChoiceId = "backstage_rollback_go";
+    internal const string UninstallConfirmChoiceId = "backstage_uninstall_yes";
+    internal const string InstallDismissChoiceId = "backstage_install_dismiss";
+
     /// <summary>The VM's modal ids, exposed for the refusal-notice pin.</summary>
     internal const string QuitModalId = "backstage_quit_confirm";
     internal const string RestartModalId = "backstage_restart_confirm";
     internal const string RestartInProgressModalId = "backstage_restart_in_progress";
     internal const string RestartRefusedModalId = "backstage_restart_refused";
+    internal const string UpdateModalId = "backstage_update_confirm";
+    internal const string RollbackModalId = "backstage_rollback_confirm";
+    internal const string UninstallModalId = "backstage_uninstall_confirm";
+    internal const string InstallFailedModalId = "backstage_install_failed";
 
     private enum BackstageModal
     {
@@ -102,6 +122,10 @@ public partial class BackstageWindow : OverlayWindow
         RestartConfirm,
         RestartInProgress,
         RestartRefused,
+        UpdateConfirm,
+        RollbackConfirm,
+        UninstallConfirm,
+        InstallFailed,
     }
 
     private IMessenger? _messenger;
@@ -111,6 +135,9 @@ public partial class BackstageWindow : OverlayWindow
     private Action? _shutdown;
     private Action<bool>? _restart;
     private Func<UiLanguage>? _targetLanguage;
+    private ISetupGateways? _gateways;
+    private IUninstallHandoffPresenter? _uninstallHandoff;
+    private Func<bool>? _isPaused;
 
     private DwellArcButton? _closeDisc;
     private Border? _pausedBadge;
@@ -122,7 +149,19 @@ public partial class BackstageWindow : OverlayWindow
     private BackstageModal _modal = BackstageModal.None;
     private bool _noticesRegistered;
     private bool _configured;
+    private bool _windowClosed;
+    // Ticket 04: a probe that lands while a confirmation/notice modal is up waits for the modal
+    // to close, so an active Quit/Restart answer is never clobbered by a grid rebuild.
+    private bool _installRebuildDeferred;
     private Func<DateTime> _clockNow = static () => DateTime.Now;
+
+    /// <summary>The install row's card ids, in the order the row draws them.</summary>
+    private static readonly string[] InstallCardIds =
+    [
+        BackstageViewModel.UpdateCardId,
+        BackstageViewModel.RollbackCardId,
+        BackstageViewModel.UninstallCardId,
+    ];
 
     /// <summary>The coordinator's dismissal path: the Close disc, Esc, or a card that hands the
     /// screen back. The window never closes itself.</summary>
@@ -172,6 +211,14 @@ public partial class BackstageWindow : OverlayWindow
     /// <summary>The choice ids currently drawn in the modal, in order (test seam).</summary>
     internal IReadOnlyList<string> ModalChoiceIds => new List<string>(_modalChoices.Keys);
 
+    /// <summary>The drawn label of one modal choice (test seam: the migrated Settings-row tests
+    /// pin the approved wording, not only the ids).</summary>
+    internal string? ModalChoiceLabel(string choiceId) =>
+        _modalChoices.GetValueOrDefault(choiceId)?.Label.Text;
+
+    /// <summary>Whether the Install &amp; Maintenance section is on screen (test seam).</summary>
+    internal bool InstallSectionVisible => InstallSection.Visibility == Visibility.Visible;
+
     /// <summary>The one label the refusal pin reads, so the test can fail on the text the user
     /// actually sees rather than on an id alone.</summary>
     internal string? ModalBodyText => ModalBody.Text;
@@ -203,7 +250,10 @@ public partial class BackstageWindow : OverlayWindow
         Func<bool> shouldOfferSupervisor,
         Action shutdown,
         Action<bool> restart,
-        Func<UiLanguage> targetLanguage)
+        Func<UiLanguage> targetLanguage,
+        ISetupGateways? setupGateways,
+        IUninstallHandoffPresenter? uninstallHandoff,
+        Func<bool> isPaused)
     {
         _messenger = messenger ?? throw new ArgumentNullException(nameof(messenger));
         _vm = vm ?? throw new ArgumentNullException(nameof(vm));
@@ -212,6 +262,9 @@ public partial class BackstageWindow : OverlayWindow
         _shutdown = shutdown ?? throw new ArgumentNullException(nameof(shutdown));
         _restart = restart ?? throw new ArgumentNullException(nameof(restart));
         _targetLanguage = targetLanguage ?? throw new ArgumentNullException(nameof(targetLanguage));
+        _gateways = setupGateways;
+        _uninstallHandoff = uninstallHandoff;
+        _isPaused = isPaused ?? throw new ArgumentNullException(nameof(isPaused));
 
         DataContext = vm;
         TitleText.Text = StringTable.Current.T("overlays.toolbar.backstage");
@@ -237,21 +290,95 @@ public partial class BackstageWindow : OverlayWindow
     /// Shows the menu and registers the restart notices for this session. The coordinator has
     /// already acquired the screen claims; this method only handles the window and the messenger
     /// lifetime. A Loaded-priority pass pushes the drawn faces into the detector once layout has
-    /// run (before the first visible frame is composed).
+    /// run (before the first visible frame is composed). The update probe starts here, off the UI
+    /// thread, so the install row can settle while the owner reads the menu.
     /// </summary>
     internal void ShowBackstage()
     {
         if (!_configured)
             throw new InvalidOperationException("BackstageWindow.ShowBackstage requires Configure first.");
 
+        StartInstallProbe();
+        ShowSession();
+    }
+
+    /// <summary>
+    /// Shows the same window again after the uninstall hand-off hid it. The coordinator has
+    /// already re-taken the screen claims; the probe is NOT restarted (the per-visit gateways
+    /// instance answers every later call as a no-op).
+    /// </summary>
+    internal void ShowAfterUninstallHandoff() => ShowSession();
+
+    private void ShowSession()
+    {
+        if (!_configured || _vm is null)
+            return;
+
         RefreshStatus();
-        _vm!.ShowOverlay();
+        _vm.ShowOverlay();
         RegisterNotices();
         Show();
+        // A probe that settled while the hand-off hid the menu left its rebuild deferred; the
+        // menu is visible again now, so apply it (it also re-reads the gateways offer).
+        FlushDeferredInstallRebuild();
         // After Show(), because RefreshClock deliberately no-ops while the window is hidden:
         // the first rendered frame still carries the time.
         RefreshClock();
         Dispatcher.BeginInvoke(new Action(UpdatePositions), DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Hides the menu for the uninstall hand-off without closing it: the view model, the drawn
+    /// faces and the window itself survive, so the same session comes back on every non-uninstall
+    /// end. The restart notices are unregistered while hidden, so a notice arriving during Setup's
+    /// Q8 cannot be delivered to a window nobody can see.
+    /// </summary>
+    internal void HideForUninstallHandoff()
+    {
+        UnregisterNotices();
+        CloseModalVisuals();
+        _vm?.HideOverlay();
+        Hide();
+    }
+
+    /// <summary>
+    /// Starts the one catalog verification for this visit, on the gateways' worker thread. The
+    /// completion is marshalled to the UI thread and — review 02 R3 — judges BOTH the closed-window
+    /// and modal conditions INSIDE the dispatched action: a window that closes between the worker's
+    /// completion and the queued action must never touch a disposed view model, and a probe that
+    /// lands while a confirmation is up must not rebuild the grid under it.
+    /// </summary>
+    private void StartInstallProbe()
+    {
+        if (_gateways is not { Installed: true } gate)
+            return;
+
+        gate.BeginUpdateOfferProbe(() =>
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_windowClosed)
+                    return;
+                if (_vm?.IsModalOpen == true)
+                {
+                    _installRebuildDeferred = true;
+                    return;
+                }
+
+                RebuildInstallCards();
+            })));
+    }
+
+    /// <summary>
+    /// Applies an install-row rebuild that was deferred because a confirmation/notice modal owned
+    /// the surface. Called after every modal dismissal; a still-open modal keeps the flag.
+    /// </summary>
+    private void FlushDeferredInstallRebuild()
+    {
+        if (!_installRebuildDeferred || _windowClosed || _vm?.IsModalOpen == true)
+            return;
+
+        _installRebuildDeferred = false;
+        RebuildInstallCards();
     }
 
     /// <summary>
@@ -369,6 +496,9 @@ public partial class BackstageWindow : OverlayWindow
     {
         _vm?.DismissModal();
         CloseModalVisuals();
+        // A probe that landed while this modal was up waits for exactly this edge. The VM's own
+        // modal flag is already false, so the rebuild is safe here.
+        FlushDeferredInstallRebuild();
     }
 
     // ── Close disc ────────────────────────────────────────────────────────────────────────────
@@ -422,24 +552,150 @@ public partial class BackstageWindow : OverlayWindow
         SessionCards.Children.Clear();
         _cards.Clear();
 
-        AddCard(BackstageViewModel.QuitCardId, 0,
-            "overlays.backstage.quit.title", "overlays.backstage.quit.description",
+        AddCard(BackstageViewModel.QuitCardId, SessionCards, 0,
+            StringTable.Current.T("overlays.backstage.quit.title"),
+            StringTable.Current.T("overlays.backstage.quit.description"),
             BackstageIcons.Quit, danger: true);
-        AddCard(BackstageViewModel.RestartCardId, 2,
-            "overlays.backstage.restart.title", "overlays.backstage.restart.description",
+        AddCard(BackstageViewModel.RestartCardId, SessionCards, 2,
+            StringTable.Current.T("overlays.backstage.restart.title"),
+            StringTable.Current.T("overlays.backstage.restart.description"),
             BackstageIcons.Restart, danger: false);
-        AddCard(BackstageViewModel.CalibrateCardId, 4,
-            "overlays.backstage.calibrate.title", "overlays.backstage.calibrate.description",
+        AddCard(BackstageViewModel.CalibrateCardId, SessionCards, 4,
+            StringTable.Current.T("overlays.backstage.calibrate.title"),
+            StringTable.Current.T("overlays.backstage.calibrate.description"),
             BackstageIcons.Calibrate, danger: false);
+
+        RebuildInstallCards();
     }
 
-    private void AddCard(string cardId, int column, string titleKey, string descriptionKey,
+    /// <summary>
+    /// Rebuilds the conditional Install &amp; Maintenance row from the per-visit gateways facts
+    /// (Ticket 04). A dev build (`!Installed`, or no gateways at all) collapses the whole section:
+    /// zero dead gaze targets. While the catalog probe runs, a same-height non-interactive
+    /// placeholder stands in for the Update card so Rollback and Uninstall never shift under gaze.
+    /// One blocked-policy line stands in for both the Update and Rollback cards, exactly as the
+    /// Settings page did; Uninstall stays dwellable because Setup's own Q8 decides.
+    /// <para>
+    /// Called on configure and from the probe completion. It removes the old install cards'
+    /// remembered registrations before dropping their faces, so a card that disappears cannot
+    /// leave a live target behind (and a rebuilt one starts behind the leave-before-arm latch).
+    /// </para>
+    /// </summary>
+    private void RebuildInstallCards()
+    {
+        if (_vm is null || _windowClosed)
+            return;
+
+        InstallCards.Children.Clear();
+        foreach (var cardId in InstallCardIds)
+        {
+            _cards.Remove(cardId);
+            _vm.RemoveCard(cardId);
+        }
+
+        if (_gateways is not { Installed: true } gate)
+        {
+            InstallSection.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        InstallSection.Visibility = Visibility.Visible;
+        InstallLabel.Text = StringTable.Current.T("overlays.backstage.install.label");
+
+        var blocked = gate.PolicyBlocks;
+        var offer = gate.UpdateOffer;
+
+        if (offer is null && gate.UpdateOfferPending)
+        {
+            AddInstallPlaceholder(StringTable.Current.T("overlays.backstage.update.checking"));
+        }
+        else if (blocked)
+        {
+            AddInstallBlockedLine(StringTable.Current.T("overlays.backstage.update.blocked"));
+        }
+        else if (offer is not null)
+        {
+            AddCard(BackstageViewModel.UpdateCardId, InstallCards, 0,
+                StringTable.Current.T("overlays.backstage.update.title"),
+                StringTable.Current.T(
+                    "overlays.backstage.update.description", offer.Version, offer.InstalledVersion),
+                BackstageIcons.InstallUpdate, danger: false);
+        }
+
+        if (gate.PreviousAvailable && !blocked)
+        {
+            AddCard(BackstageViewModel.RollbackCardId, InstallCards, 2,
+                StringTable.Current.T("overlays.backstage.rollback.title"),
+                StringTable.Current.T(
+                    "overlays.backstage.rollback.description", gate.PreviousVersion ?? ""),
+                BackstageIcons.Rollback, danger: false);
+        }
+
+        AddCard(BackstageViewModel.UninstallCardId, InstallCards, 4,
+            StringTable.Current.T("overlays.backstage.uninstall.title"),
+            StringTable.Current.T("overlays.backstage.uninstall.description"),
+            BackstageIcons.Uninstall, danger: true);
+
+        // The new faces have not been laid out in this dispatcher turn. A synchronous
+        // UpdatePositions here would read ActualWidth/Height == 0 and register every card at a
+        // zero-size rectangle, killing the whole row for the rest of the visit (review-01 F1).
+        // Queue it after WPF's render/layout pass, exactly as ShowSession does.
+        Dispatcher.BeginInvoke(new Action(UpdatePositions), DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// The same-height, non-interactive stand-in for the Update card while the catalog probe runs.
+    /// It is deliberately NOT in <see cref="_cards"/> and has no mouse handler, so it can never
+    /// become a dwell target: a placeholder that answered a gaze would start nothing.
+    /// </summary>
+    private void AddInstallPlaceholder(string text)
+    {
+        var label = new TextBlock
+        {
+            Text = text,
+            Foreground = Tokens.BrushTextSecondary,
+            FontSize = Tokens.FontSizeBodyLarge,
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+        };
+        var placeholder = new Border
+        {
+            MinHeight = CardMinHeightDip,
+            Padding = new Thickness(22, 20, 22, 20),
+            CornerRadius = Tokens.LargeCornerRadius,
+            Background = Tokens.BrushSurfaceMedium,
+            BorderBrush = Tokens.BrushBorderSubtle,
+            BorderThickness = new Thickness(2),
+            Child = label,
+        };
+        AutomationProperties.SetAutomationId(placeholder, "Backstage_InstallPlaceholder");
+        Grid.SetColumn(placeholder, 0);
+        InstallCards.Children.Add(placeholder);
+    }
+
+    /// <summary>The blocked-policy explanation, spanning the Update and Rollback slots.</summary>
+    private void AddInstallBlockedLine(string text)
+    {
+        var label = new TextBlock
+        {
+            Text = text,
+            Foreground = Tokens.BrushTextSecondary,
+            FontSize = Tokens.FontSizeBodyLarge,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        AutomationProperties.SetAutomationId(label, "Backstage_InstallBlocked");
+        Grid.SetColumn(label, 0);
+        Grid.SetColumnSpan(label, 3);
+        InstallCards.Children.Add(label);
+    }
+
+    private void AddCard(string cardId, Panel host, int column, string title, string description,
         IconGeometry icon, bool danger)
     {
-        var face = BuildActionCard(
-            StringTable.Current.T(titleKey),
-            StringTable.Current.T(descriptionKey),
-            icon, danger);
+        var face = BuildActionCard(title, description, icon, danger);
         face.Root.MouseLeftButtonDown += (_, e) =>
         {
             e.Handled = true;
@@ -447,7 +703,7 @@ public partial class BackstageWindow : OverlayWindow
         };
         AutomationProperties.SetAutomationId(face.Root, "Backstage_Card_" + cardId);
         Grid.SetColumn(face.Root, column);
-        SessionCards.Children.Add(face.Root);
+        host.Children.Add(face.Root);
         _cards[cardId] = face;
     }
 
@@ -468,6 +724,15 @@ public partial class BackstageWindow : OverlayWindow
                 // teardown racing CalibrationWindow's own fixation claim is the failure this
                 // ordering exists to prevent.
                 CalibrateRequested?.Invoke();
+                break;
+            case BackstageViewModel.UpdateCardId:
+                OpenUpdateConfirmation();
+                break;
+            case BackstageViewModel.RollbackCardId:
+                OpenRollbackConfirmation();
+                break;
+            case BackstageViewModel.UninstallCardId:
+                OpenUninstallConfirmation();
                 break;
         }
     }
@@ -522,6 +787,121 @@ public partial class BackstageWindow : OverlayWindow
             title, StringTable.Current.T(bodyKey), choices);
     }
 
+    /// <summary>
+    /// The Update confirmation: the already-switched-on update surface's question and pair, so the
+    /// owner sees the same wording the Settings row used. The offer is re-read here, not captured
+    /// at build time: the probe may have completed between the build and the activation.
+    /// </summary>
+    private void OpenUpdateConfirmation()
+    {
+        var offer = _gateways?.UpdateOffer;
+        if (offer is null)
+            return;
+
+        var choices = new[]
+        {
+            new ModalChoice(UpdateInstallChoiceId,
+                StringTable.Current.T("update.confirm.install"),
+                ModalChoiceKind.Affirmative, null),
+            new ModalChoice(CancelChoiceId,
+                StringTable.Current.T("update.confirm.later"),
+                ModalChoiceKind.Negative, null),
+        };
+        OpenModal(BackstageModal.UpdateConfirm, UpdateModalId,
+            StringTable.Current.T("update.confirm.title", offer.Version),
+            StringTable.Current.T("update.confirm.detail"),
+            choices);
+    }
+
+    /// <summary>The Rollback confirmation, reusing the rollback surface's approved question and pair.</summary>
+    private void OpenRollbackConfirmation()
+    {
+        var gate = _gateways;
+        if (gate is null)
+            return;
+
+        var choices = new[]
+        {
+            new ModalChoice(RollbackGoChoiceId,
+                StringTable.Current.T("rollback.confirm.go"),
+                ModalChoiceKind.Affirmative, null),
+            new ModalChoice(CancelChoiceId,
+                StringTable.Current.T("rollback.confirm.later"),
+                ModalChoiceKind.Negative, null),
+        };
+        OpenModal(BackstageModal.RollbackConfirm, RollbackModalId,
+            StringTable.Current.T("rollback.confirm.title", gate.PreviousVersion ?? ""),
+            string.Empty,
+            choices);
+    }
+
+    /// <summary>
+    /// The Uninstall confirmation. The question names the act and the body says what happens to the
+    /// owner's ability to control the PC; the buttons are explicit verb phrases, never a bare OK.
+    /// A paused note is included when EyeCtrl is paused, because desktop clicks stay paused while
+    /// Setup's Q8 runs.
+    /// </summary>
+    private void OpenUninstallConfirmation()
+    {
+        if (_gateways is not { Installed: true })
+            return;
+
+        var choices = new[]
+        {
+            new ModalChoice(UninstallConfirmChoiceId,
+                StringTable.Current.T("overlays.backstage.uninstall.confirm.action"),
+                ModalChoiceKind.Negative, null),
+            new ModalChoice(CancelChoiceId,
+                StringTable.Current.T("overlays.backstage.modal.cancel"),
+                ModalChoiceKind.Neutral, null),
+        };
+        OpenModal(BackstageModal.UninstallConfirm, UninstallModalId,
+            StringTable.Current.T("overlays.backstage.uninstall.confirm.title"),
+            BuildUninstallConfirmBody(),
+            choices);
+    }
+
+    /// <summary>
+    /// The uninstall question's body: the act and what happens to the owner's ability to control
+    /// the PC, plus the paused note when EyeCtrl is paused. There is deliberately NO elevation
+    /// warning: Setup's <c>Blocked</c> gate reads the elevation policy BEFORE any broker call and
+    /// refuses when a consent prompt would be needed (<c>ConsentPromptBehaviorAdmin != 0</c>), so
+    /// the unreachable-prompt hazard cannot reach this path — either elevation is silent or Setup
+    /// changes nothing.
+    /// <para>
+    /// The sentences are joined with a named const, never an exceptions entry: the text-literal
+    /// ratchet is sink-based and never records a letterless literal, so an entry for this separator
+    /// would be stale by construction and fail <c>TheBaseline_HoldsOnlyTrueExceptions</c>.
+    /// </para>
+    /// </summary>
+    private string BuildUninstallConfirmBody()
+    {
+        var body = StringTable.Current.T("overlays.backstage.uninstall.confirm.body");
+
+        if (_isPaused?.Invoke() == true)
+        {
+            body += SentenceJoin
+                    + StringTable.Current.T("overlays.backstage.uninstall.confirm.paused");
+        }
+
+        return body;
+    }
+
+    /// <summary>The failed-launch acknowledgement: one explicit dismiss verb, never a bare OK.</summary>
+    private void ShowInstallFailed()
+    {
+        var choices = new[]
+        {
+            new ModalChoice(InstallDismissChoiceId,
+                StringTable.Current.T("overlays.backstage.modal.dismiss"),
+                ModalChoiceKind.Affirmative, null),
+        };
+        OpenModal(BackstageModal.InstallFailed, InstallFailedModalId,
+            title: string.Empty,
+            body: StringTable.Current.T("overlays.backstage.install.startFailed"),
+            choices);
+    }
+
     private void OpenModal(BackstageModal modal, string modalId, string title, string body,
         IReadOnlyList<ModalChoice> choices)
     {
@@ -532,6 +912,8 @@ public partial class BackstageWindow : OverlayWindow
         ModalTitle.Text = title;
         ModalTitle.Visibility = string.IsNullOrEmpty(title) ? Visibility.Collapsed : Visibility.Visible;
         ModalBody.Text = body;
+        // The rollback confirmation has no detail body; leave no empty gap above the choices.
+        ModalBody.Visibility = string.IsNullOrEmpty(body) ? Visibility.Collapsed : Visibility.Visible;
 
         ModalChoices.Children.Clear();
         _modalChoices.Clear();
@@ -581,7 +963,7 @@ public partial class BackstageWindow : OverlayWindow
 
             AutomationProperties.SetAutomationId(button, "Backstage_Choice_" + choice.Id);
             ModalChoices.Children.Add(button);
-            _modalChoices[choice.Id] = new ModalChoiceFace(button, fill);
+            _modalChoices[choice.Id] = new ModalChoiceFace(button, fill, label);
         }
 
         ModalOverlay.Visibility = Visibility.Visible;
@@ -654,11 +1036,88 @@ public partial class BackstageWindow : OverlayWindow
                     DismissModal();
                 break;
 
+            case BackstageModal.UpdateConfirm:
+                if (choiceId == UpdateInstallChoiceId)
+                    RunUpdate();
+                else
+                    DismissModal();
+                break;
+
+            case BackstageModal.RollbackConfirm:
+                if (choiceId == RollbackGoChoiceId)
+                    RunRollback();
+                else
+                    DismissModal();
+                break;
+
+            case BackstageModal.UninstallConfirm:
+                if (choiceId == UninstallConfirmChoiceId)
+                    RunUninstall();
+                else
+                    DismissModal();
+                break;
+
+            case BackstageModal.InstallFailed:
+                // One acknowledgement; any choice dismisses.
+                DismissModal();
+                break;
+
             default:
                 // In-progress and refusal notices have one acknowledgement; any choice dismisses.
                 DismissModal();
                 break;
         }
+    }
+
+    /// <summary>
+    /// Starts the update hand-off. <see cref="SetupHandoffStart.RefusedWhileActive" /> is silent:
+    /// Setup is already starting or running, and its own window is the answer. Only a launch that
+    /// failed says so, because after a completed dwell silence would read as a dead button.
+    /// </summary>
+    private void RunUpdate()
+    {
+        var offer = _gateways?.UpdateOffer;
+        var start = _gateways is null || offer is null
+            ? SetupHandoffStart.Failed
+            : _gateways.StartUpdateHandoff(offer);
+
+        if (start == SetupHandoffStart.Failed)
+            ShowInstallFailed();
+        else
+            DismissModal();
+    }
+
+    /// <summary>The rollback hand-off with the same refused-silent / failed-visible contract.</summary>
+    private void RunRollback()
+    {
+        var start = _gateways is null
+            ? SetupHandoffStart.Failed
+            : _gateways.StartRollbackHandoff();
+
+        if (start == SetupHandoffStart.Failed)
+            ShowInstallFailed();
+        else
+            DismissModal();
+    }
+
+    /// <summary>
+    /// The uninstall hand-off through the presenter that owns the hide/watch/restore loop. On
+    /// Started the coordinator hides this window synchronously (Setup's Q8 runs at
+    /// uiAccess=false, so it can never be raised above this band-2 menu); on a refusal the
+    /// confirmation simply closes; only a failed launch shows the acknowledgement.
+    /// </summary>
+    private void RunUninstall()
+    {
+        var start = _gateways is null
+            ? SetupHandoffStart.Failed
+            : _uninstallHandoff is { } handoff
+                ? handoff.Start(_gateways)
+                : _gateways.StartUninstallHandoff();
+
+        if (start == SetupHandoffStart.Failed)
+            ShowInstallFailed();
+        else if (IsVisible)
+            DismissModal();
     }
 
     // ── Restart notices ───────────────────────────────────────────────────────────────────────
@@ -888,6 +1347,7 @@ public partial class BackstageWindow : OverlayWindow
 
     protected override void OnClosed(EventArgs e)
     {
+        _windowClosed = true;
         UnregisterNotices();
         if (_vm is not null)
         {
@@ -902,6 +1362,8 @@ public partial class BackstageWindow : OverlayWindow
 
         _messenger = null;
         _closeDisc = null;
+        _gateways = null;
+        _uninstallHandoff = null;
         base.OnClosed(e);
     }
 
@@ -913,7 +1375,7 @@ public partial class BackstageWindow : OverlayWindow
         FrameworkElement Track,
         Border Fill);
 
-    private sealed record ModalChoiceFace(FrameworkElement Root, Border Fill)
+    private sealed record ModalChoiceFace(FrameworkElement Root, Border Fill, TextBlock Label)
     {
         public FrameworkElement Track => (FrameworkElement)Fill.Parent;
     }

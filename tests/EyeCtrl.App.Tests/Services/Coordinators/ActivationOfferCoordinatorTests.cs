@@ -559,10 +559,18 @@ public class ActivationOfferCoordinatorTests
         // invisible, uncountable target and a taken offer would click the menu beneath. Mutation:
         // drop the `if (_modal.BackstageOpen)` term from RecomputeSuspension, or drop the
         // BackstageOpenChanged subscription → the settle under the menu offers → red.
+        //
+        // The ModalSuspended assertions are the peer-gate half (Ticket 04): an "offers-only" reason
+        // (like P2's note-move) suspends offers WITHOUT holding ModalSuspended, and moving
+        // "backstage" into that bucket would leave the suite's offer assertions green while sticky
+        // notes go live underneath a fullscreen menu that owns the screen. Mutation: add the
+        // backstage reason to the offers-only calculation → these two checks go red, the offer
+        // checks above/below stay green.
         var s = Build();
         using var _ = s.Context.GazeEngine;
 
         Check.That(Settle(s, 500, 500)).IsNotNull();
+        Check.That(s.Coordinator.ModalSuspended).IsFalse();
 
         s.Modal.BackstageOpen = true;   // raises BackstageOpenChanged → RecomputeSuspension
         s.InteractionManager.ApplyPendingActivationOfferRequests();
@@ -570,10 +578,15 @@ public class ActivationOfferCoordinatorTests
             .That(s.Engine.CurrentOffer).IsNull();
         Check.WithCustomMessage("no offer may be made while Backstage is open")
             .That(Settle(s, 600, 600)).IsNull();
+        Check.WithCustomMessage(
+                "Backstage must hold the note gate's ModalSuspended peer flag, not only suspend offers")
+            .That(s.Coordinator.ModalSuspended).IsTrue();
 
         s.Modal.BackstageOpen = false;  // raises again → offers resume
         Check.WithCustomMessage("once Backstage closes, settles must offer again")
             .That(Settle(s, 700, 700)).IsNotNull();
+        Check.WithCustomMessage("closing Backstage must release the note gate's peer flag")
+            .That(s.Coordinator.ModalSuspended).IsFalse();
     }
 
     /// <summary>

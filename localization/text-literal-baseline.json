@@ -297,6 +297,16 @@
     },
     {
       "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_install_dismiss\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_install_failed\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
       "Literal": "\"backstage_quit_confirm\"",
       "Count": 1
     },
@@ -328,6 +338,36 @@
     {
       "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
       "Literal": "\"backstage_restart_yes\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_rollback_confirm\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_rollback_go\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_uninstall_confirm\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_uninstall_yes\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_update_confirm\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_update_install\"",
       "Count": 1
     },
     {
@@ -981,11 +1021,6 @@
       "Count": 1
     },
     {
-      "Path": "src/EyeCtrl.App/Views/Settings/SetupProbeRebuild.cs",
-      "Literal": "\"Advanced\"",
-      "Count": 1
-    },
-    {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ActionMenuPageSource.cs",
       "Literal": "\"am_jump_0\"",
       "Count": 1
@@ -1001,26 +1036,6 @@
       "Count": 1
     },
     {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
-      "Literal": "\"setup_rollback_go\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
-      "Literal": "\"setup_rollback_later\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
-      "Literal": "\"setup_update_install\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
-      "Literal": "\"setup_update_later\"",
-      "Count": 2
-    },
-    {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
       "Literal": "\"language_cancel\"",
       "Count": 2
@@ -1028,21 +1043,6 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
       "Literal": "\"language_restart\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
-      "Literal": "\"restart_cancel\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
-      "Literal": "\"restart_plain\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
-      "Literal": "\"restart_supervised\"",
       "Count": 2
     },
     {

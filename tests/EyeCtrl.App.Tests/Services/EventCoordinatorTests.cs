@@ -182,9 +182,10 @@ public class EventCoordinatorTests
             .IsTrue();
         Check.WithCustomMessage(
                 "EventCoordinator.Initialize no longer wires the composed note suspend predicate " +
-                "(ModalSuspended, the interaction modes, the modes menu).")
+                "(ModalSuspended, the interaction modes, the modes menu, the direct Backstage term).")
             .That(source.Contains(
-                "(_activationOffers?.ModalSuspended??false)||NoteManager.InteractionStateSuspendsNotes(context.InteractionManager.CurrentState)||context.ModesMenuVM.IsVisible"))
+                "context.NoteManager.SetSuspendPredicate(()=>IsNoteSuspended(_activationOffers,"
+                + "context.InteractionManager.CurrentState,context.ModesMenuVM.IsVisible,_modal.BackstageOpen));"))
             .IsTrue();
         Check.WithCustomMessage(
                 "EventCoordinator.Initialize no longer hands QuickActionsCoordinator the shared ModalInteractionState.")

@@ -56,7 +56,7 @@ public class ToolbarButtonDriftTests
     /// </summary>
     private static readonly Dictionary<string, string> ReachableElsewhere = new(StringComparer.Ordinal)
     {
-        ["Calibrate"] = "Settings window action button (CalibrationPageSource sends CalibrationRequestedMessage)",
+        ["Calibrate"] = "two reachable homes: the Backstage Session card (Ticket 03) and the Settings window action button (CalibrationPageSource); both send CalibrationRequestedMessage",
         ["QuickActions"] = "hot-edge gaze summon (QuickActionsSummonController)",
     };
 

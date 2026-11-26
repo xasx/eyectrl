@@ -107,6 +107,11 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Services/NoteManager.cs", ["overlays"]),
         // Ticket 02: the Backstage status strip's labels (version, install/UIAccess, Supervisor).
         ("src/EyeCtrl.App/Services/BackstageStatusSnapshot.cs", ["overlays"]),
+        // Ticket 03: the fullscreen menu itself. Its restart-notice text comes through
+        // RestartNotices (already language-recovery), so the window's code-behind stays one
+        // surface. The XAML carries no key literal; the facts/coordinator resolve none of their
+        // own (the coordinator passes the snapshot the window renders), so they need no grant.
+        ("src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs", ["overlays"]),
         // Sticky notes P1 D6 + F3: the keyboard window's UIA HelpText announces note targeting
         // from an overlays key, resolved in the keyboard window's code-behind.
         ("src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs", ["overlays"]),

@@ -86,6 +86,8 @@ internal static class AppFitMeasurers
             ["A44"] = (_, text) => ToggleStateWord(text),
             ["A208"] = (_, text) => ModeToggleLabel(text),
             ["A56"] = ShortCaption,
+            ["backstageBadge"] = (_, text) => BackstageBadge(text),
+            ["backstageCard"] = (key, text) => BackstageCard(key, text),
             ["card"] = (key, text) => SummaryCard(key, text),
             ["tab156"] = SidebarTab,
             ["B94x2"] = (_, text) => DefaultDwellButton(text),
@@ -148,6 +150,10 @@ internal static class AppFitMeasurers
             case "overlays.adaptationPreview.value.absolute":
             case "overlays.adaptationPreview.value.band":
                 return PreviewRowFit.SamplesFor(item.Key, item.Text);
+            // Ticket 03's version badge: the worst realistic four-part version, so the pill is
+            // measured with a real composed string rather than a raw {0} template.
+            case "overlays.backstage.status.version":
+                return [string.Format(CultureInfo.InvariantCulture, item.Text, "10.99.9999.9999")];
         }
 
         if (item.Args.Count > 0)
@@ -487,6 +493,87 @@ internal static class AppFitMeasurers
         button.Attach(panel);
         using var host = FitHost.Open(panel, family: Tokens.FontStandard);
         return WrappedInButton(host, button);
+    }
+
+    /// <summary>
+    /// backstageBadge: the production status pill in one third of the header strip (350 DIP at the
+    /// 1280 DIP minimum layout). One line; text + the pill's own padding and rim must fit the cell.
+    /// This is the real class the eight status keys needed — `row` measured nothing.
+    /// </summary>
+    private static FitVerdict BackstageBadge(string text)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var badge = BackstageWindow.BuildStatusBadge(text);
+        var panel = new Grid { Width = BackstageWindow.StatusCellWidthDip, Height = 48 };
+        panel.Children.Add(badge);
+        using var host = FitHost.Open(panel, family: Tokens.FontStandard);
+
+        var label = FitText.Descendants<TextBlock>(badge).Single();
+        var width = FitText.NaturalWidth(label, text)
+                    + badge.Padding.Left + badge.Padding.Right
+                    + badge.BorderThickness.Left + badge.BorderThickness.Right;
+        var room = BackstageWindow.StatusCellWidthDip;
+        var ok = label.TextWrapping == TextWrapping.NoWrap && width <= room;
+        return new FitVerdict(ok,
+            $"pill {FitText.Dip(width)} DIP vs the {FitText.Dip(room)} DIP strip cell",
+            FitText.ResolvedFace(label), room - width);
+    }
+
+    /// <summary>
+    /// backstageCard: the production card face in a 376 × 164 DIP host. The title must stay on one
+    /// line inside the 328 DIP inner width; the description's widest unbreakable run must fit the
+    /// same width and its wrapped height must fit the row left after the title, the 10/8 DIP gaps
+    /// and the 6 DIP dwell bar. The card's counterpart text (the title for a description and vice
+    /// versa) is the longest shipped one, so a key is measured in a worst-case full card rather
+    /// than alone.
+    /// </summary>
+    private static FitVerdict BackstageCard(string key, string text)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var isTitle = key.EndsWith(".title", StringComparison.Ordinal);
+        var counterpartSuffix = isTitle ? ".description" : ".title";
+        var counterpart = FitCatalog.ItemsOf("backstageCard")
+            .Where(i => !string.Equals(i.Key, key, StringComparison.Ordinal)
+                        && i.Key.EndsWith(counterpartSuffix, StringComparison.Ordinal))
+            .Select(i => i.Text)
+            .OrderByDescending(t => t.Length)
+            .FirstOrDefault() ?? string.Empty;
+
+        var title = isTitle ? text : counterpart;
+        var description = isTitle ? counterpart : text;
+        var face = BackstageWindow.BuildActionCard(title, description, icon: null, danger: false);
+        var panel = new Grid
+        {
+            Width = BackstageWindow.CardWidthDip,
+            Height = BackstageWindow.CardMinHeightDip,
+        };
+        panel.Children.Add(face.Root);
+        using var host = FitHost.Open(panel, family: Tokens.FontStandard);
+
+        // The production padding (22/20) plus the 2 DIP rim on each side.
+        const double horizontalChrome = (2 * 22) + (2 * 2);
+        const double verticalChrome = (2 * 20) + (2 * 2);
+        var innerWidth = BackstageWindow.CardWidthDip - horizontalChrome;
+        var innerHeight = BackstageWindow.CardMinHeightDip - verticalChrome;
+
+        var titleWidth = FitText.NaturalWidth(face.Title, title);
+        var titleHeight = FitText.NaturalHeight(host, face.Title, innerWidth);
+        var (run, runWidth) = FitText.WidestRun(face.Description, description);
+        var descriptionHeight = FitText.NaturalHeight(host, face.Description, innerWidth);
+        var descriptionBudget = innerHeight - titleHeight - 10 - 8 - BackstageWindow.CardProgressBarHeightDip;
+
+        var ok = face.Title.TextWrapping == TextWrapping.NoWrap
+                 && titleWidth <= innerWidth
+                 && runWidth <= innerWidth
+                 && descriptionHeight <= descriptionBudget;
+        return new FitVerdict(ok,
+            $"title one line {FitText.Dip(titleWidth)} vs {FitText.Dip(innerWidth)}; "
+            + $"description widest run '{run}' {FitText.Dip(runWidth)} vs {FitText.Dip(innerWidth)}, "
+            + $"wrapped {FitText.Dip(descriptionHeight)} vs {FitText.Dip(descriptionBudget)}",
+            FitText.ResolvedFace(face.Description),
+            System.Math.Min(
+                System.Math.Min(innerWidth - titleWidth, innerWidth - runWidth),
+                descriptionBudget - descriptionHeight));
     }
 
     /// <summary>

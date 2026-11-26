@@ -85,6 +85,16 @@ public static class StringTableSchema
         // The caregiver alert: the 720 DIP window grows in height only, its bottom edge stays at
         // the work area's bottom less 48 DIP, and the grown window fits the work area.
         "C-alert",
+        // A Backstage status pill: one line whose text + 20 DIP pill padding + 2 DIP rim fits
+        // one third of the header strip (350 DIP at the 1280 DIP minimum layout). This is the
+        // class the eight overlays.backstage.status.* keys were missing (they shipped as `row`,
+        // which no AppFitMeasurer measures).
+        "backstageBadge",
+        // A Backstage action card: a one-line 24 DIP title plus a wrapping 14 DIP description in
+        // the 376 × 164 DIP card face at the 1280 DIP reference layout; no unbreakable run may
+        // exceed the 328 DIP inner width and the description's wrapped height must fit the row
+        // left after the title, the gaps and the 6 DIP dwell bar.
+        "backstageCard",
         // A two-choice modal button: one line ≤ 170 − 8 DIP.
         "modal170",
         // A stacked (three-choice) modal button: one line ≤ 460 − 8 DIP.

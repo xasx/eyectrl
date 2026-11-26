@@ -35,6 +35,7 @@ public class SetupNoticeWatchTests
         public List<string> Shown { get; } = [];
         public Action? FileChange { get; private set; }
         public bool FileWatchDisposed { get; private set; }
+        public Func<bool>? IsBackstageOpen { get; set; }
 
         public SetupNoticeWatch Create() => new(
             new SetupLastNoticeService(
@@ -50,7 +51,8 @@ public class SetupNoticeWatchTests
             {
                 FileChange = onChange;
                 return new ActionDisposable(() => FileWatchDisposed = true);
-            });
+            },
+            isBackstageOpen: IsBackstageOpen);
 
         private sealed class ActionDisposable : IDisposable
         {
@@ -199,6 +201,37 @@ public class SetupNoticeWatchTests
         }
 
         Check.That(shown).HasSize(1);
+    }
+
+    /// <summary>
+    /// Ticket 03: the Backstage menu is a fullscreen screen owner, and this watch is the one
+    /// proactive surface that shows through the host presenter directly. While it holds the screen
+    /// the watch must neither read nor expire; its close-time poke shows the deferred notice once.
+    /// Without this term a setup card would paint over the menu and be undismissable by gaze.
+    /// </summary>
+    [Fact]
+    public void TheBackstageMenu_HoldsTheWatch_AndItsClosePokesOnce()
+    {
+        var harness = new Harness();
+        var open = true;
+        harness.IsBackstageOpen = () => open;
+        harness.Store.Record = Record(time: Start.AddSeconds(5));
+
+        var watch = harness.Create();
+        watch.Start();
+
+        Check.That(watch.NoticeShown).IsFalse();   // the immediate check is held
+        Check.That(harness.Shown).IsEmpty();
+
+        // The 90 s window runs out while the menu is up: it must not finish behind the menu.
+        harness.Now = Start.AddSeconds(120);
+        harness.Scheduled[^1].Tick();
+        Check.That(watch.IsDone).IsFalse();
+
+        open = false;
+        watch.OnBackstageOpenChanged(false);        // the close-time poke
+        Check.That(harness.Shown).HasSize(1);
+        Check.That(watch.NoticeShown).IsTrue();
     }
 
     /// <summary>A store whose WriteShownTime swallows the failure and persists nothing.</summary>

@@ -1,0 +1,160 @@
+<!--
+    The fullscreen Backstage menu (Ticket 03). Edge-to-edge SurfaceDark, NOT click-through: mouse and
+    Esc are the caregiver fallback on a surface whose primary input is dwell.
+
+    The window is deliberately window-level `ShowInTaskbar=False` + `Topmost=True` like every
+    overlay; `EntersUiAccessBand => true` is inherited, so a gaze-only owner can always reach Quit
+    even above an elevated window. The close disc is the shared DwellArcButton created in code at
+    this host's centre: what is drawn (r50) IS what the detector hit-tests (B8).
+-->
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.BackstageWindow"
+                        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+                        WindowStyle="None" AllowsTransparency="True"
+                        Background="Transparent" Topmost="True"
+                        ShowInTaskbar="False" ResizeMode="NoResize">
+    <Grid>
+        <!-- Edge-to-edge opaque surface. The fullscreen menu owns the screen; the desktop is not
+             meant to read through it. -->
+        <Border Background="{StaticResource BrushSurfaceDark}">
+            <Grid Margin="52,36">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Header: title + three status badges in equal cells, close disc to the right.
+                     The equal cells are what the backstageBadge fit class measures (each pill is
+                     inside one third of the strip at the 1280 DIP minimum layout). -->
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <!-- The title row holds the title and the clock; the status strip stays a
+                         full-width row BENEATH them. That is deliberate: the three badges keep
+                         the exact backstageBadge 350.67 DIP cells (the title group is the same
+                         width it was before the clock), rather than being squeezed by a clock
+                         column. Placement B's "left of the close disc" is met by the clock's
+                         right alignment at the title group's edge. -->
+                    <StackPanel x:Name="TitleGroup" Grid.Column="0" VerticalAlignment="Top">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="TitleText" Grid.Column="0"
+                                       Foreground="{StaticResource BrushTextPrimary}"
+                                       FontSize="{StaticResource FontSizeDisplay}"
+                                       FontWeight="{StaticResource FontWeightStrong}"/>
+                            <!-- Placement B (owner-approved): a read-only clock in the empty
+                                 header space, right-aligned, left of the close disc. It is NOT a
+                                 fourth badge: no pill, no border, no dwell target and
+                                 IsHitTestVisible=False, so it adds no gaze target next to Quit.
+                                 The time is the culture's short-time pattern; the date is the
+                                 full weekday + MonthDayPattern (no year), both in the UI
+                                 language's own culture. The time size is raised in code from the
+                                 token ramp (RawGeometryLiteralTests: no raw font literals). -->
+                            <StackPanel x:Name="ClockBlock" Grid.Column="1"
+                                        Margin="32,0,0,0" VerticalAlignment="Top"
+                                        HorizontalAlignment="Right" IsHitTestVisible="False">
+                                <TextBlock x:Name="ClockTimeText"
+                                           HorizontalAlignment="Right" TextAlignment="Right"
+                                           Foreground="{StaticResource BrushTextPrimary}"
+                                           FontSize="{StaticResource FontSizeDisplay}"
+                                           FontWeight="{StaticResource FontWeightStrong}"
+                                           Typography.NumeralAlignment="Tabular"/>
+                                <TextBlock x:Name="ClockDateText"
+                                           Margin="0,4,0,0"
+                                           HorizontalAlignment="Right" TextAlignment="Right"
+                                           Foreground="{StaticResource BrushTextSecondary}"
+                                           FontSize="{StaticResource FontSizeSubtitle}"
+                                           TextWrapping="NoWrap"/>
+                            </StackPanel>
+                        </Grid>
+                        <UniformGrid x:Name="StatusStrip" Columns="3" Margin="0,12,0,0">
+                            <ContentControl x:Name="VersionBadgeHost" HorizontalContentAlignment="Left"/>
+                            <ContentControl x:Name="InstallBadgeHost" HorizontalContentAlignment="Left"/>
+                            <ContentControl x:Name="SupervisorBadgeHost" HorizontalContentAlignment="Left"/>
+                        </UniformGrid>
+                        <ContentControl x:Name="PausedBadgeHost" Margin="0,10,0,0"
+                                        HorizontalContentAlignment="Left" Visibility="Collapsed"/>
+                    </StackPanel>
+                    <!-- 100x100 DIP host for the shared r50 close disc. Its Canvas does not clip,
+                         so the disc's dark halo can reach past the host without being cut. -->
+                    <Border x:Name="CloseHost" Grid.Column="1"
+                            Width="100" Height="100" Margin="24,0,0,0"
+                            Background="Transparent" Cursor="Hand">
+                        <Canvas x:Name="CloseLayer" ClipToBounds="False"/>
+                    </Border>
+                </Grid>
+
+                <!-- Session row. Three equal cards with 24 DIP gutters; the card faces are built
+                     in code because each carries its own icon, danger styling and bottom-edge
+                     dwell bar. The install row is reserved and collapsed until Ticket 04. -->
+                <StackPanel Grid.Row="1" Margin="0,32,0,0">
+                    <TextBlock x:Name="SessionLabel"
+                               Foreground="{StaticResource BrushTextSecondary}"
+                               FontSize="{StaticResource FontSizeBodyLarge}"
+                               FontWeight="{StaticResource FontWeightStrong}"/>
+                    <Grid x:Name="SessionCards" Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="24"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                    </Grid>
+
+                    <StackPanel x:Name="InstallSection" Margin="0,24,0,0" Visibility="Collapsed">
+                        <TextBlock x:Name="InstallLabel"
+                                   Foreground="{StaticResource BrushTextSecondary}"
+                                   FontSize="{StaticResource FontSizeBodyLarge}"
+                                   FontWeight="{StaticResource FontWeightStrong}"/>
+                        <Grid x:Name="InstallCards" Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="24"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="24"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Inline modal. A real scrim (the theme's modal backdrop) sits over the cards, and the
+             VM clears the cards' dwell targets when it opens, so nothing behind a confirmation is
+             live to gaze. Choices are the production Settings modal buttons at their 460x100
+             stacked geometry; the VM registers the button's real rectangle as the hit target. -->
+        <Grid x:Name="ModalOverlay" Visibility="Collapsed">
+            <Border Background="{StaticResource BrushModalBackdrop}"/>
+            <Border x:Name="ModalCard"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    MinWidth="580" MaxWidth="760" Padding="40,30"
+                    CornerRadius="{StaticResource LargeCornerRadius}"
+                    Background="{StaticResource BrushSurfaceLight}"
+                    BorderBrush="{StaticResource BrushBorderSubtle}"
+                    BorderThickness="2">
+                <StackPanel HorizontalAlignment="Center">
+                    <TextBlock x:Name="ModalTitle"
+                               Foreground="{StaticResource BrushTextPrimary}"
+                               FontSize="{StaticResource FontSizeTitle}"
+                               FontWeight="{StaticResource FontWeightStrong}"
+                               TextAlignment="Center" TextWrapping="Wrap"
+                               Visibility="Collapsed"/>
+                    <TextBlock x:Name="ModalBody" Margin="0,12,0,0"
+                               Foreground="{StaticResource BrushTextSecondary}"
+                               FontSize="{StaticResource FontSizeSubtitle}"
+                               TextAlignment="Center" TextWrapping="Wrap"/>
+                    <StackPanel x:Name="ModalChoices" Margin="0,24,0,0"
+                                HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</overlays:OverlayWindow>

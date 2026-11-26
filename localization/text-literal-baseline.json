@@ -291,6 +291,46 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_cancel\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_quit_confirm\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_quit_yes\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_restart_confirm\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_restart_in_progress\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_restart_refused\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_restart_supervisor\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/BackstageWindow.xaml.cs",
+      "Literal": "\"backstage_restart_yes\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/BlockedInputBannerWindow.xaml.cs",
       "Literal": "\"blocked_input_dismiss\"",
       "Count": 1
@@ -438,6 +478,16 @@
     {
       "Path": "src/EyeCtrl.App/Services/AdaptationPreviewService.cs",
       "Literal": "\"adaptation-preview\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/BackstageClock.cs",
+      "Literal": "\"dddd\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/BackstageClock.cs",
+      "Literal": "\"t\"",
       "Count": 1
     },
     {

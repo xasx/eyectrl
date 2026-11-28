@@ -44,10 +44,32 @@ public partial class ManualSelectionSettings : ObservableObject, IValidatable
     /// <see cref="StabilitySampleCount"/> are lifted to it. Valid range: 2–60.</summary>
     [ObservableProperty] private int _stabilityWindowSize = 7;
 
-    /// <summary>Consecutive out-of-hold samples tolerated (skip-N) before the anchor is dropped
+    /// <summary>
+    /// Consecutive out-of-hold samples tolerated (skip-N) before the anchor is dropped
     /// and the dwell restarts. Absorbs isolated gaze outliers; DwellDetector is timestamp-based,
     /// so elapsed dwell time survives the skipped samples. Valid range: 0–30.</summary>
     [ObservableProperty] private int _holdOutlierSkipLimit = 3;
+
+    /// <summary>
+    /// How long the gaze must stay continuously outside the magnifier's rim — with no seat formed
+    /// yet in the session — before the magnifier closes itself exactly as its ✕ does. An unwanted
+    /// open usually never seats and is abandoned by looking away; closing it by ✕ costs a second
+    /// aim, which this releases without one. Only a session that has NOT seated is eligible: a
+    /// seated or frozen ring is never auto-closed. Measured on device timestamps, after the grace
+    /// period, and only beyond <see cref="NoSeatCloseMarginLogical"/>: a hover just past the rim is
+    /// the user still aiming, not leaving. Valid range: 300–5000 ms; 0 turns the close off.
+    /// </summary>
+    [ObservableProperty] private int _noSeatCloseMs = 1000;
+
+    /// <summary>
+    /// Extra DIP beyond the visible rim that the no-seat close's "outside" is measured from. The
+    /// plain rim is too tight: a real click session hovered just past it (≤ 18 px) for 1.3 s before
+    /// seating, so a rule counting the plain rim would have closed a wanted session. Screen space,
+    /// like the hold radius, so it is multiplied by <c>DpiHelper.ScaleX</c> and deliberately NOT by
+    /// the magnification; the bounds check and its reset stay at the plain rim — only this timer
+    /// uses the outer radius. Valid range: 0–400 DIP; 0 measures from the rim itself.
+    /// </summary>
+    [ObservableProperty] private double _noSeatCloseMarginLogical = 40.0;
 
     partial void OnCircleRadiusPixelsChanging(int value)
     {
@@ -82,6 +104,10 @@ public partial class ManualSelectionSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(StabilitySampleCount, 2, 30, nameof(StabilitySampleCount)),
             ValidationHelper.ValidateRange(StabilityWindowSize, 2, 60, nameof(StabilityWindowSize)),
             ValidationHelper.ValidateRange(HoldOutlierSkipLimit, 0, 30, nameof(HoldOutlierSkipLimit)),
+            NoSeatCloseMs == 0 || NoSeatCloseMs is >= 300 and <= 5000
+                ? null
+                : $"{nameof(NoSeatCloseMs)} must be 0 (off) or between 300 and 5000, but was {NoSeatCloseMs}",
+            ValidationHelper.ValidateRange(NoSeatCloseMarginLogical, 0, 400, nameof(NoSeatCloseMarginLogical)),
             StabilityWindowSize >= StabilitySampleCount
                 ? null
                 : $"{nameof(StabilityWindowSize)} must be at least {nameof(StabilitySampleCount)} " +

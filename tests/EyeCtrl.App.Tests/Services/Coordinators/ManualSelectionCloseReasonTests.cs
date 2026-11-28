@@ -40,6 +40,23 @@ public class ManualSelectionCloseReasonTests
         harness.Pump();
 
         harness.CheckExactlyOneClosedLine(MagnifierCloseReasons.EdgeClose);
+        Check.That(harness.ManualSelectionVM.LastCloseReason)
+            .IsEqualTo(MagnifierCloseReasons.EdgeClose);
+    }
+
+    /// <summary>T8 (the no-seat half): a close whose sender names the no-seat reason attributes the
+    /// close to it, both on the always-on INFO line and on the view model's LastCloseReason. The
+    /// plain ✕ above must keep edge-close.</summary>
+    [StaFact]
+    public void NoSeatClose_LogsTheNoSeatReason()
+    {
+        using var harness = Harness.Start();
+        harness.Messenger.Send(new ManualSelectionCloseMessage(MagnifierCloseReasons.NoSeat));
+        harness.Pump();
+
+        harness.CheckExactlyOneClosedLine(MagnifierCloseReasons.NoSeat);
+        Check.That(harness.ManualSelectionVM.LastCloseReason)
+            .IsEqualTo(MagnifierCloseReasons.NoSeat);
     }
 
     [StaFact]
@@ -112,6 +129,7 @@ public class ManualSelectionCloseReasonTests
         internal WeakReferenceMessenger Messenger { get; } = new();
         internal InteractionManager InteractionManager { get; }
         internal TestFakes.FakeEscapeHatch Hatch { get; }
+        internal ManualSelectionOverlayViewModel ManualSelectionVM { get; }
         internal List<string> Messages { get; } = new();
 
         private Harness()
@@ -126,6 +144,7 @@ public class ManualSelectionCloseReasonTests
 
             var settings = new EyeCtrlSettings();
             var manualSelectionVm = new ManualSelectionOverlayViewModel(settings, Messenger);
+            ManualSelectionVM = manualSelectionVm;
             var modal = new ModalInteractionState();
             _messageCoordinator = new OverlayMessageCoordinator(
                 new ToolbarLifecycleCoordinator(modal), new OverlayVmBindingCoordinator(modal));

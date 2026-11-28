@@ -637,6 +637,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"no-seat\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
       "Literal": "\"other\"",
       "Count": 1
     },
@@ -668,6 +673,11 @@
     {
       "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
       "Literal": "\"{0} commit real=({1:0},{2:0}) view=({3:0},{4:0})\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"{0} no-seat close ts={1} outMs={2}\"",
       "Count": 1
     },
     {

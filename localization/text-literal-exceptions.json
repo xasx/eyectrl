@@ -462,6 +462,12 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
+      "Literal": "\"no-seat\"",
+      "Category": "log",
+      "Reason": "The magnifier's no-seat auto-close token in the closed line (Magnifier closed by no-seat); written to the log only, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/MagnifierCloseReasons.cs",
       "Literal": "\"other\"",
       "Category": "log",
       "Reason": "The magnifier's exit-attribution fallback token in the closed line (Magnifier closed by other); written to the log only, never shown."
@@ -501,6 +507,12 @@
       "Literal": "\"{0} commit real=({1:0},{2:0}) view=({3:0},{4:0})\"",
       "Category": "log",
       "Reason": "The magnifier dwell commit's real-point line format -- log-only, parsed by the sitting readout; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"{0} no-seat close ts={1} outMs={2}\"",
+      "Category": "log",
+      "Reason": "The magnifier dwell no-seat close line format -- log-only (gated on diagnostics.logRingEvents), parsed by the sitting readout; never shown."
     },
     {
       "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",

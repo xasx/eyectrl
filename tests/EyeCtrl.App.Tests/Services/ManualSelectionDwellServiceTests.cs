@@ -1362,6 +1362,267 @@ public class ManualSelectionDwellServiceTests
             .IsEqualTo("Magnifier dwell commit real=(1234,987) view=(1000,601)");
     }
 
+    // ── The no-seat auto-close (ManualSelectionSettings.NoSeatCloseMs) ───────────────────────
+    //
+    // Grace is 300 ms and samples are 50 ms apart, so index 6 (ts 300 ms) is the first post-grace
+    // sample and index 26 (ts 1300 ms) is exactly 1000 ms after it. The rim is 200 x 2.0 = 400 px
+    // physical, so (1000,500) is outside it and (500,500) is the centre.
+
+    /// <summary>T1: no seat, out of the rim for exactly the threshold after the grace → one close,
+    /// attributed to no-seat. One sample before the threshold: no close.</summary>
+    [Fact]
+    public void NoSeat_OutOfRimForTheThreshold_ClosesExactlyOnceWithTheNoSeatReason()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var close = new CloseRecorder(_messenger);
+
+        for (var i = 0; i < 26; i++)
+            SendGaze(new PhysicalPoint(1000, 500), i);      // 0–1250 ms: the post-grace run is 950 ms
+        Check.WithCustomMessage("One sample before the threshold no close may be sent.")
+            .That(close.Count).IsEqualTo(0);
+
+        SendGaze(new PhysicalPoint(1000, 500), 26);         // 1300 ms: exactly 1000 ms after the grace
+        Check.WithCustomMessage("A no-seat run that reaches the threshold must close the magnifier.")
+            .That(close.Count).IsEqualTo(1);
+        Check.WithCustomMessage("The close must be attributed to the no-seat reason.")
+            .That(close.Reasons[0]).IsEqualTo(MagnifierCloseReasons.NoSeat);
+    }
+
+    /// <summary>T2: an excursion shorter than the threshold, back INSIDE the rim, then out again —
+    /// the timer restarted, so the second run needs its own full threshold. Resuming inside (rather
+    /// than merely outside the rim) is what makes a cleared timer necessary.</summary>
+    [Fact]
+    public void NoSeat_BackInsideTheRim_RestartsTheTimer()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var close = new CloseRecorder(_messenger);
+
+        for (var i = 0; i < 23; i++)
+            SendGaze(new PhysicalPoint(1000, 500), i);      // 1100 ms: an 800 ms run
+        Check.That(close.Count).IsEqualTo(0);
+
+        SendGaze(new PhysicalPoint(500, 500), 23);          // back inside: the run ends here
+        SendGaze(new PhysicalPoint(500, 500), 24);
+
+        for (var i = 25; i < 45; i++)
+            SendGaze(new PhysicalPoint(1000, 500), i);      // second run from 1250 ms: 950 ms
+        Check.WithCustomMessage("The second excursion must be measured from its own first sample.")
+            .That(close.Count).IsEqualTo(0);
+
+        SendGaze(new PhysicalPoint(1000, 500), 45);         // 2250 ms: the second run reaches 1000 ms
+        Check.That(close.Count).IsEqualTo(1);
+    }
+
+    /// <summary>T3 (MG2b): seated, then released by hold, then out of the rim for five thresholds —
+    /// never closes. Dropping the session flag would fire the timer on this excursion.</summary>
+    [Fact]
+    public void SeatedThenReleasedByHold_OutOfRimForFiveThresholds_NeverCloses()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var close = new CloseRecorder(_messenger);
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), 5);   // seats at index 10
+        for (var j = 0; j < 4; j++)
+            SendGaze(new PhysicalPoint(700, 500), next + j);        // out of the 72 px hold, inside the rim
+        next += 4;
+
+        for (var j = 0; j < 100; j++)
+            SendGaze(new PhysicalPoint(1000, 500), next + j);       // 5 s continuously out of the rim
+        Check.WithCustomMessage("MG2b: a session that has seated is never auto-closed, even after a release.")
+            .That(close.Count).IsEqualTo(0);
+    }
+
+    /// <summary>T4 (MG1): seated and frozen, gaze out of the rim — the existing bounds reset still
+    /// happens and no close is sent, however long the gaze stays out.</summary>
+    [Fact]
+    public void SeatedAndFrozen_OutOfRim_StillResetsAndNeverCloses()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var close = new CloseRecorder(_messenger);
+        var resets = 0;
+        _messenger.Register<ResetManualSelectionIndicatorMessage>(this, (r, m) => resets++);
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), 5);
+        for (var j = 0; j < 100; j++)
+            SendGaze(new PhysicalPoint(1000, 500), next + j);
+
+        Check.WithCustomMessage("MG1: the bounds reset must still run for a seated, frozen ring.")
+            .That(resets).IsStrictlyGreaterThan(0);
+        Check.That(close.Count).IsEqualTo(0);
+
+        _messenger.Unregister<ResetManualSelectionIndicatorMessage>(this);
+    }
+
+    /// <summary>T5: out of the rim only during the grace, then still out at grace end — the timer
+    /// starts at the first post-grace sample, not at the session start. A timer started during the
+    /// grace would have fired at 1000 ms from the session start (index 20).</summary>
+    [Fact]
+    public void OutOfRimDuringTheGrace_TimerStartsAtTheFirstPostGraceSample()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var close = new CloseRecorder(_messenger);
+
+        for (var i = 0; i <= 20; i++)
+            SendGaze(new PhysicalPoint(1000, 500), i);      // reaches 1000 ms, all out of the rim
+        Check.WithCustomMessage(
+                "The grace's out-of-rim samples must not start the timer: at 1000 ms from the session "
+                + "start the post-grace run is only 700 ms old.")
+            .That(close.Count).IsEqualTo(0);
+
+        SendGaze(new PhysicalPoint(1000, 500), 26);         // 1300 ms: 1000 ms after the first post-grace sample
+        Check.That(close.Count).IsEqualTo(1);
+    }
+
+    /// <summary>T6: 0 turns the close off.</summary>
+    [Fact]
+    public void NoSeatCloseMsZero_NeverCloses()
+    {
+        _settings.ManualSelection.NoSeatCloseMs = 0;
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var close = new CloseRecorder(_messenger);
+
+        for (var i = 0; i < 100; i++)
+            SendGaze(new PhysicalPoint(1000, 500), i);      // 5 s out of the rim
+
+        Check.That(close.Count).IsEqualTo(0);
+    }
+
+    /// <summary>T7: a recapture is not a new session — the seat flag survives it, so the excursion
+    /// after the recapture never closes.</summary>
+    [Fact]
+    public void RecaptureAfterSeat_KeepsTheSeatFlag_NoClose()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var close = new CloseRecorder(_messenger);
+
+        var next = SeatAnchorAt(new PhysicalPoint(500, 500), 5);
+        _messenger.Send(new ManualSelectionRecaptureMessage());
+
+        for (var j = 0; j < 100; j++)
+            SendGaze(new PhysicalPoint(1000, 500), next + j);
+
+        Check.WithCustomMessage("A recapture is not a new session: the seat flag must survive it.")
+            .That(close.Count).IsEqualTo(0);
+    }
+
+    /// <summary>T9: the close is sent once; out-of-rim samples that keep arriving before the
+    /// session ends must not re-send it.</summary>
+    [Fact]
+    public void NoSeat_MoreOutOfRimSamplesAfterTheClose_StillOneClose()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var close = new CloseRecorder(_messenger);
+
+        for (var i = 0; i < 60; i++)
+            SendGaze(new PhysicalPoint(1000, 500), i);      // 3 s out, well past the threshold
+
+        Check.That(close.Count).IsEqualTo(1);
+    }
+
+    /// <summary>The gated diagnostic line: written with the deciding sample's device timestamp and
+    /// the measured run length.</summary>
+    [Fact]
+    public void NoSeat_LogsTheGatedDiagnosticLine()
+    {
+        _settings.Diagnostics.LogRingEvents = true;
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        for (var i = 0; i < 27; i++)
+            SendGaze(new PhysicalPoint(1000, 500), i);      // index 26 decides the close
+
+        Check.That(_log.MagnifierLines())
+            .Contains("Magnifier dwell no-seat close ts=1300000 outMs=1000");
+    }
+
+    /// <summary>T11 (the #51 shape): a hover just past the rim but inside rim + 40 DIP, held for
+    /// three thresholds, never closes — the dwell still resets at the plain rim, and the extra
+    /// margin is what keeps the user "still aiming" from counting as leaving.</summary>
+    [Fact]
+    public void JustPastTheRimButInsideTheMargin_ForThreeThresholds_NeverCloses()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var close = new CloseRecorder(_messenger);
+        var resets = 0;
+        _messenger.Register<ResetManualSelectionIndicatorMessage>(this, (r, m) => resets++);
+
+        // 410 px from the centre: outside the 400 px rim, inside 400 + 40 = 440 px.
+        for (var i = 0; i < 27; i++)
+            SendGaze(new PhysicalPoint(910, 500), i);       // 1.3 s, the #51 session's hover
+        Check.WithCustomMessage("The #51 hover just past the rim must not close at 1.3 s.")
+            .That(close.Count).IsEqualTo(0);
+
+        for (var i = 27; i < 70; i++)
+            SendGaze(new PhysicalPoint(910, 500), i);       // 3.5 s, three times the threshold
+        Check.WithCustomMessage(
+                "A hover just past the rim, inside the margin, is the user still aiming: no close.")
+            .That(close.Count).IsEqualTo(0);
+        Check.WithCustomMessage("The plain-rim bounds reset must still run inside the margin.")
+            .That(resets).IsStrictlyGreaterThan(0);
+
+        _messenger.Unregister<ResetManualSelectionIndicatorMessage>(this);
+    }
+
+    /// <summary>T12: one sample beyond the margin starts the timer, then one sample between the rim
+    /// and the margin clears it — the run after it needs its own full threshold.</summary>
+    [Fact]
+    public void BeyondTheMarginThenBackInsideIt_ClearsTheTimer()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var close = new CloseRecorder(_messenger);
+
+        for (var i = 0; i <= 21; i++)
+            SendGaze(new PhysicalPoint(1000, 500), i);      // beyond 440 px; post-grace run 750 ms
+
+        SendGaze(new PhysicalPoint(910, 500), 22);          // 410 px: past the rim, inside the margin
+
+        for (var i = 23; i < 43; i++)
+            SendGaze(new PhysicalPoint(1000, 500), i);      // second run from 1150 ms: 950 ms
+        Check.WithCustomMessage("The sample inside the margin must clear the timer.")
+            .That(close.Count).IsEqualTo(0);
+
+        SendGaze(new PhysicalPoint(1000, 500), 43);         // 2150 ms: the second run reaches 1000 ms
+        Check.That(close.Count).IsEqualTo(1);
+    }
+
+    /// <summary>The margin is screen space like the hold radius: at 150 % scaling the rim is 600 px
+    /// and the 40-DIP margin is 60 px, so 650 px is inside the outer radius. Dropping ScaleX from
+    /// the margin (40 px → 640) would close this wanted session.</summary>
+    [Fact]
+    public void Margin_ScalesWithDisplayDpi()
+    {
+        DpiHelper.Initialize(1.5, 1.5);
+        try
+        {
+            StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+            var close = new CloseRecorder(_messenger);
+
+            for (var i = 0; i < 70; i++)
+                SendGaze(new PhysicalPoint(1150, 500), i);  // 650 px: past the 600 px rim, inside 660
+
+            Check.That(close.Count).IsEqualTo(0);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    /// <summary>The margin is NOT magnified: the visible rim here is 200 x 2.0 = 400 px and the
+    /// margin stays 40 px, so the outer radius is 440 and a 460 px sample is gone. A margin scaled
+    /// by the magnification (2 x 40 = 80 px → 480) would keep it inside and never close.</summary>
+    [Fact]
+    public void Margin_IsNotMultipliedByMagnification()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+        var close = new CloseRecorder(_messenger);
+
+        for (var i = 0; i < 70; i++)
+            SendGaze(new PhysicalPoint(960, 500), i);       // 460 px: beyond 440
+
+        Check.That(close.Count).IsEqualTo(1);
+        Check.That(close.Reasons[0]).IsEqualTo(MagnifierCloseReasons.NoSeat);
+    }
+
     // ── Freeze helpers ───────────────────────────────────────────────────────────────────────
 
     private void ConfigureHold(double hold, int k, int skip)
@@ -1399,6 +1660,18 @@ public class ManualSelectionDwellServiceTests
             });
             messenger.Register<FreezeRecorder, ManualSelectionDwellCompletedMessage>(this, (r, m) => r.Commits.Add(m.PrecisePoint));
         }
+    }
+
+    /// <summary>Records every close the service sends, with the reason the sender named.</summary>
+    private sealed class CloseRecorder
+    {
+        public List<string?> Reasons { get; } = new();
+
+        public int Count => Reasons.Count;
+
+        public CloseRecorder(IMessenger messenger) =>
+            messenger.Register<CloseRecorder, ManualSelectionCloseMessage>(
+                this, (r, m) => r.Reasons.Add(m.CloseReason));
     }
 
     private sealed class RecordingLogger : ILogger<ManualSelectionDwellService>

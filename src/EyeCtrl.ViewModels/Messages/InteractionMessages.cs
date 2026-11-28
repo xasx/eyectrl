@@ -104,7 +104,13 @@ public record EndManualSelectionMessage;
 /// </summary>
 public record ManualSelectionHiddenMessage;
 
-public record ManualSelectionCloseMessage;
+/// <summary>
+/// Asks the magnifier to close, exactly as its ✕ does (<see cref="EndManualSelectionMessage"/> is
+/// the presenter's teardown half). <paramref name="CloseReason"/> names the exit for the
+/// "Magnifier closed by …" line; null keeps the historical attribution to the ✕ (edge-close), so
+/// every existing sender is unchanged.
+/// </summary>
+public record ManualSelectionCloseMessage(string? CloseReason = null);
 
 public record ManualSelectionRecaptureMessage;
 

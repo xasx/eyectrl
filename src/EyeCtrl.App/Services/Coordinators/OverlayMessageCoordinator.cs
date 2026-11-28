@@ -94,11 +94,14 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                 }
             }));
 
-        // ManualSelectionCloseMessage -> exit ManualSelection mode
-        Context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionCloseMessage>(this, (_, _) =>
+        // ManualSelectionCloseMessage -> exit ManualSelection mode. The sender may name a reason
+        // (the no-seat auto-close does); everything that names none — the ✕ and the edge bar — keeps
+        // the historical edge-close attribution.
+        Context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionCloseMessage>(this, (_, message) =>
             Context.Dispatcher.BeginInvoke(() =>
             {
-                Context.ManualSelectionVM.LastCloseReason = MagnifierCloseReasons.EdgeClose;
+                Context.ManualSelectionVM.LastCloseReason =
+                    message.CloseReason ?? MagnifierCloseReasons.EdgeClose;
                 im.OnManualSelectionBack();
             }));
 

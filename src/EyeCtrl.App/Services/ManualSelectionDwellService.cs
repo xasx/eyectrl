@@ -58,6 +58,17 @@ public class ManualSelectionDwellService : IDisposable
     private long? _lastFedTimestamp;
     private bool _outsideBounds;
 
+    // The no-seat auto-close. _seatHasFormed is a SESSION flag: set when the anchor seats, reset
+    // ONLY by OnManualSelectionStarted (a recapture keeps it), so once the session has seated the
+    // magnifier is never auto-closed — not after a hold/bounds release, not on any later excursion
+    // (MG1/MG2b). _noSeatOutSince is the device timestamp of the first sample of the current run
+    // BEYOND the rim plus NoSeatCloseMarginLogical; null while at or inside that outer radius,
+    // during the grace and after a close. The run is measured on device timestamps only: a stalled
+    // or coalesced frame source cannot make the wall clock fire it.
+    private bool _seatHasFormed;
+    private long? _noSeatOutSince;
+    private bool _noSeatCloseSent;
+
     /// <summary>
     /// Onset window radius in DIP: K of the last <see cref="ManualSelectionSettings.StabilityWindowSize"/>
     /// samples must lie this close to the newest one before the anchor seats. A fixed, tight settle
@@ -113,6 +124,9 @@ public class ManualSelectionDwellService : IDisposable
         _gracePeriodActive = false;
         _manualSelectionStartTimestamp = 0;
         _outsideBounds = false;
+        _seatHasFormed = false;
+        _noSeatOutSince = null;
+        _noSeatCloseSent = false;
 
         // Create DwellDetector with cooldown disabled (we handle grace period separately)
         _dwellDetector = new DwellDetector(cooldownMs: 0, context: DwellContext.ManualSelection, sink: _sink);
@@ -170,6 +184,7 @@ public class ManualSelectionDwellService : IDisposable
         _gracePeriodActive = false;
         _manualSelectionCenter = null;
         _manualSelectionRadius = null;
+        _noSeatOutSince = null;
         ClearCommitState();
 
         _logger.LogDebug("ManualSelection dwell tracking stopped");
@@ -247,9 +262,13 @@ public class ManualSelectionDwellService : IDisposable
         if (!IsWithinManualSelectionBounds(pt))
         {
             ReleaseAndFollow("bounds", pt, ts, logOnlyOnEntry: true);
+            MaybeCloseNoSeat(pt, ts);
             return;
         }
         _outsideBounds = false;
+        // Any sample at or inside the rim ends the out-of-rim run: the no-seat timer restarts from
+        // the first sample beyond the rim-plus-margin of the next excursion.
+        _noSeatOutSince = null;
 
         // 4. Commit rule: the anchor must exist before dwell can accumulate, and once it exists it
         //    is held. Only samples within the hold radius are fed to the detector; an isolated
@@ -304,6 +323,73 @@ public class ManualSelectionDwellService : IDisposable
     }
 
     /// <summary>
+    /// The no-seat auto-close. It runs on every sample that fails the plain-rim bounds check, so it
+    /// can only ever start after the grace period, and it is a no-op once the session has seated.
+    /// With no seat yet and <see cref="ManualSelectionSettings.NoSeatCloseMs"/> above 0, a
+    /// continuous run beyond the rim PLUS <see cref="ManualSelectionSettings.NoSeatCloseMarginLogical"/>
+    /// that reaches the threshold closes the magnifier ONCE, through the same message the ✕ sends.
+    /// The plain rim stays the bounds boundary (its reset is untouched); the margin only keeps a
+    /// hover just past the rim — the user still aiming — from counting as leaving. A sample between
+    /// the rim and the outer radius clears the run. The run is kept on device timestamps; a
+    /// gap-held sample is skipped before the bounds check, so it neither advances nor clears it.
+    /// </summary>
+    private void MaybeCloseNoSeat(PhysicalPoint pt, long ts)
+    {
+        if (_seatHasFormed || _noSeatCloseSent) return;
+
+        var thresholdMs = _settings.ManualSelection.NoSeatCloseMs;
+        if (thresholdMs <= 0)
+        {
+            _noSeatOutSince = null;
+            return;
+        }
+
+        if (!IsBeyondNoSeatOuterRadius(pt))
+        {
+            // Inside the margin (or back inside the rim): the excursion did not leave the magnifier.
+            _noSeatOutSince = null;
+            return;
+        }
+
+        _noSeatOutSince ??= ts;
+        var outUs = ts - _noSeatOutSince.Value;
+        if (outUs < thresholdMs * MathConstants.MicrosecondsPerMillisecond) return;
+
+        // Latched at the decision, not only inside the dispatch: DispatchSafe may post (a caller off
+        // the dispatcher), and every sample that follows is still out of the rim — none may decide a
+        // second close before the state machine has left ManualSelectionActive.
+        _noSeatCloseSent = true;
+        var outMs = outUs / MathConstants.MicrosecondsPerMillisecond;
+        DispatchSafe(() =>
+        {
+            // The session can end between the decision and this dispatched continuation, as
+            // OnDwellActivated guards: closing into a torn-down ManualSelection would be a close
+            // the user already backed out of. The line stays with the send, so it never reports a
+            // close that did not happen.
+            if (_dwellDetector == null) return;
+            LogLine(NoSeatCloseLine(ts, outMs));
+            _messenger.Send(new ManualSelectionCloseMessage(MagnifierCloseReasons.NoSeat));
+        }, "no-seat-close");
+    }
+
+    /// <summary>
+    /// The no-seat close's outer boundary: the visible rim (radius × magnification × ScaleX, the
+    /// same physical radius the bounds check uses) plus the margin in screen space (margin DIP ×
+    /// ScaleX, with NO magnification — like the hold radius, it is a property of the eye, not of the
+    /// magnified content). Strictly beyond it is "gone"; at or inside it is "still here".
+    /// </summary>
+    private bool IsBeyondNoSeatOuterRadius(PhysicalPoint gazePoint)
+    {
+        if (_manualSelectionCenter is not { } center || _manualSelectionRadius is not { } rimRadius)
+            return false;
+
+        var outerRadius = rimRadius + _settings.ManualSelection.NoSeatCloseMarginLogical * DpiHelper.ScaleX;
+        var dx = gazePoint.X - center.X;
+        var dy = gazePoint.Y - center.Y;
+        return (dx * dx + dy * dy) > (outerRadius * outerRadius);
+    }
+
+    /// <summary>
     /// Seats the dwell anchor on stability onset: at least
     /// <see cref="ManualSelectionSettings.StabilitySampleCount"/> of the last
     /// <see cref="ManualSelectionSettings.StabilityWindowSize"/> samples must lie within
@@ -342,6 +428,10 @@ public class ManualSelectionDwellService : IDisposable
 
         var anchor = new PhysicalPoint(sumX / inlierCount, sumY / inlierCount);
         _anchor = anchor;
+        // The session has seated: the no-seat auto-close is off for its remaining lifetime, across
+        // every hold/bounds release and any later excursion (MG1/MG2b). Session-scoped only.
+        _seatHasFormed = true;
+        _noSeatOutSince = null;
         _stabilitySamples.Clear();
         _consecutiveOutOfHoldSamples = 0;
 
@@ -511,6 +601,12 @@ public class ManualSelectionDwellService : IDisposable
         string.Format(CultureInfo.InvariantCulture,
             "{0} reset ({1}) ts={2} anchor={3}",
             LogPrefix, cause, ts is { } t ? t.ToString(CultureInfo.InvariantCulture) : "na", PointText(anchor));
+
+    /// <summary>The no-seat auto-close: the device timestamp of the deciding sample and how long the
+    /// gaze had been continuously outside the rim.</summary>
+    internal static string NoSeatCloseLine(long ts, long outMs) =>
+        string.Format(CultureInfo.InvariantCulture,
+            "{0} no-seat close ts={1} outMs={2}", LogPrefix, ts, outMs);
 
     /// <summary>The detector's silence restart: the fill starts over, the anchor and ring stay.</summary>
     internal static string SilenceLine(long ts, long gapMs, PhysicalPoint? anchor) =>

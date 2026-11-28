@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
+using System.Windows.Threading;
 using EyeCtrl.Controls;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
@@ -59,6 +60,12 @@ public partial class KeyboardWindow : OverlayWindow
     // A latched slot's long-look fill is painted from the latch instead (OnPredictionProgress never
     // sees it).
     private readonly Func<DwellTarget, bool> _predictionTargetFilter;
+    // Wave D F18: one fired-step helper per surface, because a bar re-render discards only the
+    // slots' outlines and a grid rebuild discards only the keys'. Each steps at most one target
+    // for FiredFlash.DurationMs, and the step is a thickness write on that target's existing
+    // DwellOutlineOverlay — never a new visual.
+    private readonly FiredStep _keyFiredStep;
+    private readonly FiredStep _predictionFiredStep;
     private readonly Dictionary<string, (Border Container, TextBlock? Label)> _keyVisuals = new();
     // One mutable brush per key, installed as its Container.Background and mutated in place by
     // ResetKeyVisual/UpdateModifierVisuals on a STATE change (modifier active/inactive).
@@ -176,6 +183,9 @@ public partial class KeyboardWindow : OverlayWindow
         _predictionDwellDetector = new DwellDetector(cooldownMs: 0,
             context: DwellContext.KeyboardPrediction, sink: sink);
         _predictionTargetFilter = target => !_predictionRearm.IsLatched(target.Id);
+        // F18: the fired step is C1's DispatcherTimer at Render, created once on the UI thread.
+        _keyFiredStep = new FiredStep(Dispatcher);
+        _predictionFiredStep = new FiredStep(Dispatcher);
         // F1: a resize re-anchors the docked edge (a grown function layout must not run off the
         // work area). See Place/Keep.
         SizeChanged += (_, _) => RepositionOnScreen(KeyboardMove.Keep);
@@ -187,6 +197,12 @@ public partial class KeyboardWindow : OverlayWindow
         _predictionDwellDetector.TargetProgress += OnPredictionProgress;
         // Hiding or re-showing the keyboard is a session change: no slot may stay dead across it.
         IsVisibleChanged += (_, _) => ResetPredictionRearm();
+        // F18: a hide ends the fired step at once, so the keyboard comes back at rest (the ring's
+        // C1 rule). Nothing is queued for the re-show.
+        IsVisibleChanged += (_, _) =>
+        {
+            if (!IsVisible) EndFiredSteps();
+        };
         // Prediction dwell times come from KeyboardPredictionDwellMs, so the validated span is the
         // keyboard guard family.
         _dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
@@ -216,6 +232,42 @@ public partial class KeyboardWindow : OverlayWindow
             _predictionLoadingHintText, "Keyboard_PredictionsLoadingHint");
         DockPanel.SetDock(_predictionLoadingHint, Dock.Top);
         RootDock.Children.Insert(0, _predictionLoadingHint);
+    }
+
+    // ── F18: the fired step, per surface (test seams) ──
+
+    /// <summary>True while a fired key's outline is stepped.</summary>
+    internal bool IsKeyFiredStepLit => _keyFiredStep.IsLit;
+
+    /// <summary>The stepped key outline, or null at rest (identifies WHICH key took the step).</summary>
+    internal DwellOutlineOverlay? KeyFiredStepOutline => _keyFiredStep.LitOutline;
+
+    /// <summary>True while a picked suggestion slot's outline is stepped.</summary>
+    internal bool IsPredictionFiredStepLit => _predictionFiredStep.IsLit;
+
+    /// <summary>The stepped slot outline, or null at rest.</summary>
+    internal DwellOutlineOverlay? PredictionFiredStepOutline => _predictionFiredStep.LitOutline;
+
+    /// <summary>The key step's scheduled length (the interval pin).</summary>
+    internal TimeSpan KeyFiredStepInterval => _keyFiredStep.Interval;
+
+    /// <summary>The key step's end timer (tests read its priority).</summary>
+    internal DispatcherTimer KeyFiredStepTimer => _keyFiredStep.Timer;
+
+    /// <summary>Ends the key step now: what the timer's tick does (a pumpless test cannot tick it).</summary>
+    internal void EndKeyFiredStep() => _keyFiredStep.End();
+
+    /// <summary>Ends the slot step now: the same test seam for the bar's surface.</summary>
+    internal void EndPredictionFiredStep() => _predictionFiredStep.End();
+
+    /// <summary>
+    /// Ends BOTH steps: the hide rule (a hidden keyboard comes back at rest). Also the one body a
+    /// mode change can use where it hides a whole surface without rebuilding it.
+    /// </summary>
+    private void EndFiredSteps()
+    {
+        _keyFiredStep.End();
+        _predictionFiredStep.End();
     }
 
     public event Action<int>? SkinToneChanged;
@@ -980,6 +1032,11 @@ public partial class KeyboardWindow : OverlayWindow
     private void OnKeyDwellCompleted(string keyId)
     {
         _soundService?.PlayKeyClick();
+        // F18: the fired key's OWN outline makes one brief weight step (the click can be late or
+        // missing; a vanished outline alone looks like an abandoned dwell). Started BEFORE the
+        // action: a page switch or emoji-mode entry rebuilds the grid in the call below, and that
+        // rebuild ends the step, so nothing of the old grid can stay lit.
+        _keyFiredStep.Start(_keyOutlines.GetValueOrDefault(keyId));
         if (!_keyDefinitions.TryGetValue(keyId, out var key) || _viewModel == null) return;
 
         if (string.IsNullOrEmpty(key.SpecialAction))
@@ -1097,6 +1154,9 @@ public partial class KeyboardWindow : OverlayWindow
     private void EnterEmojiMode()
     {
         _predictionDwellDetector.ResetAllState();
+        // F18: the bar is hidden on this path without a re-render, so a live slot step ends here
+        // (the key step ends with the grid rebuild inside EmojiGridManager.Enter → ClearKeyState).
+        _predictionFiredStep.End();
         PredictionBar.Visibility = Visibility.Collapsed;
         // The hint claims the same row; emoji mode must collapse it too (UpdatePredictions is
         // not called on this path, so the render-time condition would never re-run).
@@ -1298,6 +1358,10 @@ public partial class KeyboardWindow : OverlayWindow
 
     public void UpdatePredictions()
     {
+        // F18: this render discards every slot outline, so a live slot step must not outlive it
+        // (its overlay is about to leave the tree). The fire that caused a pick restarts the step
+        // on the new cell AFTER this call.
+        _predictionFiredStep.End();
         var slotCount = Math.Clamp(_settings?.Keyboard.MaxSuggestions ?? KeyboardSettings.MaxSuggestionsCeiling,
             1, MaxRenderedSuggestionSlots);
         var suggestions = _viewModel?.GetSuggestionsWithContext() ?? [];
@@ -1703,6 +1767,13 @@ public partial class KeyboardWindow : OverlayWindow
             UpdatePredictions();
             _soundService?.PlayKeyClick(); // typing family (D1); AFTER UpdatePredictions so a
                                            // sound failure can never leave the bar stale (S1)
+            // F18: the pick re-rendered the bar, so the pre-pick cell is gone; the NEW cell at
+            // the picked slot carries the step. Its dwell rect is untouched — the step writes the
+            // outline's stroke thickness only. A render that leaves the slot empty (or the bar
+            // collapsed) has no outline to step: Start(null) ends the previous step and lights
+            // nothing.
+            if (index < _predictionOutlines.Count)
+                _predictionFiredStep.Start(_predictionOutlines[index]);
         }
     }
 
@@ -1890,6 +1961,10 @@ public partial class KeyboardWindow : OverlayWindow
 
     private void ClearKeyState()
     {
+        // F18: the grid about to be cleared owns any live key step. End it on the old outline
+        // before the dictionary drops it, so no element of the old grid stays stepped and a mode
+        // or page change during the 120 ms simply ends the step.
+        _keyFiredStep.End();
         _keyVisuals.Clear();
         _keyBrushes.Clear();
         _keyOutlines.Clear();

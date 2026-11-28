@@ -402,6 +402,11 @@ public class KeyboardPredictionLongLookTests
             Feed(probe, slot, 100_000, 628_000);            // the first pick
             Check.WithCustomMessage("arrange: the pick must happen").That(picks).HasSize(1);
 
+            // F18: the pick now lights a 120 ms fired step on the fresh cell. A pumpless STA test
+            // never ticks that timer, so the step is ended here (the seam stands in for the tick)
+            // before the long-look fill is measured; production ends it at +120 ms.
+            probe.Window.EndPredictionFiredStep();
+
             // Through the cooldown and ~400 ms of the long look.
             Feed(probe, slot, 661_000, 628_000 + CooldownMs * 1000L + 400_000);
 
@@ -462,6 +467,9 @@ public class KeyboardPredictionLongLookTests
 
             var pickTs = PickSlot(probe, slot, picks);
             Check.WithCustomMessage("arrange: the pick must happen").That(picks).HasSize(1);
+            // F18: end the pick's 120 ms fired step (no timer tick in a pumpless test), so the
+            // long-look fill measured below is the fill, not the step.
+            probe.Window.EndPredictionFiredStep();
 
             var anchor = pickTs + (CooldownMs * 1000L);
             Feed(probe, slot, anchor, anchor + 600_000);   // ~0.6 of the long look
@@ -503,6 +511,8 @@ public class KeyboardPredictionLongLookTests
 
             var pickTs = PickSlot(probe, slotZero, picks);
             Check.WithCustomMessage("arrange: the pick must happen").That(picks).HasSize(1);
+            // F18: end the pick's 120 ms fired step (no timer tick in a pumpless test).
+            probe.Window.EndPredictionFiredStep();
 
             var anchor = pickTs + (CooldownMs * 1000L);
             Feed(probe, slotZero, anchor, anchor + 400_000);   // paint slot 0's long-look fill
@@ -547,6 +557,8 @@ public class KeyboardPredictionLongLookTests
 
             var pickTs = PickSlot(probe, slot, picks);
             Check.WithCustomMessage("arrange: the pick must happen").That(picks).HasSize(1);
+            // F18: end the pick's 120 ms fired step (no timer tick in a pumpless test).
+            probe.Window.EndPredictionFiredStep();
 
             var anchor = pickTs + (CooldownMs * 1000L);
             Feed(probe, slot, anchor, anchor + 400_000);

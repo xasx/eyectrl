@@ -497,4 +497,146 @@ public class DwellOutlineOverlayTests
             .That((centre.R, centre.G, centre.B))
             .IsEqualTo((Tokens.SurfaceKey.R, Tokens.SurfaceKey.G, Tokens.SurfaceKey.B));
     }
+
+    /// <summary>
+    /// Wave D F18: the fired step is a second thickness rule on the SAME two outlines — no new
+    /// visual, no colour change — held above the fill's own progress and released back onto it.
+    /// Mutation: a SetFired that leaves the accent at MaxThickness (not bolder) → RED; a
+    /// SetFired(false) that zeroes the outline instead of returning to the recorded progress →
+    /// RED.
+    /// </summary>
+    [StaFact]
+    public void SetFired_LiftsBothOutlinesAboveFullDwell_AndReleasesOntoTheProgressFill()
+    {
+        var overlay = DwellOutlineOverlay.Attach(NewKey(Tokens.SurfaceKey), null);
+
+        Check.WithCustomMessage("the fired step must be bolder than the full dwell it confirms.")
+            .That(DwellOutlineOverlay.FiredThickness)
+            .IsStrictlyGreaterThan(DwellOutlineOverlay.MaxThickness);
+        Check.WithCustomMessage("the fired step's DIP value is part of the look; retune deliberately.")
+            .That(DwellOutlineOverlay.FiredThickness).IsEqualTo(6.0);
+
+        overlay.SetProgress(1.0);
+        var haloDelta = overlay.Halo.StrokeThickness - overlay.Outline.StrokeThickness;
+        Check.WithCustomMessage("the halo must sit outside the accent, as at every progress.")
+            .That(haloDelta).IsStrictlyGreaterThan(0);
+
+        overlay.SetProgress(0.3);
+        overlay.SetFired(true);
+        Check.That(overlay.IsFired).IsTrue();
+        Check.WithCustomMessage("the fired accent is not at FiredThickness.")
+            .That(overlay.Outline.StrokeThickness).IsEqualTo(DwellOutlineOverlay.FiredThickness);
+        Check.WithCustomMessage("the fired halo kept a stale gap: it must stay outside the accent.")
+            .That(overlay.Halo.StrokeThickness - overlay.Outline.StrokeThickness).IsEqualTo(haloDelta);
+
+        overlay.SetProgress(0.8);   // a dwell filling during the step must not erase the step...
+        Check.WithCustomMessage("a progress write while fired dropped the step to the fill.")
+            .That(overlay.Outline.StrokeThickness).IsEqualTo(DwellOutlineOverlay.FiredThickness);
+
+        overlay.SetFired(false);
+        Check.That(overlay.IsFired).IsFalse();
+        Check.WithCustomMessage("ending the step did not land on the fill's own progress (0.8).")
+            .That(overlay.Outline.StrokeThickness)
+            .IsCloseTo(DwellOutlineOverlay.MaxThickness * 0.8, 1e-9);
+        Check.That(overlay.Halo.StrokeThickness - overlay.Outline.StrokeThickness).IsEqualTo(haloDelta);
+
+        overlay.SetProgress(0);
+        Check.WithCustomMessage("the rest look is not zero thickness.")
+            .That((overlay.Outline.StrokeThickness, overlay.Halo.StrokeThickness)).IsEqualTo((0.0, 0.0));
+    }
+
+    /// <summary>
+    /// Polarity-keeping: the step writes thickness only. The same accent and halo brushes, the
+    /// same transparent fill, the same target fill and the same content — so a fired key is never
+    /// less visible than at rest and never turns into a wash (the dwell-wash contrast collapse).
+    /// Mutation: a SetFired that recolours a stroke → RED.
+    /// </summary>
+    [StaFact]
+    public void SetFired_TouchesNeitherTheBrushesNorTheFillNorTheContent()
+    {
+        var key = NewKey(Tokens.SurfaceKey);
+        var label = new TextBlock { Text = "A", Foreground = Tokens.BrushTextPrimary };
+        var overlay = DwellOutlineOverlay.Attach(key, label);
+        overlay.SetProgress(0.4);
+
+        var accent = overlay.Outline.Stroke;
+        var halo = overlay.Halo.Stroke;
+        var accentFill = overlay.Outline.Fill;
+        var haloFill = overlay.Halo.Fill;
+        var keyFill = key.Background;
+
+        overlay.SetFired(true);
+        Check.That(overlay.Outline.Stroke).IsSameReferenceAs(accent);
+        Check.That(overlay.Halo.Stroke).IsSameReferenceAs(halo);
+        Check.That(overlay.Outline.Fill).IsSameReferenceAs(accentFill);
+        Check.That(overlay.Halo.Fill).IsSameReferenceAs(haloFill);
+        Check.That(key.Background).IsSameReferenceAs(keyFill);
+        Check.That(((SolidColorBrush)key.Background).Color).IsEqualTo(Tokens.SurfaceKey);
+        Check.That(label.Foreground).IsSameReferenceAs(Tokens.BrushTextPrimary);
+
+        overlay.SetFired(false);
+        Check.That(overlay.Outline.Stroke).IsSameReferenceAs(accent);
+        Check.That(overlay.Halo.Stroke).IsSameReferenceAs(halo);
+        Check.That(key.Background).IsSameReferenceAs(keyFill);
+        Check.That(label.Foreground).IsSameReferenceAs(Tokens.BrushTextPrimary);
+    }
+
+    /// <summary>
+    /// Rendering proof that the step is actually WIDER on screen, not just a wider number: at 3x
+    /// device scale, 15 px (5 DIP) inside the top edge is the key's own fill at full dwell
+    /// (accent 4 DIP + halo 1 DIP) and the accent at the fired step (accent 6 DIP). One DIP of
+    /// margin on each side, so anti-aliasing cannot decide the assertion. Mutation: SetFired
+    /// leaves the thickness at MaxThickness → the sampled pixel stays fill → RED.
+    /// </summary>
+    [StaFact]
+    public void TheFiredStep_PaintsWiderThanTheFullDwell()
+    {
+        const int size = 70;
+        const int scale = 3;
+        const int probeY = 15;   // 5 DIP: past the full dwell's 4 + 1 DIP bands, inside the step's 6
+
+        // Two SIBLING visuals, each rendered once: WPF caches a visual's retained drawing until a
+        // render pass, which a pumpless STA test never runs, so re-rendering one key after SetFired
+        // would sample the old thickness.
+        var fullDwell = NewKey(Tokens.SurfaceKey, size);
+        var fullDwellOutline = DwellOutlineOverlay.Attach(fullDwell, new TextBlock { Text = "A" });
+        fullDwellOutline.SetProgress(1.0);
+
+        var fired = NewKey(Tokens.SurfaceKey, size);
+        var firedOutline = DwellOutlineOverlay.Attach(fired, new TextBlock { Text = "A" });
+        firedOutline.SetProgress(1.0);
+        firedOutline.SetFired(true);
+
+        Color RenderAndSample(Border key, int x, int y)
+        {
+            key.Measure(new Size(size, size));
+            key.Arrange(new Rect(0, 0, size, size));
+            key.UpdateLayout();
+
+            var rtb = new RenderTargetBitmap(size * scale, size * scale, 96 * scale, 96 * scale,
+                PixelFormats.Pbgra32);
+            rtb.Render(key);
+            var stride = size * scale * 4;
+            var pixels = new byte[stride * (size * scale)];
+            rtb.CopyPixels(pixels, stride, 0);
+            var offset = y * stride + x * 4;
+            return Color.FromRgb(pixels[offset + 2], pixels[offset + 1], pixels[offset]);
+        }
+
+        var atFullDwell = RenderAndSample(fullDwell, size * scale / 2, probeY);
+        var atStep = RenderAndSample(fired, size * scale / 2, probeY);
+
+        Check.WithCustomMessage(
+                $"at {probeY} px ({probeY / (double)scale:F1} DIP) inside the edge the full dwell is "
+                + $"R{atFullDwell.R},G{atFullDwell.G},B{atFullDwell.B}, not the key fill — the probe "
+                + "point no longer distinguishes the two weights; move it, do not weaken the assertion.")
+            .That((atFullDwell.R, atFullDwell.G, atFullDwell.B))
+            .IsEqualTo((Tokens.SurfaceKey.R, Tokens.SurfaceKey.G, Tokens.SurfaceKey.B));
+        Check.WithCustomMessage(
+                $"the fired step paints R{atStep.R},G{atStep.G},B{atStep.B} at the same point, not "
+                + $"the Accent R{Tokens.Accent.R},G{Tokens.Accent.G},B{Tokens.Accent.B} — the step "
+                + "is not visibly wider than the dwell it confirms.")
+            .That((atStep.R, atStep.G, atStep.B))
+            .IsEqualTo((Tokens.Accent.R, Tokens.Accent.G, Tokens.Accent.B));
+    }
 }

@@ -48,6 +48,12 @@ using EyeCtrl.Controls.Theme;
 /// <see cref="Shape.StrokeThickness"/> moves, so <see cref="SetProgress"/> writes two doubles
 /// and allocates nothing. Dwell updates arrive at gaze rate.
 /// </para>
+/// <para>
+/// The fired step (Wave D F18) is a second, additive thickness rule on the same two rectangles:
+/// <see cref="SetFired"/> raises them to at least <see cref="FiredThickness"/> for as long as the
+/// caller holds it, and the fill's own progress is kept underneath, so a dwell starting while the
+/// step is lit neither erases the step nor loses its fill. No colour, fill or visual-tree change.
+/// </para>
 /// </remarks>
 public sealed class DwellOutlineOverlay
 {
@@ -61,11 +67,27 @@ public sealed class DwellOutlineOverlay
     /// </summary>
     public const double MaxThickness = 4;
 
+    /// <summary>
+    /// Thickness in DIPs of the fired step's accent outline: half again the full-dwell weight,
+    /// so the step reads as BOLDER than the outline that just completed, not as its echo. The
+    /// same two bands and the same brushes, only wider (the C1 polarity rule: never a recolour,
+    /// never a fill). A literal DIP for the same reason as <see cref="MaxThickness"/>; at 6 DIP
+    /// the outline consumes 12 of the smallest key's 35 DIP width, so the label stays clear,
+    /// where the ring's 3x core factor would close a 35 DIP key into a frame.
+    /// </summary>
+    public const double FiredThickness = MaxThickness * 1.5;
+
     /// <summary>Extra DIPs the halo extends beyond the accent, as a dark edge against bright fills.</summary>
     private const double HaloExtra = 1;
 
     private readonly Rectangle _halo;
     private readonly Rectangle _accent;
+
+    /// <summary>The last <see cref="SetProgress"/> value, clamped, kept so <see cref="SetFired"/> can re-apply it.</summary>
+    private double _progress;
+
+    /// <summary>True while the fired step is lit, independently of the dwell fill.</summary>
+    private bool _fired;
 
     private DwellOutlineOverlay(Grid layout, Rectangle halo, Rectangle accent)
     {
@@ -158,12 +180,41 @@ public sealed class DwellOutlineOverlay
 
     /// <summary>
     /// Thickens the outline to <paramref name="progress"/> of <see cref="MaxThickness"/>,
-    /// clamped to [0, 1]. Allocation-free.
+    /// clamped to [0, 1]. Allocation-free. A live fired step outranks the fill (the outline stays
+    /// at least <see cref="FiredThickness"/>); the fill is still recorded, so
+    /// <see cref="SetFired"/> false lands on it rather than on zero.
     /// </summary>
     /// <param name="progress">Dwell progress; values outside [0, 1] are clamped.</param>
     public void SetProgress(double progress)
     {
-        var t = Math.Clamp(progress, 0, 1) * MaxThickness;
+        _progress = Math.Clamp(progress, 0, 1);
+        Apply();
+    }
+
+    /// <summary>
+    /// Whether the fired step is lit (test seam and the caller's own guard).
+    /// </summary>
+    public bool IsFired => _fired;
+
+    /// <summary>
+    /// Turns the fired step on or off (Wave D F18): on, both outlines are at least
+    /// <see cref="FiredThickness"/> wide — the same brushes, only wider; off, they return to the
+    /// fill's own current progress (zero at rest). Never touches the fill, the content or any
+    /// brush, so a fired outline is never less visible than the rest look and the rest look is
+    /// exactly restored.
+    /// </summary>
+    public void SetFired(bool fired)
+    {
+        if (_fired == fired) return;
+        _fired = fired;
+        Apply();
+    }
+
+    private void Apply()
+    {
+        var t = _progress * MaxThickness;
+        if (_fired) t = Math.Max(t, FiredThickness);
+
         _accent.StrokeThickness = t;
         // Zero stays zero: a halo on a target showing no progress would read as a permanent
         // border rather than as feedback.

@@ -6,7 +6,7 @@
       "label": "ABC",
       "rows": [
         [
-          { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 2.0, "specialAction": "deleteWord", "accessibleName": "Wort löschen" },
+          { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 2.6, "specialAction": "deleteWord", "accessibleName": "Wort löschen" },
           { "label": "Q", "output": "q", "shiftOutput": "Q", "width": 1.0 },
           { "label": "W", "output": "w", "shiftOutput": "W", "width": 1.0 },
           { "label": "E", "output": "e", "shiftOutput": "E", "width": 1.0 },
@@ -17,7 +17,7 @@
           { "label": "I", "output": "i", "shiftOutput": "I", "width": 1.0 },
           { "label": "O", "output": "o", "shiftOutput": "O", "width": 1.0 },
           { "label": "P", "output": "p", "shiftOutput": "P", "width": 1.0 },
-          { "label": "⌫", "output": "", "width": 0.8, "specialAction": "backspace", "accessibleName": "Rücktaste" }
+          { "label": "⌫", "output": "", "width": 1.4, "specialAction": "backspace", "accessibleName": "Rücktaste" }
         ],
         [
           { "label": "⬆", "labelFrame": "capsArrow", "output": "", "width": 1.2, "specialAction": "toggle:capslock", "accessibleName": "Feststelltaste" },

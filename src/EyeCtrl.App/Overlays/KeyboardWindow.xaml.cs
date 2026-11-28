@@ -17,10 +17,15 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.ViewModels;
+using Serilog;
 
 public partial class KeyboardWindow : OverlayWindow
 {
     private const double BaseKeySize = 70;
+    // The window chrome around the key grid: Padding="8" and BorderThickness="3" per side
+    // (KeyboardWindow.xaml:12-13). F21's fit cap subtracts it from the work area's width; the
+    // fit theory in ShippedLayoutFilesTests restates the same 22 DIP.
+    private const double WindowChromeWidthDip = 2 * (8 + 3);
 
     // F17 (owner's option A, 22.11): the bar shows at most FOUR suggestions instead of five,
     // each 1.6 key-heights tall with 1.6x the label size. The stored setting's ceiling stays 5
@@ -288,10 +293,34 @@ public partial class KeyboardWindow : OverlayWindow
         PaintLongLookProgress();
     }
 
-    public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs, int cooldownMs)
+    /// <summary>
+    /// Loads a layout and rebuilds the key grid. F21: when <paramref name="workAreaWidthDip"/> is
+    /// supplied, the effective key size is capped so the widest row of ANY page fits the work
+    /// area minus the window chrome (see <see cref="KeyboardFitCap"/>).
+    /// </summary>
+    /// <param name="workAreaWidthDip">
+    /// F21's runtime fit cap input: the work area's width in DIP (production passes
+    /// <c>SystemParameters.WorkArea.Width</c>). When the requested key size makes any page wider
+    /// than this minus the window chrome, the effective key size is reduced for the WHOLE layout
+    /// (never per page — a page-dependent size would move the keys at a page switch, D13). Null
+    /// leaves the requested size untouched; tests use that to measure fixed geometry.
+    /// </param>
+    public void LoadLayout(KeyboardLayout layout, double keySizeMultiplier, int keyDwellMs, int predictionDwellMs, int cooldownMs,
+        double? workAreaWidthDip = null)
     {
         _layout = layout;
         _keySize = BaseKeySize * keySizeMultiplier;
+        if (workAreaWidthDip is { } availableWidth)
+        {
+            var fitted = KeyboardFitCap.EffectiveKeySizeDip(layout, _keySize, availableWidth - WindowChromeWidthDip);
+            if (fitted < _keySize)
+            {
+                Log.Information(
+                    "Keyboard fit cap: key size {RequestedDip:0.#} -> {EffectiveDip:0.#} DIP for a {WorkAreaDip:0.#} DIP work area",
+                    _keySize, fitted, availableWidth);
+                _keySize = fitted;
+            }
+        }
         _predictionDwellMs = predictionDwellMs;
         ResetPredictionRearm();
 
@@ -629,14 +658,9 @@ public partial class KeyboardWindow : OverlayWindow
         // The prediction bar matches the widest row exactly: the key Border is boxWidth plus a
         // 2-DIP margin on each side. Computed from the layout so it is exact before the first
         // arrange; the bar never derives its size from a suggestion.
-        _keyGridWidth = 0;
-        foreach (var row in subLayout.Rows)
-        {
-            double rowWidth = 0;
-            foreach (var key in row)
-                rowWidth += _keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0) + 4;
-            _keyGridWidth = Math.Max(_keyGridWidth, rowWidth);
-        }
+        // One arithmetic with the fit cap (KeyboardFitCap.RowWidthDip): a cap that measured rows
+        // differently from the renderer would let the window overflow the size it fitted for.
+        _keyGridWidth = KeyboardFitCap.PageWidthDip(subLayout, _keySize);
 
         for (int rowIdx = 0; rowIdx < subLayout.Rows.Count; rowIdx++)
         {

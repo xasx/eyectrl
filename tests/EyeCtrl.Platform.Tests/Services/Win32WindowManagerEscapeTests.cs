@@ -33,7 +33,10 @@ using Microsoft.Extensions.Logging;
 /// <see cref="PausableTimeProvider"/>: the scheduler measures its start deadline (and completion
 /// budget) from the request, and the worker is a dedicated thread whose creation and scheduling
 /// are machine load — without the seam a busy box drops the first request before it starts, which
-/// is the failure this file's drop test was sighted with. See that type for the full story.
+/// is the failure this file's drop test was sighted with. The two hung-iconic-target tests have
+/// no hang to observe; there the clock resumes once the worker is seen inside its first native
+/// call, so their 200 ms completion budget measures polling, not the worker's start latency.
+/// See that type for the full story.
 /// </para>
 /// </summary>
 public class Win32WindowManagerEscapeTests
@@ -104,7 +107,14 @@ public class Win32WindowManagerEscapeTests
         var native = new FakeEscapeNative { IgnoreShowWindowAsync = true };
         native.Minimised.Add(Window);
         native.RefuseForeground(Window);
-        var (manager, logger) = Create(native, completionBudget: TimeSpan.FromMilliseconds(200));
+        // Frozen clock (PausableTimeProvider): the 200 ms completion budget is measured from the
+        // request, so it must not also count the worker thread's creation and scheduling latency.
+        // There is no hang here to observe; time resumes once the worker is seen inside its first
+        // native call, and the budget then expires on the test's terms — the restore poll below
+        // genuinely polls instead of being born stale on a busy box.
+        var time = new PausableTimeProvider();
+        var (manager, logger) = Create(
+            native, completionBudget: TimeSpan.FromMilliseconds(200), time: time);
 
         EscapeWindowResult? result = null;
         var completions = 0;
@@ -116,6 +126,9 @@ public class Win32WindowManagerEscapeTests
             Interlocked.Increment(ref completions);
             completed.Set();
         });
+        WaitUntil(
+            () => native.Calls.Any(c => c.Hwnd == Window), "the worker's first native call");
+        time.Resume();
 
         Check.WithCustomMessage(
                 "a hung minimised target kept the worker polling past its budget (X1).")
@@ -152,9 +165,23 @@ public class Win32WindowManagerEscapeTests
     {
         var native = new FakeEscapeNative { IgnoreShowWindowAsync = true };
         native.Minimised.Add(Window);
-        var (manager, logger) = Create(native, completionBudget: TimeSpan.FromMilliseconds(200));
+        // Frozen clock (PausableTimeProvider): same reason as the sibling above — the 200 ms
+        // budget must not count the worker's start latency, or a busy box ends the restore poll
+        // before it began: the F2 foreground try would fire early and the ElapsedAt / IsIconic
+        // count pins below would read the machine, not the product. Resumed at the worker's
+        // first native call (no hang here to observe).
+        var time = new PausableTimeProvider();
+        var (manager, logger) = Create(
+            native, completionBudget: TimeSpan.FromMilliseconds(200), time: time);
 
-        var (result, completions) = RunToCompletion(manager, Window);
+        var (result, completions) = RunToCompletion(
+            manager, Window,
+            afterEnqueue: () =>
+            {
+                WaitUntil(
+                    () => native.Calls.Any(c => c.Hwnd == Window), "the worker's first native call");
+                time.Resume();
+            });
 
         Check.That(completions).IsEqualTo(1);
         Check.That(result.HasValue).IsTrue();
@@ -592,7 +619,7 @@ public class Win32WindowManagerEscapeTests
     }
 
     private static (EscapeWindowResult? Result, int Completions) RunToCompletion(
-        Win32WindowManager manager, IntPtr hwnd)
+        Win32WindowManager manager, IntPtr hwnd, Action? afterEnqueue = null)
     {
         EscapeWindowResult? result = null;
         var completions = 0;
@@ -603,6 +630,7 @@ public class Win32WindowManagerEscapeTests
             Interlocked.Increment(ref completions);
             completed.Set();
         });
+        afterEnqueue?.Invoke();
 
         Check.WithCustomMessage("the escape completion never fired.")
             .That(completed.Wait(TimeSpan.FromSeconds(10))).IsTrue();

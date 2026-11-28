@@ -159,7 +159,7 @@ public sealed class SingleInstanceGuard : IDisposable
         catch (Exception ex) when (ex is UnauthorizedAccessException or WaitHandleCannotBeOpenedException)
         {
             // The documented "already running / no access" outcomes (the same rule AppInstanceProbe
-            // uses): exit silently, exactly as before.
+            // uses): exit silently (205bbd99 let these propagate; no instance runs either way).
             owned = false;
         }
         catch (Exception ex)
@@ -167,6 +167,10 @@ public sealed class SingleInstanceGuard : IDisposable
             // Anything else (an unexpected creation failure) still must not start a second instance,
             // but it leaves a trace instead of taking the silent "already running" path.
             owned = false;
+            // Best-effort trace (review-02 N3 of #378): the sink appends to the day's log file, and
+            // when another instance's Serilog sink holds that file the append loses to the sharing
+            // violation and is swallowed here too. Losing the trace is the accepted cost — it must
+            // never delay the startup verdict or change the exit.
             try { _logUnexpectedAcquireFailure?.Invoke(ex); } catch { }
         }
 

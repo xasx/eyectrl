@@ -372,7 +372,8 @@ public class SetupGatewaysTests
 
         release.Set();
         Check.WithCustomMessage("the probe's completion callback never ran")
-            .That(callbackRan.Wait(TimeSpan.FromSeconds(10))).IsTrue();
+            .That(callbackRan.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken))
+            .IsTrue();
 
         Check.That(gateways.UpdateOfferPending).IsFalse();
         Check.That(gateways.UpdateOffer).IsNotNull();

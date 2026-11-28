@@ -56,6 +56,9 @@ public partial class App : Application
     private AppRestartCoordinator? _restartCoordinator;
     private DisplayGeometryWatcher? _displayGeometryWatcher;
     private string _appDataDir = null!;
+    // Wave D D1: the log-only stranding ledger, resolved right after the container so its session
+    // marker exists before the startup pause and the first gaze sample.
+    private StrandingLedger? _strandingLedger;
     private DispatcherTimer? _heartbeatTimer;
     // The startup splash's marshalled handle (SplashThreadLauncher.Start), stashed for OnExit's
     // best-effort dispose — the splash thread may outlive a failed startup's catch path.
@@ -156,6 +159,13 @@ public partial class App : Application
             // SilentLogger. An UNEXPECTED acquisition failure is not silent: the guard hands it to
             // LogUnexpectedMutexFailure, which writes one WRN line straight to the day's log file
             // (the same route the stuck-exit report uses), so there is always a trace.
+            //
+            // Wave D D1: the refusal itself IS recorded now, without IPC and without changing the
+            // exit — one line in a tiny append-only side file. The running instance reports the
+            // day's count in its next daily summary.
+            StrandingLedger.RecordRefusedSecondLaunch(
+                AppBootstrapper.DefaultAppDataDir, DateTime.Now,
+                isRestartHandoff ? "restart" : "duplicate");
             Shutdown();
             return;
         }
@@ -200,6 +210,11 @@ public partial class App : Application
             // ── Build DI container ──
             _serviceProvider = AppBootstrapper.BuildServiceProvider(
                 settings, settingsFilePath, Dispatcher, IsTestMode, AppBootstrapper.DefaultAppDataDir);
+
+            // Wave D D1: start the stranding ledger before anything can pause or open Backstage.
+            // Its first line reports an unclean previous session (the marker survived a crash).
+            _strandingLedger = _serviceProvider.GetRequiredService<StrandingLedger>();
+            _strandingLedger.StartSession();
 
             // ── Resolve services ──
             var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
@@ -359,7 +374,8 @@ public partial class App : Application
                 HeldButtonMarker: heldButtonMarker,
                 CursorPositionProbe: _serviceProvider.GetRequiredService<ICursorPositionProbe>(),
                 InputIntegrityProbe: _serviceProvider.GetRequiredService<IInputIntegrityProbe>(),
-                BackstageVM: backstageVm);
+                BackstageVM: backstageVm,
+                Ledger: _strandingLedger);
             _eventCoordinator.Initialize(coordinationContext);
             _eventCoordinator.SetSplashHandle(_splashHandle);
             // The Backstage Quit card must shut the App down exactly like the tray's Quit: the
@@ -433,6 +449,12 @@ public partial class App : Application
             // Moving this above ShowOverlays hides the strip under the band until the next
             // band transition. The same call also emits the startup provenance line (which
             // source — --paused, general.startPaused, neither — caused the state).
+            //
+            // Wave D D1: name the ENTRY source before the toggle. The adapter's own Paused
+            // observation arrives inside Apply and sees a pause already open, so the ledger keeps
+            // this one (startup) instead of recording an unknown.
+            if (PauseLaunchProvenance.StartsPaused(IsPausedLaunch, settings.General.StartPaused))
+                _strandingLedger.OnPauseEntered(StrandingLedger.PauseSources.Startup);
             PauseLaunchProvenance.Apply(IsPausedLaunch, settings.General.StartPaused, im,
                 line => Log.Information("{PauseState}", line));
 
@@ -965,6 +987,7 @@ public partial class App : Application
                 EventCoordinator = _eventCoordinator,
                 ServiceProvider = _serviceProvider,
                 SingleInstance = _singleInstance,
+                StrandingLedger = _strandingLedger,
             },
             terminate: step => ExitStuckReport.Terminate(
                 LogsDirectory,

@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
@@ -410,6 +411,27 @@ public class BackstageViewModelTests
         Check.That(vm.VersionText).IsEqualTo("Version 1.4.2.0");
         Check.That(vm.InstallText).IsEqualTo("Installed · Standard");
         Check.That(vm.SupervisorText).IsEqualTo("Supervision off");
+    }
+
+    [Fact]
+    public void CloseRequestSource_GazeDwellReportsDisc_AndMouseActivationReportsMouse()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        using var vm = NewVm(messenger, settings);
+        ShowWithCardAndClose(vm);
+        Arm(messenger);
+
+        var sources = new List<string>();
+        vm.CloseRequested += () => sources.Add(vm.CloseRequestSource);
+
+        Dwell(messenger, CloseCentre, 30_000, 30_000 + CloseDwellUs(settings));
+        Check.That(sources).ContainsExactly(StrandingLedger.BackstageSources.Disc);
+
+        ShowWithCardAndClose(vm);
+        sources.Clear();
+        vm.ActivateForMouse(BackstageViewModel.CloseTargetId);
+        Check.That(sources).ContainsExactly(StrandingLedger.BackstageSources.Mouse);
     }
 
     [Fact]

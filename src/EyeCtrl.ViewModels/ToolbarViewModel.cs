@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -567,7 +568,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
                 // to see this button has an activation case.
                 _pauseReArmPending = true;
                 _pauseOffTargetSinceUs = null;
-                Messenger.Send(new PauseToggledMessage());
+                Messenger.Send(new PauseToggledMessage(StrandingLedger.PauseSources.Toolbar));
                 break;
             case "SelectionMode":
                 var next = (SelectionMode)(((int)_currentSelectionMode + 1) % Enum.GetValues<SelectionMode>().Length);

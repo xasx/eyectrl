@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Views;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Input;
 using EyeCtrl.Core.Localization;
@@ -53,6 +54,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     private ISetupGateways? _openGateways;
     private IUninstallHandoffPresenter? _uninstallHandoff;
     private IUninstallHandoffWatchFactory? _uninstallWatches;
+    private StrandingLedger? _ledger;
     // Ticket 04: the open window as the uninstall hand-off drives it, and whether THIS hand-off
     // hid it. The window is HIDDEN, never closed, so its layout and view model survive; the flag
     // is what makes the owner's manual reopen cancel the watch instead of showing a second time.
@@ -123,7 +125,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     private IUninstallHandoffPresenter UninstallHandoff =>
         _uninstallHandoff ??= new UninstallHandoffPresenter(
             HideBackstageForUninstallHandoff,
-            RestoreBackstageAfterUninstallHandoff,
+            (end, outcome) => RestoreBackstageAfterUninstallHandoff(end, outcome),
             _uninstallWatches ?? UninstallHandoffWatchFactory.CreateForProduction(),
             warn: line => Log.Warning("{UninstallHandoff}", line));
 
@@ -160,6 +162,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     {
         var context = Context!;
         _viewModel = context.BackstageVM;
+        _ledger = context.Ledger;
         if (_viewModel is null)
         {
             // Production always supplies it (App resolves the DI singleton). A focused test context
@@ -170,7 +173,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
         context.Messenger.Register<BackstageUiCoordinator, BackstageRequestedMessage>(this, (_, _) =>
             context.Dispatcher.BeginInvoke(ShowBackstage));
         context.Messenger.Register<BackstageUiCoordinator, CloseBackstageMessage>(this, (_, _) =>
-            context.Dispatcher.BeginInvoke(CloseBackstage));
+            context.Dispatcher.BeginInvoke(() => CloseBackstage(StrandingLedger.BackstageSources.Message)));
 
         // The global Esc hatch is the only keyboard route that does not steal focus from the app
         // the owner was in. It arrives on a thread-pool thread; marshal before touching the UI.
@@ -180,7 +183,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     protected override void OnDispose()
     {
         if (_open)
-            UnwindOpening();
+            UnwindOpening(closeSource: StrandingLedger.BackstageSources.Shutdown);
 
         // A watch still waiting when the App tears down must not keep a timer (or a Setup mutex
         // read) alive, and must never try to show a window whose owner is gone.
@@ -207,7 +210,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
             if (_window?.IsModalOpen == true)
                 _window.DismissModal();
             else
-                CloseBackstage();
+                CloseBackstage(StrandingLedger.BackstageSources.Esc);
         });
     }
 
@@ -222,7 +225,8 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
         if (_handoffHidden)
         {
             _uninstallHandoff?.CancelWatch();
-            RestoreBackstageAfterUninstallHandoff(UninstallHandoffEnd.NotUninstalled, null);
+            RestoreBackstageAfterUninstallHandoff(
+                UninstallHandoffEnd.NotUninstalled, null, StrandingLedger.BackstageSources.OwnerReopen);
             return;
         }
 
@@ -271,6 +275,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
 
             window.ShowBackstage();
             StartPresenceRefresh();
+            _ledger?.OnBackstageOpened(StrandingLedger.BackstageSources.Toolbar);
         }
         catch (Exception ex)
         {
@@ -281,22 +286,27 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
         }
     }
 
-    /// <summary>Closes the menu and releases every claim. Safe to call twice.</summary>
-    internal void CloseBackstage()
+    /// <summary>
+    /// Closes the menu and releases every claim. Safe to call twice. <paramref name="source"/> is
+    /// the stranding ledger's closed id for the caller (disc, mouse, esc, card, message, …); it is
+    /// recorded only when a window was actually open.
+    /// </summary>
+    internal void CloseBackstage(string source = StrandingLedger.BackstageSources.Unknown)
     {
         if (!_open && _window is null)
             return;
 
-        UnwindOpening();
+        UnwindOpening(closeSource: source);
     }
 
-    private void OnDismissRequested() => CloseBackstage();
+    private void OnDismissRequested() =>
+        CloseBackstage(_viewModel?.CloseRequestSource ?? StrandingLedger.BackstageSources.Unknown);
 
     private void OnCalibrateRequested()
     {
         // Calibration owns its own fixation suppression and cursor-ring lifecycle. Close FIRST so
         // Backstage's teardown cannot collide with the calibration window's claims, then send.
-        CloseBackstage();
+        CloseBackstage(StrandingLedger.BackstageSources.Card);
         Context?.Messenger.Send(new CalibrationRequestedMessage());
     }
 
@@ -309,7 +319,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
         // already run its own OnClosed (notices unregistered, VM detached), so the unwind must not
         // call Hide/Close on it again — WPF refuses window operations after Closed.
         if (_open)
-            UnwindOpening(windowAlreadyClosed: true);
+            UnwindOpening(windowAlreadyClosed: true, closeSource: StrandingLedger.BackstageSources.AltF4);
     }
 
     private void OnSupervisionStateChanged() => _window?.RefreshStatus();
@@ -358,6 +368,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
 
         window.Hide();
         ReleaseBackstageClaims(context);
+        _ledger?.OnBackstageClosed(StrandingLedger.BackstageSources.Handoff);
 
         Log.Information("Backstage hidden for the uninstall hand-off");
         return true;
@@ -372,7 +383,8 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     /// already reopened Backstage (or after the window was closed) does nothing.
     /// </summary>
     internal void RestoreBackstageAfterUninstallHandoff(
-        UninstallHandoffEnd end, SetupOutcome? outcome = null)
+        UninstallHandoffEnd end, SetupOutcome? outcome = null,
+        string openSource = StrandingLedger.BackstageSources.HandoffRestore)
     {
         var context = Context;
         if (context is null) return;
@@ -436,6 +448,7 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
         }
 
         StartPresenceRefresh();
+        _ledger?.OnBackstageOpened(openSource);
         Log.Information(
             "Backstage restored after the uninstall hand-off: {End} ({Outcome})", end, outcome);
     }
@@ -520,11 +533,12 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
     /// The one teardown, in the order the plan fixes. Idempotent; every step tolerates a claim it
     /// never took (release-without-claim is a no-op on all three).
     /// </summary>
-    private void UnwindOpening(bool windowAlreadyClosed = false)
+    private void UnwindOpening(bool windowAlreadyClosed = false, string? closeSource = null)
     {
         if (_unwinding)
             return;
 
+        var wasOpen = _open;
         _unwinding = true;
         try
         {
@@ -566,6 +580,10 @@ internal sealed class BackstageUiCoordinator : CoordinatorBase
         {
             _open = false;
             _unwinding = false;
+            // A close that had no open behind it (a failed open unwinding) writes no close line:
+            // the ledger pairs the two, and a bare close would look like a visit that never began.
+            if (wasOpen && closeSource is not null)
+                _ledger?.OnBackstageClosed(closeSource);
         }
     }
 }

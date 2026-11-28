@@ -340,10 +340,11 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     }
 
     /// <summary>
-    /// F5: resumes from Pause through the one normal path (<see cref="InteractionManager.TogglePause"/>,
-    /// the Resume strip's and toolbar's resume) and arms the start for the posted state change.
-    /// <c>RequestStart</c> runs on the UI thread (the Settings dwell activation), which
-    /// <c>TogglePause</c> requires.
+    /// F5: resumes from Pause through the one normal path (the <see cref="PauseToggledMessage"/> the
+    /// Resume strip and the toolbar send; <c>GazeEngineAdapter</c> calls
+    /// <see cref="InteractionManager.TogglePause"/>) and arms the start for the posted state change.
+    /// <c>RequestStart</c> runs on the UI thread (the Settings dwell activation), which the toggle
+    /// requires. The message carries the <c>probe</c> source so the stranding ledger can name it.
     /// </summary>
     private void ResumeThenQueueStart(
         int generation, SubPixelProbeStartMode startMode, SubPixelAbSession1Verdict? resumedSession1Verdict)
@@ -356,7 +357,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         _resumeStart = new PendingResumeStart(generation, startMode, resumedSession1Verdict);
         _resumeTimeout = _timerFactory(DispatcherPriority.Normal, ResumeLandingTimeout, OnResumeTimeout);
 
-        context.InteractionManager.TogglePause();
+        context.Messenger.Send(new PauseToggledMessage(StrandingLedger.PauseSources.Probe));
     }
 
     /// <summary>

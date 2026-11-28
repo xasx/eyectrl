@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -107,6 +108,18 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
 
     /// <summary>The Close disc fired (a pure dismissal; the VM hides itself immediately after).</summary>
     public event Action? CloseRequested;
+
+    /// <summary>
+    /// The source of the last <see cref="CloseRequested"/>: <see cref="StrandingLedger.BackstageSources.Disc"/>
+    /// for a gaze dwell on the round disc, <see cref="StrandingLedger.BackstageSources.Mouse"/> when
+    /// the request came through <see cref="ActivateForMouse"/> (a mouse click, or a caregiver's
+    /// click through TD Control). The coordinator logs it, so "how did the owner leave Backstage"
+    /// is answerable.
+    /// </summary>
+    public string CloseRequestSource { get; private set; } = StrandingLedger.BackstageSources.Disc;
+
+    /// <summary>True only for the synchronous <see cref="ActivateForMouse"/> call it wraps.</summary>
+    private bool _activationWasMouse;
 
     /// <summary>A modal choice fired. The modal's choices stay cleared until the coordinator calls
     /// <see cref="DismissModal"/> or <see cref="ShowModal"/> again.</summary>
@@ -389,7 +402,18 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
         ArgumentException.ThrowIfNullOrWhiteSpace(targetId);
         if (!IsVisible)
             return;
-        OnTargetActivated(targetId);
+
+        // The flag lives only for the synchronous activation it wraps, so a later gaze activation
+        // can never inherit it. The close branch below reads it before raising CloseRequested.
+        _activationWasMouse = true;
+        try
+        {
+            OnTargetActivated(targetId);
+        }
+        finally
+        {
+            _activationWasMouse = false;
+        }
     }
 
     /// <summary>
@@ -443,6 +467,9 @@ public sealed partial class BackstageViewModel : DwellOverlayViewModelBase
 
         if (string.Equals(targetId, CloseTargetId, StringComparison.Ordinal))
         {
+            CloseRequestSource = _activationWasMouse
+                ? StrandingLedger.BackstageSources.Mouse
+                : StrandingLedger.BackstageSources.Disc;
             CloseRequested?.Invoke();
             HideOverlay();
             return;

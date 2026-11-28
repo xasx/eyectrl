@@ -44,6 +44,8 @@ internal sealed class ShutdownDependencies
 
     internal ServiceProvider? ServiceProvider { get; init; }
 
+    internal StrandingLedger? StrandingLedger { get; init; }
+
     internal SingleInstanceGuard? SingleInstance { get; init; }
 }
 
@@ -147,6 +149,13 @@ internal static class ExitSequencePlan
 
             sequence.Add("dispose gaze adapter", () => services.GetRequiredService<GazeEngineAdapter>().Dispose());
             sequence.Add("dispose gaze engine", () => services.GetRequiredService<GazeEngine>().Dispose());
+
+            // Wave D D1: the stranding ledger's final summary and session-marker delete. After the
+            // gaze adapter (no state transition can follow) and before the mutex release below: a
+            // queued restart child reads the marker the instant the mutex is free, so a later
+            // delete would make it report this clean session as unclean.
+            sequence.Add("write stranding summary", () => deps.StrandingLedger?.EndSession());
+
             sequence.Add("dispose external dwell service", () => services.GetRequiredService<ExternalDwellService>().Dispose());
             // Deactivate the adaptation runtime explicitly while the provider is still alive (live-pass
             // finding, 2026-10-16): DI disposal disposes resolved singletons one by one, and by

@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
@@ -26,6 +27,7 @@ public class ResumeStripViewModelTests
         public required WeakReferenceMessenger Messenger { get; init; }
         public required EyeCtrlSettings Settings { get; init; }
         public int Toggles;
+        public List<string> Sources { get; } = new();
         public long Now;
 
         /// <summary>Streams samples at <paramref name="at"/> for <paramref name="durationUs"/>,
@@ -56,7 +58,12 @@ public class ResumeStripViewModelTests
         var messenger = new WeakReferenceMessenger();
         var vm = new ResumeStripViewModel(settings, messenger);
         var rig = new Rig { Vm = vm, Messenger = messenger, Settings = settings, Now = 1_000_000 };
-        messenger.Register<PauseToggledMessage>(rig, (r, _) => ((Rig)r).Toggles++);
+        messenger.Register<PauseToggledMessage>(rig, (r, message) =>
+        {
+            var rig = (Rig)r;
+            rig.Toggles++;
+            rig.Sources.Add(message.Source);
+        });
 
         vm.PlaceTarget(Centre, Radius);
         vm.SetBandVisible(false);
@@ -85,6 +92,8 @@ public class ResumeStripViewModelTests
 
         rig.Hold(Centre, 2 * Step);
         Check.That(rig.Toggles).IsEqualTo(1);
+        Check.WithCustomMessage("the resume did not name the strip as its source")
+            .That(rig.Sources).ContainsExactly(StrandingLedger.PauseSources.Strip);
 
         // One look, one toggle: the target disarms on firing, so a gaze that stays does not re-fire.
         rig.Hold(Centre, 3_000_000);

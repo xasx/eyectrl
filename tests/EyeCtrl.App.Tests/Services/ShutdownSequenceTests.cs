@@ -138,6 +138,7 @@ public class ShutdownSequenceTests
             "report ring quantization",
             "dispose gaze adapter",
             "dispose gaze engine",
+            "write stranding summary",
             "dispose external dwell service",
             "deactivate adaptation runtime",
             "stop password-field detector",

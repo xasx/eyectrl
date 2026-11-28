@@ -11,12 +11,14 @@ using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Services;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
@@ -77,6 +79,9 @@ public class BackstageUiCoordinatorTests
         public ActionMenuViewModel ActionMenuVm { get; }
         public BackstageViewModel BackstageVm { get; }
         public BackstageUiCoordinator Coordinator { get; }
+        public StrandingLedger Ledger { get; }
+        public List<string> Lines { get; } = new();
+        public DateTime Now { get; set; } = new(2026, 11, 28, 9, 0, 0);
         public List<string> Shutdowns { get; } = new();
         public bool ExerciseActive { get; set; }
 
@@ -92,6 +97,12 @@ public class BackstageUiCoordinatorTests
             QuickActionsVm = new QuickActionsGridViewModel(new FakeQuickActionsStore(), Settings, Messenger);
             ActionMenuVm = new ActionMenuViewModel(Settings, Messenger);
             BackstageVm = new BackstageViewModel(Messenger, Settings);
+            var ledgerDir = TempTestDirectory.Create("backstage-strand");
+            Ledger = new StrandingLedger(
+                StrandingLedger.SessionMarkerPath(ledgerDir),
+                StrandingLedger.RefusedLaunchesPath(ledgerDir),
+                Lines.Add,
+                () => Now);
 
             var overlayManager = TestFakes.MakeOverlayManager(
                 cursorCircle: Cursor,
@@ -115,6 +126,7 @@ public class BackstageUiCoordinatorTests
                 Settings = Settings,
                 Dispatcher = Dispatcher.CurrentDispatcher,
                 EscapeHatch = Escape,
+                Ledger = Ledger,
             };
 
             Coordinator = new BackstageUiCoordinator(
@@ -239,6 +251,81 @@ public class BackstageUiCoordinatorTests
 
         h.Escape.Press();
         Check.That(StaTestPump.PumpUntil(() => !h.Coordinator.IsOpen, TimeSpan.FromSeconds(2))).IsTrue();
+    }
+
+    [StaFact]
+    public void StrandingLedger_ShowAndEsc_NameTheOpenAndCloseSources()
+    {
+        using var h = new Harness();
+        h.Coordinator.ShowBackstage();
+        Check.That(h.Lines).Contains("STRAND-E1 backstage_open src=toolbar");
+
+        h.Escape.Press();
+        Check.That(StaTestPump.PumpUntil(() => !h.Coordinator.IsOpen, TimeSpan.FromSeconds(2))).IsTrue();
+        Check.That(h.Lines).Contains("STRAND-E1 backstage_close src=esc open_ms=0");
+
+        h.Ledger.EndSession();
+        Check.That(h.Lines[^1]).Contains("bs_esc=1");
+        Check.That(h.Lines[^1]).Contains("backstage_closes=1");
+    }
+
+    [StaFact]
+    public void StrandingLedger_MouseClickOnTheCloseDisc_NamesTheMouseSource()
+    {
+        using var h = new Harness();
+        h.Coordinator.ShowBackstage();
+
+        h.BackstageVm.ActivateForMouse(BackstageViewModel.CloseTargetId);
+
+        Check.That(h.Coordinator.IsOpen).IsFalse();
+        Check.That(h.Lines).Contains("STRAND-E1 backstage_close src=mouse open_ms=0");
+    }
+
+    [StaFact]
+    public void StrandingLedger_CalibrateCard_NamesTheCardSource()
+    {
+        using var h = new Harness();
+        h.Coordinator.ShowBackstage();
+
+        h.BackstageVm.ActivateForMouse(BackstageViewModel.CalibrateCardId);
+
+        Check.That(h.Lines).Contains("STRAND-E1 backstage_close src=card open_ms=0");
+    }
+
+    [StaFact]
+    public void StrandingLedger_AltF4_NamesTheWindowCloseSource()
+    {
+        using var h = new Harness();
+        h.Coordinator.ShowBackstage();
+
+        h.Coordinator.WindowForTest!.Close();
+
+        Check.That(h.Coordinator.IsOpen).IsFalse();
+        Check.That(h.Lines).Contains("STRAND-E1 backstage_close src=altf4 open_ms=0");
+    }
+
+    [StaFact]
+    public void StrandingLedger_Shutdown_NamesTheShutdownSource()
+    {
+        using var h = new Harness();
+        h.Coordinator.ShowBackstage();
+
+        h.Coordinator.Dispose();
+
+        Check.That(h.Lines).Contains("STRAND-E1 backstage_close src=shutdown open_ms=0");
+    }
+
+    [StaFact]
+    public void StrandingLedger_UninstallHandoff_ClosesAndReopensWithHandoffSources()
+    {
+        using var h = new Harness();
+        h.Coordinator.ShowBackstage();
+
+        Check.That(h.Coordinator.HideBackstageForUninstallHandoff()).IsTrue();
+        Check.That(h.Lines).Contains("STRAND-E1 backstage_close src=handoff open_ms=0");
+
+        h.Coordinator.RestoreBackstageAfterUninstallHandoff(UninstallHandoffEnd.NotUninstalled);
+        Check.That(h.Lines).Contains("STRAND-E1 backstage_open src=handoff_restore");
     }
 
     [StaFact]

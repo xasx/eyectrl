@@ -13,6 +13,7 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// The headless world W1/W3/W7/W8/W9 drive: a real <see cref="GazeEngine"/> (so suppression claims
@@ -41,6 +42,7 @@ internal sealed class ProbeTestWorld : IDisposable
     internal readonly SubPixelProbeCoordinator Coordinator;
     internal readonly EventCoordinationContext Context;
     internal readonly List<SubPixelProbeViewModel> Vms = new();
+    internal readonly List<string> PauseToggleSources = new();
     internal readonly string ResultsDir = TempTestDirectory.Create("subpixel-probe");
 
     /// <summary>W2/W3's real summon owner; the host forwards suspend/resume into it.</summary>
@@ -85,6 +87,14 @@ internal sealed class ProbeTestWorld : IDisposable
             CalibrationService = new EyeCtrl.Core.Calibration.CalibrationService(),
         };
         Context = context;
+
+        // Production's chain, in miniature: the adapter owns PauseToggledMessage and calls
+        // TogglePause. ProbeTestWorld has no adapter, so it plays that one role itself.
+        Messenger.Register<PauseToggledMessage>(this, (_, message) =>
+        {
+            PauseToggleSources.Add(message.Source);
+            Engine.InteractionManager.TogglePause();
+        });
 
         if (withQuickActions)
         {

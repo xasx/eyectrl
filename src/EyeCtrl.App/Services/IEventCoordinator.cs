@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Input;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Prediction;
@@ -106,4 +107,7 @@ public record EventCoordinationContext(
     IInputIntegrityProbe? InputIntegrityProbe = null,
     // Ticket 03: the app-lifetime Backstage view model. Nullable so focused coordinator tests keep
     // their contexts unchanged; a null disables the menu rather than throwing at startup.
-    BackstageViewModel? BackstageVM = null);
+    BackstageViewModel? BackstageVM = null,
+    // Wave D D1: the stranding ledger. Nullable for the same reason; every line is log-only and a
+    // missing ledger changes no behaviour.
+    StrandingLedger? Ledger = null);

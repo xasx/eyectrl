@@ -80,6 +80,8 @@ public class SubPixelProbePausedStartTests
             .That(world.Engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
         Check.That(stateChanges).IsEqualTo(1);
         Check.That(closed).IsTrue();
+        Check.WithCustomMessage("The probe's resume did not name its source")
+            .That(world.PauseToggleSources).ContainsExactly(StrandingLedger.PauseSources.Probe);
 
         Check.WithCustomMessage("The probe started straight after the resume call, before the state change landed")
             .That(world.Modal.ProbeOpen).IsFalse();

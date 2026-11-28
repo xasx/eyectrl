@@ -6,6 +6,7 @@ using System.IO;
 using System.Windows.Forms;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -77,7 +78,11 @@ public class TrayIconManager : IDisposable
         _pauseMenuItem = new ToolStripMenuItem(_texts.Pause);
         _pauseMenuItem.Click += (_, _) =>
         {
-            interactionManager.TogglePause();
+            // Through the shared message, not a direct TogglePause: the adapter needs the source
+            // for the stranding ledger (and the message delivers synchronously on this thread, the
+            // same UI thread the direct call required). The text update below still reads the
+            // state the synchronous delivery has already changed.
+            _messenger.Send(new PauseToggledMessage(StrandingLedger.PauseSources.Tray));
             _pauseMenuItem.Text = _texts.PauseItemText(interactionManager.CurrentState);
         };
 

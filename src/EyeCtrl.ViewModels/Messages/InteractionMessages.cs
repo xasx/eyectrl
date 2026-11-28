@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Messages;
 
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -182,7 +183,12 @@ public record ToggleActionMenuModifierMessage(ModifierKey Modifier);
 /// </summary>
 public record ActionMenuDismissedMessage;
 
-public record PauseToggledMessage;
+/// <summary>
+/// Sent by a pause control to toggle <see cref="InteractionState.Paused"/>. <c>Source</c> is the
+/// closed id the stranding ledger records (toolbar, strip, tray, probe), so the log can answer how
+/// the owner left a pause; a producer that does not name one records <c>unknown</c>.
+/// </summary>
+public record PauseToggledMessage(string Source = StrandingLedger.PauseSources.Unknown);
 public record SelectionModeChangedMessage(SelectionMode Mode);
 public record KeyboardToggledMessage;
 

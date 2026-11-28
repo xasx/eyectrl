@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -37,14 +38,16 @@ public class ToolbarViewModelTests
     public void PauseButton_SendsPauseToggledMessage()
     {
         var vm = new ToolbarViewModel(_settings, _messenger);
-        bool received = false;
-        _messenger.Register<PauseToggledMessage>(_messenger, (_, _) => received = true);
+        PauseToggledMessage? received = null;
+        _messenger.Register<PauseToggledMessage>(_messenger, (_, message) => received = message);
 
         // Find the Pause button and simulate activation
         var pauseBtn = vm.Buttons.First(b => b.Id == "Pause");
         vm.SimulateButtonActivated("Pause");
 
-        Check.That(received).IsTrue();
+        Check.That(received).IsNotNull();
+        Check.WithCustomMessage("the toolbar pause did not name itself as the source")
+            .That(received!.Source).IsEqualTo(StrandingLedger.PauseSources.Toolbar);
     }
 
     // The ten activations are the gaze-only user's primary navigation: a case deleted from the

@@ -5,7 +5,10 @@ using System.Reflection;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Diagnostics;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
 /// <summary>
@@ -40,6 +43,32 @@ public class TrayIconManagerTests
         var onOpening = tray.Menu.GetType().GetMethod(
             "OnOpening", BindingFlags.Instance | BindingFlags.NonPublic, [typeof(CancelEventArgs)])!;
         onOpening.Invoke(tray.Menu, [new CancelEventArgs()]);
+    }
+
+    [StaFact]
+    public void PauseMenuItem_SendsTheTraySourcedPauseToggle()
+    {
+        // Wave D D1: the tray is the one non-gaze pause exit, so its message must name itself.
+        // The production chain in miniature: the item's click sends the message, and the adapter
+        // (here a registered receiver) toggles the interaction manager.
+        var interaction = new InteractionManager();
+        var messenger = new WeakReferenceMessenger();
+        using var tray = new TrayIconManager(
+            interaction, Dispatcher.CurrentDispatcher, messenger,
+            shutdownCallback: () => { }, isAdaptationEnabled: () => false);
+
+        PauseToggledMessage? seen = null;
+        messenger.Register<PauseToggledMessage>(this, (_, message) =>
+        {
+            seen = message;
+            interaction.TogglePause();
+        });
+
+        tray.Menu.Items[0].PerformClick();
+
+        Check.That(seen).IsNotNull();
+        Check.That(seen!.Source).IsEqualTo(StrandingLedger.PauseSources.Tray);
+        Check.That(interaction.CurrentState).IsEqualTo(InteractionState.Paused);
     }
 
     [StaFact]

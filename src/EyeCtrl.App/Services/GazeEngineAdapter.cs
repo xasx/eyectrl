@@ -29,6 +29,15 @@ public class GazeEngineAdapter : IDisposable
     private readonly DispatchLatencyProbe? _dispatchProbe;
     private long _dispatchSamplesSinceReport;
 
+    // The stranding ledger (Wave D D1): the source named by the PauseToggledMessage currently
+    // being delivered, so the Paused transition it causes can be attributed. Guarded by
+    // _stateGate; a transition can arrive from the gaze thread while a pause toggle runs on the
+    // UI thread (the state machine itself tolerates that interleaving).
+    private readonly StrandingLedger? _ledger;
+    private readonly object _stateGate = new();
+    private InteractionState _lastState;
+    private string? _pauseTransitionSource;
+
     // The activation-outcome tracker's note seam, or null in tests that do not exercise it. A
     // delegate (not the internal ActivationOutcomeLog type) because the adapter is public; the
     // bootstrapper wires the tracker's NoteAccepted here. Invoked at the accept below, on the UI
@@ -51,10 +60,12 @@ public class GazeEngineAdapter : IDisposable
         IControlFinder controlFinder,
         DispatchLatencyProbe? dispatchProbe = null,
         Func<(double WidthDip, double HeightDip)>? screenDip = null,
-        Action<long, SelectionMode>? noteOutcomeAccepted = null)
+        Action<long, SelectionMode>? noteOutcomeAccepted = null,
+        StrandingLedger? ledger = null)
     {
         _logger = logger;
         _dispatchProbe = dispatchProbe;
+        _ledger = ledger;
         _noteOutcomeAccepted = noteOutcomeAccepted;
         _screenDip = screenDip ?? (() =>
             (System.Windows.SystemParameters.PrimaryScreenWidth, System.Windows.SystemParameters.PrimaryScreenHeight));
@@ -64,6 +75,7 @@ public class GazeEngineAdapter : IDisposable
         _messenger = messenger;
         _dispatcher = dispatcher;
         _controlFinder = controlFinder;
+        _lastState = _interactionManager.CurrentState;
 
         // Core -> ViewModel (via messages, marshaled to UI thread)
         _gazeEngine.CursorMoved += OnCursorMoved;
@@ -186,8 +198,23 @@ public class GazeEngineAdapter : IDisposable
             _interactionManager.OnManualSelectionBack());
         messenger.Register<ActionMenuDismissedMessage>(this, (_, _) =>
             _interactionManager.OnActionMenuDismissed());
-        messenger.Register<PauseToggledMessage>(this, (_, _) =>
-            _interactionManager.TogglePause());
+        messenger.Register<PauseToggledMessage>(this, (_, msg) =>
+        {
+            // The source rides the toggle so the transition it causes can be attributed. The
+            // delivery is synchronous, and StateChanged fires inside TogglePause — hence the
+            // pending field rather than passing it down (TogglePause's signature is Core's).
+            lock (_stateGate)
+                _pauseTransitionSource = msg.Source;
+            try
+            {
+                _interactionManager.TogglePause();
+            }
+            finally
+            {
+                lock (_stateGate)
+                    _pauseTransitionSource = null;
+            }
+        });
         messenger.Register<SelectionModeChangedMessage>(this, (_, msg) =>
         {
             _settings.SelectionMode = msg.Mode;
@@ -453,7 +480,31 @@ public class GazeEngineAdapter : IDisposable
     private void OnStateChanged(InteractionState state)
     {
         _logger.LogInformation("State → {State}", state);
+        TrackPauseTransition(state);
         _dispatcher.BeginInvoke(() => _messenger.Send(new StateChangedMessage(state)));
+    }
+
+    /// <summary>
+    /// Feeds the stranding ledger's Paused entry/exit lines. The transition source is the one the
+    /// in-flight <see cref="PauseToggledMessage"/> named, if any; a direct toggle (no message) is
+    /// recorded as unknown rather than guessed at. The ledger itself ignores a duplicate entry
+    /// while already paused, so a startup pause pre-recorded by the App keeps its own source.
+    /// </summary>
+    private void TrackPauseTransition(InteractionState state)
+    {
+        InteractionState previous;
+        string source;
+        lock (_stateGate)
+        {
+            previous = _lastState;
+            _lastState = state;
+            source = _pauseTransitionSource ?? StrandingLedger.UnknownSource;
+        }
+
+        if (previous == InteractionState.Paused && state != InteractionState.Paused)
+            _ledger?.OnPauseExited(source);
+        else if (previous != InteractionState.Paused && state == InteractionState.Paused)
+            _ledger?.OnPauseEntered(source);
     }
 
     private void OnRepeatDwellProgress(double progress) =>

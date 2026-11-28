@@ -562,6 +562,15 @@ public class AppBootstrapper
             sp.GetRequiredService<IMessenger>(),
             line => Serilog.Log.Information("{ActivationOutcome}", line)));
 
+        // Wave D D1: the stranding ledger. Log-only: pause exits and Backstage open/close name
+        // their source, an unclean previous session is reported at start, and one daily summary
+        // carries the totals. It lives in the app's own data folder (never a hard-coded path here;
+        // the App passes its resolved profile dir, tests pass a temp one).
+        services.AddSingleton(sp => new StrandingLedger(
+            StrandingLedger.SessionMarkerPath(appDataDir),
+            StrandingLedger.RefusedLaunchesPath(appDataDir),
+            line => Serilog.Log.Information("{Stranding}", line)));
+
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(
             sp.GetRequiredService<GazeEngine>(),
@@ -571,7 +580,8 @@ public class AppBootstrapper
             sp.GetRequiredService<ILogger<GazeEngineAdapter>>(),
             sp.GetRequiredService<IControlFinder>(),
             sp.GetService<DispatchLatencyProbe>(),
-            noteOutcomeAccepted: sp.GetRequiredService<ActivationOutcomeLog>().NoteAccepted));
+            noteOutcomeAccepted: sp.GetRequiredService<ActivationOutcomeLog>().NoteAccepted,
+            ledger: sp.GetRequiredService<StrandingLedger>()));
 
         // ManualSelectionDwellService (handles ManualSelection dwell detection and indicator updates)
         services.AddSingleton(sp => new ManualSelectionDwellService(

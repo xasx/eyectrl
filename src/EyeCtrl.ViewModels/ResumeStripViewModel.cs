@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -287,7 +288,7 @@ public sealed partial class ResumeStripViewModel : DwellOverlayViewModelBase
         // Only from Paused: PauseToggledMessage TOGGLES, so a stale activation after something else
         // resumed (the tray) would pause again. The flag is the activating sample's own state.
         if (!LastSampleWasPaused) return;
-        Messenger.Send(new PauseToggledMessage());
+        Messenger.Send(new PauseToggledMessage(StrandingLedger.PauseSources.Strip));
     }
 
     protected override void OnTargetProgress(string targetId, double progress)

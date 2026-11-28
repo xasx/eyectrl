@@ -49,6 +49,19 @@ public partial class ManualSelectionSettings : ObservableObject, IValidatable
     /// so elapsed dwell time survives the skipped samples. Valid range: 0–30.</summary>
     [ObservableProperty] private int _holdOutlierSkipLimit = 3;
 
+    /// <summary>
+    /// Keeps the onset window at least as large as the sample count: K &gt; M would make stability
+    /// onset impossible and manual selection would silently stop activating. The load clamp in
+    /// <c>SettingsService.ClampManualSelectionTargeting</c> already enforces this for a hand-edited
+    /// file; this setter does it live, so the new Stability-samples Settings row cannot persist a
+    /// pair its own <see cref="Validate"/> rejects (which SaveDebounced would log and discard).
+    /// </summary>
+    partial void OnStabilitySampleCountChanging(int value)
+    {
+        if (StabilityWindowSize < value)
+            StabilityWindowSize = value;
+    }
+
     partial void OnCircleRadiusPixelsChanging(int value)
     {
         if (value < 50 || value > 500)

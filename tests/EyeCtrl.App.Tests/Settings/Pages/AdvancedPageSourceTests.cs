@@ -10,11 +10,13 @@ public class AdvancedPageSourceTests
         .Build().SelectMany(p => p.Rows).ToList();
 
     [Fact]
-    public void Build_HasTwentyTwoRows_FourSeparators_ResetLast()
+    public void Build_HasThirteenRows_ThreeSeparators_ResetLast()
     {
         var rows = Rows();
-        Check.That(rows).HasSize(22);
-        Check.That(rows.OfType<SeparatorSpec>()).HasSize(4);
+        // Wave D D4 moved the eight dwell rows to „Verweilzeiten": the page keeps the non-time
+        // backdrop/drag/scroll/external tuning and the reset.
+        Check.That(rows).HasSize(13);
+        Check.That(rows.OfType<SeparatorSpec>()).HasSize(3);
         Check.That(rows.OfType<ButtonSpec>().Single().Id).IsEqualTo("av_reset");
         Check.That(rows.Last()).IsInstanceOf<ButtonSpec>();
     }
@@ -32,15 +34,16 @@ public class AdvancedPageSourceTests
     }
 
     [Fact]
-    public void Build_SectionOrder_BackdropDragScrollRepeatExternalDwell()
+    public void Build_SectionOrder_BackdropDragScrollExternalDwell()
     {
         var ids = Rows().Where(r => r.Id.Length > 0).Select(r => r.Id).ToList();
         var backdropIdx = ids.IndexOf("av_backdrop_enabled");
         Check.That(backdropIdx).IsNotEqualTo(-1);
-        Check.That(backdropIdx).IsStrictlyLessThan(ids.IndexOf("av_drag_settle"));
-        Check.That(ids.IndexOf("av_drag_settle")).IsStrictlyLessThan(ids.IndexOf("av_scroll_sens"));
-        Check.That(ids.IndexOf("av_scroll_sens")).IsStrictlyLessThan(ids.IndexOf("av_repeat_dwell"));
-        Check.That(ids.IndexOf("av_repeat_dwell")).IsStrictlyLessThan(ids.IndexOf("av_ext_enabled"));
+        // The dwell rows that used to sit between these moved to „Verweilzeiten"; what remains
+        // keeps its section order.
+        Check.That(backdropIdx).IsStrictlyLessThan(ids.IndexOf("av_drag_radius"));
+        Check.That(ids.IndexOf("av_drag_radius")).IsStrictlyLessThan(ids.IndexOf("av_scroll_sens"));
+        Check.That(ids.IndexOf("av_scroll_sens")).IsStrictlyLessThan(ids.IndexOf("av_ext_enabled"));
     }
 
     [Fact]
@@ -71,55 +74,56 @@ public class AdvancedPageSourceTests
     }
 
     [Fact]
-    public void Reset_CopiesAllSeventeenSettingsFromDefaults_LeavesEyeCareAlone()
+    public void Reset_CopiesThePagesRemainingSettingsFromDefaults_LeavesMovedLookTimesAndEyeCareAlone()
     {
         var settings = new EyeCtrlSettings();
         settings.Backdrop.Enabled = false;
         settings.Backdrop.Type = BackdropType.SolidDarken;
         settings.Backdrop.Opacity = 0.8;
-        settings.Dwell.BackdropHideButtonDwellMs = 1500;
-        settings.Drag.SettleDwellMs = 1500;
-        settings.Dwell.DragReleaseButtonDwellMs = 1200;
-        settings.Dwell.DragRightEdgeButtonDwellMs = 1300;
         settings.Drag.SettleRadiusPixels = 100;
         settings.Drag.TrailColor = "#123456";
         settings.Drag.TrailOpacity = 0.4;
         settings.Scroll.Sensitivity = 1.8;
+        settings.ExternalDwell.Enabled = false;
+        settings.ExternalDwell.CooldownMs = 900;
+        // Moved to „Verweilzeiten" in Wave D D4: the Advanced reset must NOT reach them.
+        settings.Dwell.BackdropHideButtonDwellMs = 1500;
+        settings.Drag.SettleDwellMs = 1500;
+        settings.Dwell.DragReleaseButtonDwellMs = 1200;
+        settings.Dwell.DragRightEdgeButtonDwellMs = 1300;
         settings.Dwell.ScrollStopButtonDwellMs = 1100;
         settings.Repeat.DwellMs = 1500;
         settings.Repeat.StopButtonDwellMs = 1400;
-        settings.ExternalDwell.Enabled = false;
         settings.ExternalDwell.DefaultDwellMs = 2000;
-        settings.ExternalDwell.CooldownMs = 900;
         settings.EyeCare.IntervalMinutes = 45; // must NOT be touched
         var source = new AdvancedPageSource(
             TestSettingsPageContext.Build(settings, showModal: (_, act) => act()));
         source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>().Single().OnActivate();
         var b = new BackdropSettings();
         var d = new DragSettings();
-        var dw = new DwellSettings();
         var sc = new ScrollSettings();
-        var r = new RepeatSettings();
         var e = new ExternalDwellSettings();
         // Full census of the copy list the av_reset handler writes (issue #124.3): every
         // property a dropped copy line could strand perturbed is asserted back to default.
         Check.That(settings.Backdrop.Enabled).IsEqualTo(b.Enabled);
         Check.That(settings.Backdrop.Type).IsEqualTo(b.Type);
         Check.That(settings.Backdrop.Opacity).IsEqualTo(b.Opacity);
-        Check.That(settings.Dwell.BackdropHideButtonDwellMs).IsEqualTo(dw.BackdropHideButtonDwellMs);
-        Check.That(settings.Drag.SettleDwellMs).IsEqualTo(d.SettleDwellMs);
-        Check.That(settings.Dwell.DragReleaseButtonDwellMs).IsEqualTo(dw.DragReleaseButtonDwellMs);
-        Check.That(settings.Dwell.DragRightEdgeButtonDwellMs).IsEqualTo(dw.DragRightEdgeButtonDwellMs);
         Check.That(settings.Drag.SettleRadiusPixels).IsEqualTo(d.SettleRadiusPixels);
         Check.That(settings.Drag.TrailColor).IsEqualTo(d.TrailColor);
         Check.That(settings.Drag.TrailOpacity).IsEqualTo(d.TrailOpacity);
         Check.That(settings.Scroll.Sensitivity).IsEqualTo(sc.Sensitivity);
-        Check.That(settings.Dwell.ScrollStopButtonDwellMs).IsEqualTo(dw.ScrollStopButtonDwellMs);
-        Check.That(settings.Repeat.DwellMs).IsEqualTo(r.DwellMs);
-        Check.That(settings.Repeat.StopButtonDwellMs).IsEqualTo(r.StopButtonDwellMs);
         Check.That(settings.ExternalDwell.Enabled).IsEqualTo(e.Enabled);
-        Check.That(settings.ExternalDwell.DefaultDwellMs).IsEqualTo(e.DefaultDwellMs);
         Check.That(settings.ExternalDwell.CooldownMs).IsEqualTo(e.CooldownMs);
         Check.That(settings.EyeCare.IntervalMinutes).IsEqualTo(45);
+
+        // The moved look times are on the „Verweilzeiten" page, so this page's reset leaves them.
+        Check.That(settings.Dwell.BackdropHideButtonDwellMs).IsEqualTo(1500);
+        Check.That(settings.Drag.SettleDwellMs).IsEqualTo(1500);
+        Check.That(settings.Dwell.DragReleaseButtonDwellMs).IsEqualTo(1200);
+        Check.That(settings.Dwell.DragRightEdgeButtonDwellMs).IsEqualTo(1300);
+        Check.That(settings.Dwell.ScrollStopButtonDwellMs).IsEqualTo(1100);
+        Check.That(settings.Repeat.DwellMs).IsEqualTo(1500);
+        Check.That(settings.Repeat.StopButtonDwellMs).IsEqualTo(1400);
+        Check.That(settings.ExternalDwell.DefaultDwellMs).IsEqualTo(2000);
     }
 }

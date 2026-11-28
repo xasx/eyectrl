@@ -6,11 +6,12 @@ using EyeCtrl.Core.Settings;
 public class EyeCarePageSourceTests
 {
     [Fact]
-    public void Build_HasTenRows_LastIsReset()
+    public void Build_HasNineRows_LastIsReset()
     {
         var pages = new EyeCarePageSource(TestSettingsPageContext.Build()).Build();
         var rows = pages.SelectMany(p => p.Rows).ToList();
-        Check.That(rows).HasSize(10);
+        // Wave D D4 moved the banner's dwell to „Verweilzeiten"; nine content rows remain.
+        Check.That(rows).HasSize(9);
         var reset = rows.OfType<ButtonSpec>().Single();
         Check.That(reset.Id).IsEqualTo("ec_reset");
         Check.That(reset.Kind).IsEqualTo(ButtonKind.Reset);
@@ -22,7 +23,7 @@ public class EyeCarePageSourceTests
     {
         var rows = new EyeCarePageSource(TestSettingsPageContext.Build()).Build()
             .SelectMany(p => p.Rows).OfType<SliderSpec>().ToDictionary(s => s.Id);
-        Check.That(rows).HasSize(7);
+        Check.That(rows).HasSize(6);
         Check.That(rows["ec_interval"].Min).IsEqualTo(1);
         Check.That(rows["ec_interval"].Max).IsEqualTo(120);
         Check.That(rows["ec_break"].Min).IsEqualTo(5);
@@ -31,8 +32,6 @@ public class EyeCarePageSourceTests
         Check.That(rows["ec_exercise"].Max).IsEqualTo(180);
         Check.That(rows["ec_snooze_banner"].Min).IsEqualTo(5);
         Check.That(rows["ec_snooze_banner"].Max).IsEqualTo(120);
-        Check.That(rows["ec_banner_dwell"].Min).IsEqualTo(0);
-        Check.That(rows["ec_banner_dwell"].Max).IsEqualTo(3000);
         Check.That(rows["ec_snooze"].Min).IsEqualTo(1);
         Check.That(rows["ec_snooze"].Max).IsEqualTo(60);
         Check.That(rows["ec_fatigue_thresh"].Min).IsEqualTo(0.0);
@@ -50,7 +49,7 @@ public class EyeCarePageSourceTests
     }
 
     [Fact]
-    public void Reset_CopiesAllNineFromDefaults()
+    public void Reset_CopiesAllEyeCareSettingsFromDefaults_LeavesTheMovedBannerDwellAlone()
     {
         var settings = new EyeCtrlSettings();
         settings.EyeCare.Enabled = true;
@@ -58,7 +57,7 @@ public class EyeCarePageSourceTests
         settings.EyeCare.NaturalBreakSeconds = 120;
         settings.EyeCare.ExerciseDurationSeconds = 90;
         settings.EyeCare.BannerAutoSnoozeSeconds = 30;
-        settings.Dwell.EyeCareBannerDwellMs = 1600;
+        settings.Dwell.EyeCareBannerDwellMs = 1600; // moved to „Verweilzeiten": must survive
         settings.EyeCare.SnoozeMinutes = 10;
         settings.EyeCare.FatigueMonitorEnabled = true;
         settings.EyeCare.FatigueThreshold = 0.9;
@@ -72,7 +71,7 @@ public class EyeCarePageSourceTests
         Check.That(settings.EyeCare.NaturalBreakSeconds).IsEqualTo(d.NaturalBreakSeconds);
         Check.That(settings.EyeCare.ExerciseDurationSeconds).IsEqualTo(d.ExerciseDurationSeconds);
         Check.That(settings.EyeCare.BannerAutoSnoozeSeconds).IsEqualTo(d.BannerAutoSnoozeSeconds);
-        Check.That(settings.Dwell.EyeCareBannerDwellMs).IsEqualTo(new DwellSettings().EyeCareBannerDwellMs);
+        Check.That(settings.Dwell.EyeCareBannerDwellMs).IsEqualTo(1600);
         Check.That(settings.EyeCare.SnoozeMinutes).IsEqualTo(d.SnoozeMinutes);
         Check.That(settings.EyeCare.FatigueMonitorEnabled).IsEqualTo(d.FatigueMonitorEnabled);
         Check.That(settings.EyeCare.FatigueThreshold).IsEqualTo(d.FatigueThreshold);

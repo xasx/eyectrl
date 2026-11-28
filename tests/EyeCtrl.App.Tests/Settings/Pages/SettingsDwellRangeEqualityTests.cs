@@ -79,21 +79,21 @@ public class SettingsDwellRangeEqualityTests
         "d_manual_side" => new("Dwell", id, 200, 2000,
             s => s.Dwell.ManualSelectionSideButtonDwellMs,
             (s, v) => s.Dwell.ManualSelectionSideButtonDwellMs = (int)v),
-        "av_drag_release" => new("Advanced", id, 200, 2000,
+        "av_drag_release" => new("Dwell", id, 200, 2000,
             s => s.Dwell.DragReleaseButtonDwellMs, (s, v) => s.Dwell.DragReleaseButtonDwellMs = (int)v),
-        "av_drag_right_edge" => new("Advanced", id, 200, 2000,
+        "av_drag_right_edge" => new("Dwell", id, 200, 2000,
             s => s.Dwell.DragRightEdgeButtonDwellMs, (s, v) => s.Dwell.DragRightEdgeButtonDwellMs = (int)v),
-        "av_scroll_stop" => new("Advanced", id, 200, 2000,
+        "av_scroll_stop" => new("Dwell", id, 200, 2000,
             s => s.Dwell.ScrollStopButtonDwellMs, (s, v) => s.Dwell.ScrollStopButtonDwellMs = (int)v),
-        "av_backdrop_hide" => new("Advanced", id, 200, 2000,
+        "av_backdrop_hide" => new("Dwell", id, 200, 2000,
             s => s.Dwell.BackdropHideButtonDwellMs, (s, v) => s.Dwell.BackdropHideButtonDwellMs = (int)v),
-        "av_repeat_stop" => new("Advanced", id, 200, 2000,
+        "av_repeat_stop" => new("Dwell", id, 200, 2000,
             s => s.Repeat.StopButtonDwellMs, (s, v) => s.Repeat.StopButtonDwellMs = (int)v),
         // NEW knobs: 0 = follow the activation dwell, else 200–3000. The bounds cover the whole
         // allowed set; the walk below proves every 200 ms stop from 0 is accepted.
-        "ec_banner_dwell" => new("EyeCare", id, 0, 3000,
+        "ec_banner_dwell" => new("Dwell", id, 0, 3000,
             s => s.Dwell.EyeCareBannerDwellMs, (s, v) => s.Dwell.EyeCareBannerDwellMs = (int)v),
-        "g_restart_notice" => new("General", id, 0, 3000,
+        "g_restart_notice" => new("Dwell", id, 0, 3000,
             s => s.Dwell.RestartNoticeDwellMs, (s, v) => s.Dwell.RestartNoticeDwellMs = (int)v),
         _ => throw new ArgumentException($"No case for {id}", nameof(id)),
     };
@@ -135,10 +135,10 @@ public class SettingsDwellRangeEqualityTests
     /// below 200 to 0, so the stepper's own arithmetic must never throw from 300 or 250 either.
     /// </summary>
     [Theory]
-    [InlineData("General", "g_restart_notice", 300)]
-    [InlineData("General", "g_restart_notice", 250)]
-    [InlineData("EyeCare", "ec_banner_dwell", 300)]
-    [InlineData("EyeCare", "ec_banner_dwell", 250)]
+    [InlineData("Dwell", "g_restart_notice", 300)]
+    [InlineData("Dwell", "g_restart_notice", 250)]
+    [InlineData("Dwell", "ec_banner_dwell", 300)]
+    [InlineData("Dwell", "ec_banner_dwell", 250)]
     public void TheKnobRow_MinusFromAnOffGridStoredValue_SnapsToZero_AndNeverThrows(
         string source, string id, int start)
     {

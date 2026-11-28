@@ -164,7 +164,7 @@ public class SettingsLiveCheckTests
                 .That(harness.ViewModel.IsModalVisible).IsTrue();
             // The modal's own question, on screen — not just the view model's flag.
             LiveCheck.AssertShowsText(harness.Settings, "SettingsWindow (the Dwell reset modal)",
-                "Einstellungen unter „Verweilzeiten“ auf Standardwerte zurücksetzen?");
+                "Alle Verweilzeiten dieser Seite auf Standardwerte zurücksetzen?");
             LiveCheck.AssertVisible(harness.Settings, "SettingsWindow (the Dwell reset modal)");
             LiveCheck.PumpFor(StepHold);
 

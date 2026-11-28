@@ -22,6 +22,9 @@ public class DwellSliderFormatTests
     {
         Check.That(DwellSlider.Format(2, 3.14159, CultureInfo.InvariantCulture)).IsEqualTo("3.14");
         Check.That(DwellSlider.Format(2, 0.0, CultureInfo.InvariantCulture)).IsEqualTo("0.00");
+        // Wave D D4: the owner's key size, on the new 0.05 grid with two decimals.
+        Check.That(DwellSlider.Format(2, 1.75, CultureInfo.InvariantCulture)).IsEqualTo("1.75");
+        Check.That(DwellSlider.Format(2, 1.7, CultureInfo.InvariantCulture)).IsEqualTo("1.70");
     }
 
     [Fact]

@@ -1703,16 +1703,16 @@
     "src": "67aae74c"
   },
   "settings.advanced.external_hold.description": {
-    "text": "Verweilzeit, wenn eine andere App ein Ziel anmeldet.",
-    "src": "1633a3a5"
+    "text": "Verweilzeit, die externe Apps bekommen, wenn sie ein Ziel über EyeCtrls Pipe anmelden.",
+    "src": "32896aba"
   },
   "settings.advanced.external_hold.label": {
     "text": "Externes Verweilen (ms)",
     "src": "c831b6c4"
   },
   "settings.advanced.repeat_dwell.description": {
-    "text": "Wie lange der Blick auf einem Ziel bleiben muss, bevor die festgelegte Aktion dort auslöst.",
-    "src": "a3a19fb1"
+    "text": "Im Wiederholen-Modus: wie lange der Blick auf einem Ziel ruhen muss, bevor die gesperrte Aktion dort auslöst.",
+    "src": "f7ad3866"
   },
   "settings.advanced.repeat_dwell.label": {
     "text": "Verweilzeit bei Wiederholung (ms)",
@@ -2119,16 +2119,16 @@
     "src": "a72d231d"
   },
   "settings.dwell.action_menu.description": {
-    "text": "Wie lange der Blick auf einer Aktion im Aktionsmenü ruhen muss.",
-    "src": "b1526239"
+    "text": "Die Ring-Schaltflächen im normalen Modus und die Schließen- und Wechseln-Tasten am Tastaturrand.",
+    "src": "14d9ca64"
   },
   "settings.dwell.action_menu.label": {
     "text": "Aktionsmenü (ms)",
     "src": "0a4ac2ca"
   },
   "settings.dwell.activation.description": {
-    "text": "Verweilzeit für den Aktivator, der am Blickpunkt erscheint.",
-    "src": "b5ea274a"
+    "text": "Verweilzeit für den Aktivator, der am Blickpunkt erscheint. Auch der Ersatzwert für Neustart-Hinweis und Pausen-Banner, wenn diese 0 sind.",
+    "src": "1dc94d04"
   },
   "settings.dwell.activation.label": {
     "text": "Aktivator (ms)",
@@ -2143,8 +2143,8 @@
     "src": "3887e935"
   },
   "settings.dwell.cooldown.description": {
-    "text": "Wie lange ein neues Verweilen nach einer Auslösung warten muss.",
-    "src": "1c2d2800"
+    "text": "Wie lange jedes neue Verweilen nach einer Auslösung warten muss.",
+    "src": "be61cb02"
   },
   "settings.dwell.cooldown.label": {
     "text": "Sperrzeit nach Auslösung (ms)",
@@ -2159,8 +2159,8 @@
     "src": "020aebb7"
   },
   "settings.dwell.fixation.description": {
-    "text": "Wie lange der Blick ruhig bleiben muss, bevor ein Verweilen beginnen kann.",
-    "src": "ee2ad92e"
+    "text": "Wie lange der Blick ruhig bleiben muss, bevor irgendein Verweilen beginnen kann.",
+    "src": "49d6fc74"
   },
   "settings.dwell.fixation.label": {
     "text": "Fixierungserkennung (ms)",
@@ -2174,6 +2174,38 @@
     "text": "Fixierungsradius (px)",
     "src": "610271b1"
   },
+  "settings.dwell.group.activation.label": {
+    "text": "Auslösen",
+    "src": "e87f72c5"
+  },
+  "settings.dwell.group.bars.label": {
+    "text": "Leisten und Fenster",
+    "src": "e682df7e"
+  },
+  "settings.dwell.group.detection.label": {
+    "text": "Erkennung und Takt",
+    "src": "dcbad7df"
+  },
+  "settings.dwell.group.drag.label": {
+    "text": "Ziehen, Scrollen und Wiederholen",
+    "src": "416398cd"
+  },
+  "settings.dwell.group.menus.label": {
+    "text": "Menüs und Lupe",
+    "src": "ac326734"
+  },
+  "settings.dwell.group.pause.label": {
+    "text": "Pause, Augenschutz und externe Apps",
+    "src": "d08d0411"
+  },
+  "settings.dwell.group.sounds.label": {
+    "text": "Töne",
+    "src": "372aa5f9"
+  },
+  "settings.dwell.group.typing.label": {
+    "text": "Tippen",
+    "src": "fa576138"
+  },
   "settings.dwell.keyboard_key.description": {
     "text": "Wie lange der Blick auf einer Taste ruhen muss, bevor sie auslöst. Tasten, die die App verlassen oder Arbeit zerstören können, nutzen 600 ms.",
     "src": "99fdfa63"
@@ -2183,8 +2215,8 @@
     "src": "2f22a8b7"
   },
   "settings.dwell.manual_selection.description": {
-    "text": "Verweilzeit für das Aktionsmenü in der manuellen Auswahl.",
-    "src": "594e4f30"
+    "text": "Die eigene Verweilzeit der Lupe und ihr Aktionsmenü in der manuellen Auswahl. Diese Zeile setzt beides.",
+    "src": "bd2d04e0"
   },
   "settings.dwell.manual_selection.label": {
     "text": "Aktionsmenü bei manueller Auswahl (ms)",
@@ -2199,8 +2231,8 @@
     "src": "db234c82"
   },
   "settings.dwell.pause_grace.description": {
-    "text": "Wie lange das Verweilen in Menüs und auf der Symbolleiste seinen Fortschritt nach einem Blinzeln oder Wegschauen behält. Kehrt der Blick rechtzeitig zurück, geht es weiter; bei 0 beginnt es sofort neu.",
-    "src": "1b86c939"
+    "text": "Menü-, Symbolleisten-, Tastaturrand-, Banner- und Pausenstreifen-Verweilzeiten behalten ihren Fortschritt so lange nach einem Blinzeln oder Wegschauen; 0 beginnt sofort neu. Das Fortsetzen-Ziel begrenzt sie auf 200 ms.",
+    "src": "72813acb"
   },
   "settings.dwell.pause_grace.label": {
     "text": "Haltezeit beim Wegschauen (ms)",
@@ -2219,8 +2251,8 @@
     "src": "8140f2f5"
   },
   "settings.dwell.reset.message": {
-    "text": "Einstellungen unter „Verweilzeiten“ auf Standardwerte zurücksetzen?",
-    "src": "ba2414da"
+    "text": "Alle Verweilzeiten dieser Seite auf Standardwerte zurücksetzen?",
+    "src": "40f27d2a"
   },
   "settings.dwell.resume.description": {
     "text": "Wie lange der Blick in der Pause auf „Fortsetzen“ ruhen muss – nie kürzer als die Verweilzeit der Symbolleiste plus 200 ms.",
@@ -2247,16 +2279,16 @@
     "src": "b04cca54"
   },
   "settings.dwell.task_switcher_tile.description": {
-    "text": "Wie lange der Blick bei „Fenster wechseln“ auf einer Kachel ruhen muss – nie kürzer als die Verweilzeit der Symbolleiste.",
-    "src": "5d7c490d"
+    "text": "Wie lange der Blick auf einer Kachel im Fensterwechsel ruhen muss; nie kürzer als die Symbolleiste. Deren ✕ behält die Symbolleisten-Zeit.",
+    "src": "4d8de6f2"
   },
   "settings.dwell.task_switcher_tile.label": {
     "text": "Kacheln bei „Fenster wechseln“ (ms)",
     "src": "be1937f9"
   },
   "settings.dwell.toolbar.description": {
-    "text": "Wie lange der Blick auf den Schaltflächen von EyeCtrl selbst ruhen muss.",
-    "src": "f19eae37"
+    "text": "Die Schaltflächen von EyeCtrl: Symbolleiste, Einstellungen, Backstage, Kurzbefehle, Modus-Menü und Anleitung. Auch der Mindestwert der Fensterwechsel-Kacheln und das ✕ von Fenster wechseln, Kurzbefehlen und Backstage.",
+    "src": "a6cacbea"
   },
   "settings.dwell.toolbar.label": {
     "text": "Symbolleiste / Einstellungen (ms)",
@@ -3145,6 +3177,14 @@
     "text": "Linienstärke des Blickrings (px)",
     "src": "34ce4b40"
   },
+  "settings.selection.skip.description": {
+    "text": "So viele Proben außerhalb der Haltetoleranz verzeiht die Lupe, bevor sie loslässt und neu beginnt.",
+    "src": "b45d0964"
+  },
+  "settings.selection.skip.label": {
+    "text": "Ausreißer-Toleranz (Lupe)",
+    "src": "1ae4b11f"
+  },
   "settings.selection.snap_radius.description": {
     "text": "Wie weit vom Blickpunkt die automatische Auswahl nach einem Element sucht.",
     "src": "330d3c9f"
@@ -3152,6 +3192,14 @@
   "settings.selection.snap_radius.label": {
     "text": "Suchradius (px)",
     "src": "8138644d"
+  },
+  "settings.selection.stability.description": {
+    "text": "So viele ruhige Proben braucht die Lupe, bevor sie ihren Anker setzt. Höher ist ruhiger, aber langsamer; das Probenfenster wächst mit.",
+    "src": "a2810f8c"
+  },
+  "settings.selection.stability.label": {
+    "text": "Stabilitätsproben (Lupe)",
+    "src": "10b0bcca"
   },
   "settings.supervision.failure.launch_failed": {
     "text": "Der Supervisor konnte nicht gestartet werden, daher ist die Überwachung aus.",
@@ -3222,8 +3270,8 @@
     "src": "bc18ad57"
   },
   "settings.tab.advanced.description": {
-    "text": "Für Fachleute: Abdunklung, Ziehen, Scrollen und externes Verweilen.",
-    "src": "43f04eb3"
+    "text": "Für Fachleute: Abdunklung, Ziehen, Scrollen und externe Apps.",
+    "src": "b5c9fe32"
   },
   "settings.tab.advanced.label": {
     "text": "Erweitert",
@@ -3254,8 +3302,8 @@
     "src": "fe778616"
   },
   "settings.tab.dwell.description": {
-    "text": "Verweilen heißt, den Blick auf einem Ziel ruhen lassen, bis es auslöst. Hier wird eingestellt, wie lange.",
-    "src": "38eb9ccd"
+    "text": "Alle Verweilzeiten: wie lange der Blick auf jeder Oberfläche ruhen muss, bevor sie auslöst.",
+    "src": "fe065170"
   },
   "settings.tab.dwell.label": {
     "text": "Verweilzeiten",

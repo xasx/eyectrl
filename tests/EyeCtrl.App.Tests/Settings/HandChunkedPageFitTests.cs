@@ -761,6 +761,16 @@ public class HandChunkedPageFitTests
     [StaFact]
     public void EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell() =>
         AssertEveryPageReachable("English");
+
+    /// <summary>
+    /// Wave D D4's own fit check: the display the owner actually uses — 3840×2400 physical at
+    /// 200 % — is 1920×1200 DIP. The reference sweep above is TALLER in no sense (1080 &lt; 1200),
+    /// so it is the harder height budget; this one runs the literal ticket display anyway, so a
+    /// future change to the window ratio or the pagination reserve is measured where the owner is.
+    /// </summary>
+    [StaFact]
+    public void EveryPage_AtTheOwnersTwoHundredPercentDisplay_IsReachable() =>
+        AssertEveryPageReachable("200 % (3840x2400 -> 1920x1200 DIP)", 1920, 1200);
     /// <summary>
     /// The sweep behind <see cref="EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell"/>,
     /// in whatever language <see cref="EyeCtrl.Core.Localization.StringTable.Current"/> resolves —
@@ -770,11 +780,22 @@ public class HandChunkedPageFitTests
     /// to nothing).
     /// </summary>
     /// <param name="language">The language the sweep runs in, for the failure messages.</param>
-    internal static void AssertEveryPageReachable(string language)
+    /// <param name="displayWidthDip">
+    /// The display width in DIP. Defaults to the reference display; Wave D D4's added 200 %
+    /// sweep passes the owner's 3840×2400 at 200 % (1920 DIP).
+    /// </param>
+    /// <param name="displayHeightDip">
+    /// The display height in DIP. Defaults to the reference display; the 200 % sweep passes the
+    /// owner's 3840×2400 at 200 % (1200 DIP).
+    /// </param>
+    internal static void AssertEveryPageReachable(
+        string language,
+        double displayWidthDip = DisplayWidthDip,
+        double displayHeightDip = DisplayHeightDip)
     {
         var root = SettingsContentFitTests.Xml();
-        var budget = ContentHeightBudget(root);
-        var columnWidth = ContentColumnWidth(root);
+        var budget = ContentHeightBudget(root, displayHeightDip);
+        var columnWidth = ContentColumnWidth(root, displayWidthDip);
 
         var unreachable = new List<Unreachable>();
         var tooClose = new List<ClearancePair>();
@@ -902,7 +923,7 @@ public class HandChunkedPageFitTests
             CultureInfo.InvariantCulture,
             "({7}: budget {0:F2} DIP, {1:F0}x{2:F0} display, {3:F2} DIP content column, "
             + "circle radius {4:F2}, clearance floor {5:F2}, {6} pages checked)",
-            budget, DisplayWidthDip, DisplayHeightDip, columnWidth, RadiusPhysical,
+            budget, displayWidthDip, displayHeightDip, columnWidth, RadiusPhysical,
             ClearanceFloorDip, pagesChecked, language);
 
         Check.WithCustomMessage(
@@ -970,24 +991,35 @@ public class HandChunkedPageFitTests
         // needs its exemption fails here until the entry is deleted, exactly as the retired
         // known-unreachable list demanded; the reverse direction (an offender getting worse) is
         // enforced at the point of use, by the measured numbers.
-        var staleReachExemptions = ReachExemptions.Where(e => !usedReachExemptions.Contains(e)).ToList();
-        Check.WithCustomMessage(
-                "These reachability exemptions were never needed: the targets they name now fit "
-                + "the content cell, or no longer exist under those names. That is the moment the "
-                + "entry is supposed to be deleted — the exemption list must not outlive its "
-                + "offenders. Delete the entry (the file's retirement note explains why an "
-                + "exemption left behind is a place to hide the next failure).")
-            .That(staleReachExemptions.Select(e => $"{e.Source}.{e.View}.{e.DwellId}")).IsEmpty();
+        //
+        // Only on the REFERENCE display: the entries carry measurements taken there, and a
+        // taller display can legitimately make an exempted page fit (Wave D D4's 200 % sweep is
+        // exactly that case). Running the staleness ratchet there would demand deleting an entry
+        // the reference sweep still needs.
+        var referenceDisplay =
+            Math.Abs(displayWidthDip - DisplayWidthDip) < 1e-9
+            && Math.Abs(displayHeightDip - DisplayHeightDip) < 1e-9;
+        if (referenceDisplay)
+        {
+            var staleReachExemptions = ReachExemptions.Where(e => !usedReachExemptions.Contains(e)).ToList();
+            Check.WithCustomMessage(
+                    "These reachability exemptions were never needed: the targets they name now fit "
+                    + "the content cell, or no longer exist under those names. That is the moment the "
+                    + "entry is supposed to be deleted — the exemption list must not outlive its "
+                    + "offenders. Delete the entry (the file's retirement note explains why an "
+                    + "exemption left behind is a place to hide the next failure).")
+                .That(staleReachExemptions.Select(e => $"{e.Source}.{e.View}.{e.DwellId}")).IsEmpty();
 
-        var staleClearanceExemptions =
-            ClearanceExemptions.Where(e => !usedClearanceExemptions.Contains(e)).ToList();
-        Check.WithCustomMessage(
-                "These clearance exemptions were never needed: the pairs they name now clear the "
-                + "floor, or their prefixes no longer exist. That is the moment the entry is "
-                + "supposed to be deleted — the exemption list must not outlive its offenders. "
-                + "Delete the entry (the file's retirement note explains why an exemption left "
-                + "behind is a place to hide the next failure).")
-            .That(staleClearanceExemptions.Select(e => string.Join(", ", e.IdPrefixes))).IsEmpty();
+            var staleClearanceExemptions =
+                ClearanceExemptions.Where(e => !usedClearanceExemptions.Contains(e)).ToList();
+            Check.WithCustomMessage(
+                    "These clearance exemptions were never needed: the pairs they name now clear the "
+                    + "floor, or their prefixes no longer exist. That is the moment the entry is "
+                    + "supposed to be deleted — the exemption list must not outlive its offenders. "
+                    + "Delete the entry (the file's retirement note explains why an exemption left "
+                    + "behind is a place to hide the next failure).")
+                .That(staleClearanceExemptions.Select(e => string.Join(", ", e.IdPrefixes))).IsEmpty();
+        }
 
         // The whole sweep, not just one page of it: a view that emitted no page — a source
         // gutted to return an empty list, a fixture that stopped reaching a page — would

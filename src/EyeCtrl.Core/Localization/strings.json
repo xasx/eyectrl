@@ -3091,7 +3091,7 @@
     "args": []
   },
   "settings.advanced.external_hold.description": {
-    "text": "Dwell length applied when an external app registers a target.",
+    "text": "Dwell length applied when an external app registers a target through EyeCtrl's pipe.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -3105,7 +3105,7 @@
     "args": []
   },
   "settings.advanced.repeat_dwell.description": {
-    "text": "How long to hold your gaze on a target before the locked action fires there.",
+    "text": "In repeat mode, how long to hold your gaze on a target before the locked action fires there.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -3848,7 +3848,7 @@
     "args": []
   },
   "settings.dwell.action_menu.description": {
-    "text": "How long to rest on an action in the ring.",
+    "text": "The ring's buttons in normal mode, and the keyboard's close and flip edge buttons.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -3862,7 +3862,7 @@
     "args": []
   },
   "settings.dwell.activation.description": {
-    "text": "Dwell for the button that appears at your gaze.",
+    "text": "Dwell for the button that appears at your gaze. Also the fallback for the restart notice and the break banner when those are 0.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -3890,7 +3890,7 @@
     "args": []
   },
   "settings.dwell.cooldown.description": {
-    "text": "How long a new dwell must wait after an activation.",
+    "text": "How long every new dwell must wait after an activation.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -3918,7 +3918,7 @@
     "args": []
   },
   "settings.dwell.fixation.description": {
-    "text": "How long your gaze must hold steady before a dwell can start.",
+    "text": "How long gaze must hold steady before any dwell can start.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -3945,6 +3945,62 @@
     "fit": "row",
     "args": []
   },
+  "settings.dwell.group.activation.label": {
+    "text": "Activation",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.group.bars.label": {
+    "text": "Bars and windows",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.group.detection.label": {
+    "text": "Detection and timing",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.group.drag.label": {
+    "text": "Dragging, scrolling and repeat",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.group.menus.label": {
+    "text": "Menus and magnifier",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.group.pause.label": {
+    "text": "Pause, eye care and external apps",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.group.sounds.label": {
+    "text": "Sounds",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.group.typing.label": {
+    "text": "Typing",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
   "settings.dwell.keyboard_key.description": {
     "text": "How long to rest on a key before it fires. Keys that can leave the app or destroy work use 600 ms.",
     "who": "user",
@@ -3960,7 +4016,7 @@
     "args": []
   },
   "settings.dwell.manual_selection.description": {
-    "text": "Dwell for the action ring inside manual selection.",
+    "text": "The Lupe's own dwell and its action ring inside manual selection. This one row sets both.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -3988,7 +4044,7 @@
     "args": []
   },
   "settings.dwell.pause_grace.description": {
-    "text": "How long menu and toolbar dwells keep their progress after a blink or a glance away. Looking back in time resumes them; 0 restarts at once.",
+    "text": "Menu, toolbar, keyboard-edge, banner and pause-strip dwells keep their progress this long after a blink or a glance away; 0 restarts at once. The Resume target caps it at 200 ms.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -4023,7 +4079,7 @@
     "args": []
   },
   "settings.dwell.reset.message": {
-    "text": "Reset Dwell settings to defaults?",
+    "text": "Reset every look time on this tab to its default?",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -4072,7 +4128,7 @@
     "args": []
   },
   "settings.dwell.task_switcher_tile.description": {
-    "text": "How long to rest on a tile in the task switcher. It is never shorter than the toolbar dwell.",
+    "text": "How long to rest on a task-switcher tile; never shorter than the toolbar dwell. Its ✕ keeps the toolbar dwell.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -4086,7 +4142,7 @@
     "args": []
   },
   "settings.dwell.toolbar.description": {
-    "text": "How long to rest on EyeCtrl's own buttons.",
+    "text": "EyeCtrl's chrome buttons: toolbar, Settings, Backstage, Quick Actions, mode menu and guide. Also the task-switcher tiles' minimum and the ✕ of the task switcher, Quick Actions and Backstage.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -5729,6 +5785,20 @@
     "fit": "row",
     "args": []
   },
+  "settings.selection.skip.description": {
+    "text": "Gaze samples outside the hold tolerance the Lupe forgives before it lets go and restarts.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.skip.label": {
+    "text": "Magnifier Skip Outliers",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.selection.snap_radius.description": {
     "text": "How far from your gaze Auto Selection searches for a control.",
     "who": "user",
@@ -5738,6 +5808,20 @@
   },
   "settings.selection.snap_radius.label": {
     "text": "Snap Search Radius (px)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.stability.description": {
+    "text": "Steady samples the Lupe needs before it seats its anchor. Higher is steadier but slower; the sample window rises with it.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.stability.label": {
+    "text": "Magnifier Stability Samples",
     "who": "user",
     "where": "settings",
     "fit": "row",
@@ -5863,7 +5947,7 @@
     "args": []
   },
   "settings.tab.advanced.description": {
-    "text": "Expert tuning: backdrop, drag, scroll and external dwell.",
+    "text": "Expert tuning: backdrop, drag, scroll and external apps.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -5919,7 +6003,7 @@
     "args": []
   },
   "settings.tab.dwell.description": {
-    "text": "How long gaze must rest on a target before it activates.",
+    "text": "Every look time: how long gaze must rest before each surface acts.",
     "who": "user",
     "where": "settings",
     "fit": "prose",

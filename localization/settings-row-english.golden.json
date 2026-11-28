@@ -85,15 +85,15 @@
       "Name": "Dwell",
       "Rows": [
         {
-          "Id": "d_fix",
-          "Label": "Fixation Detection (ms)",
-          "Description": "How long your gaze must hold steady before a dwell can start.",
+          "Id": "",
+          "Label": "Activation",
+          "Description": null,
           "Modal": null
         },
         {
           "Id": "d_act",
           "Label": "Activation Button (ms)",
-          "Description": "Dwell for the button that appears at your gaze.",
+          "Description": "Dwell for the button that appears at your gaze. Also the fallback for the restart notice and the break banner when those are 0.",
           "Modal": null
         },
         {
@@ -103,15 +103,21 @@
           "Modal": null
         },
         {
+          "Id": "",
+          "Label": "Menus and magnifier",
+          "Description": null,
+          "Modal": null
+        },
+        {
           "Id": "d_menu",
           "Label": "Action Menu (ms)",
-          "Description": "How long to rest on an action in the ring.",
+          "Description": "The ring's buttons in normal mode, and the keyboard's close and flip edge buttons.",
           "Modal": null
         },
         {
           "Id": "d_ManualSelection",
           "Label": "Manual Selection Action Menu (ms)",
-          "Description": "Dwell for the action ring inside manual selection.",
+          "Description": "The Lupe's own dwell and its action ring inside manual selection. This one row sets both.",
           "Modal": null
         },
         {
@@ -121,15 +127,39 @@
           "Modal": null
         },
         {
+          "Id": "",
+          "Label": "Bars and windows",
+          "Description": null,
+          "Modal": null
+        },
+        {
           "Id": "d_tool",
           "Label": "Toolbar / Settings (ms)",
-          "Description": "How long to rest on EyeCtrl's own buttons.",
+          "Description": "EyeCtrl's chrome buttons: toolbar, Settings, Backstage, Quick Actions, mode menu and guide. Also the task-switcher tiles' minimum and the ✕ of the task switcher, Quick Actions and Backstage.",
+          "Modal": null
+        },
+        {
+          "Id": "g_restart_notice",
+          "Label": "Restart Notice Button (ms)",
+          "Description": "How long to rest on the restart notice's button. 0 = same as the activation dwell.",
+          "Modal": null
+        },
+        {
+          "Id": "av_backdrop_hide",
+          "Label": "Backdrop Hide Button (ms)",
+          "Description": "How long to rest on the button that hides the backdrop.",
           "Modal": null
         },
         {
           "Id": "d_ts_tile",
           "Label": "Task Switcher Tiles (ms)",
-          "Description": "How long to rest on a tile in the task switcher. It is never shorter than the toolbar dwell.",
+          "Description": "How long to rest on a task-switcher tile; never shorter than the toolbar dwell. Its ✕ keeps the toolbar dwell.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "Typing",
+          "Description": null,
           "Modal": null
         },
         {
@@ -145,6 +175,18 @@
           "Modal": null
         },
         {
+          "Id": "",
+          "Label": "Detection and timing",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "d_fix",
+          "Label": "Fixation Detection (ms)",
+          "Description": "How long gaze must hold steady before any dwell can start.",
+          "Modal": null
+        },
+        {
           "Id": "d_rad",
           "Label": "Fixation Radius (px)",
           "Description": "How far your gaze may drift within a fixation.",
@@ -153,19 +195,85 @@
         {
           "Id": "d_cooldown",
           "Label": "Dwell Cooldown (ms)",
-          "Description": "How long a new dwell must wait after an activation.",
+          "Description": "How long every new dwell must wait after an activation.",
           "Modal": null
         },
         {
-          "Id": "d_pause_grace",
-          "Label": "Look-Away Grace (ms)",
-          "Description": "How long menu and toolbar dwells keep their progress after a blink or a glance away. Looking back in time resumes them; 0 restarts at once.",
+          "Id": "",
+          "Label": "Dragging, scrolling and repeat",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "av_drag_settle",
+          "Label": "Drag Settle Dwell (ms)",
+          "Description": "How long gaze must hold still before a drag starts. Applies after a restart.",
+          "Modal": null
+        },
+        {
+          "Id": "av_drag_release",
+          "Label": "Drag Release Button (ms)",
+          "Description": "How long to rest on the button that ends a drag.",
+          "Modal": null
+        },
+        {
+          "Id": "av_drag_right_edge",
+          "Label": "Drag Edge Button (ms)",
+          "Description": "How long to rest on the edge button that ends a drag.",
+          "Modal": null
+        },
+        {
+          "Id": "av_scroll_stop",
+          "Label": "Scroll Stop Button (ms)",
+          "Description": "How long to rest on the button that stops scrolling.",
+          "Modal": null
+        },
+        {
+          "Id": "av_repeat_dwell",
+          "Label": "Repeat Dwell (ms)",
+          "Description": "In repeat mode, how long to hold your gaze on a target before the locked action fires there.",
+          "Modal": null
+        },
+        {
+          "Id": "av_repeat_stop",
+          "Label": "Repeat Stop Button (ms)",
+          "Description": "How long to rest on the button that ends repeat mode.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "Pause, eye care and external apps",
+          "Description": null,
           "Modal": null
         },
         {
           "Id": "d_resume",
           "Label": "Resume Strip (ms)",
           "Description": "How long to rest on the Resume target in the paused strip. It is never shorter than the toolbar dwell plus 200 ms.",
+          "Modal": null
+        },
+        {
+          "Id": "d_pause_grace",
+          "Label": "Look-Away Grace (ms)",
+          "Description": "Menu, toolbar, keyboard-edge, banner and pause-strip dwells keep their progress this long after a blink or a glance away; 0 restarts at once. The Resume target caps it at 200 ms.",
+          "Modal": null
+        },
+        {
+          "Id": "ec_banner_dwell",
+          "Label": "Break Banner Buttons (ms)",
+          "Description": "How long to rest on the break banner's buttons. 0 = same as the activation dwell.",
+          "Modal": null
+        },
+        {
+          "Id": "av_ext_dwell",
+          "Label": "External Dwell (ms)",
+          "Description": "Dwell length applied when an external app registers a target through EyeCtrl's pipe.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "Sounds",
+          "Description": null,
           "Modal": null
         },
         {
@@ -191,7 +299,7 @@
           "Label": "Reset Dwell Settings",
           "Description": null,
           "Modal": {
-            "Message": "Reset Dwell settings to defaults?",
+            "Message": "Reset every look time on this tab to its default?",
             "Choices": []
           }
         }
@@ -228,6 +336,18 @@
           "Id": "s_hold",
           "Label": "Hold Tolerance (px)",
           "Description": "How far your gaze may drift from the held point before the selection restarts. Larger is more forgiving.",
+          "Modal": null
+        },
+        {
+          "Id": "s_stability",
+          "Label": "Magnifier Stability Samples",
+          "Description": "Steady samples the Lupe needs before it seats its anchor. Higher is steadier but slower; the sample window rises with it.",
+          "Modal": null
+        },
+        {
+          "Id": "s_skip",
+          "Label": "Magnifier Skip Outliers",
+          "Description": "Gaze samples outside the hold tolerance the Lupe forgives before it lets go and restarts.",
           "Modal": null
         },
         {
@@ -678,12 +798,6 @@
           "Modal": null
         },
         {
-          "Id": "ec_banner_dwell",
-          "Label": "Break Banner Buttons (ms)",
-          "Description": "How long to rest on the break banner's buttons. 0 = same as the activation dwell.",
-          "Modal": null
-        },
-        {
           "Id": "ec_snooze",
           "Label": "Snooze Length (min)",
           "Description": "How long breaks are postponed when you snooze a banner.",
@@ -859,33 +973,9 @@
           "Modal": null
         },
         {
-          "Id": "av_backdrop_hide",
-          "Label": "Backdrop Hide Button (ms)",
-          "Description": "How long to rest on the button that hides the backdrop.",
-          "Modal": null
-        },
-        {
           "Id": "",
           "Label": "",
           "Description": null,
-          "Modal": null
-        },
-        {
-          "Id": "av_drag_settle",
-          "Label": "Drag Settle Dwell (ms)",
-          "Description": "How long gaze must hold still before a drag starts. Applies after a restart.",
-          "Modal": null
-        },
-        {
-          "Id": "av_drag_release",
-          "Label": "Drag Release Button (ms)",
-          "Description": "How long to rest on the button that ends a drag.",
-          "Modal": null
-        },
-        {
-          "Id": "av_drag_right_edge",
-          "Label": "Drag Edge Button (ms)",
-          "Description": "How long to rest on the edge button that ends a drag.",
           "Modal": null
         },
         {
@@ -919,30 +1009,6 @@
           "Modal": null
         },
         {
-          "Id": "av_scroll_stop",
-          "Label": "Scroll Stop Button (ms)",
-          "Description": "How long to rest on the button that stops scrolling.",
-          "Modal": null
-        },
-        {
-          "Id": "",
-          "Label": "",
-          "Description": null,
-          "Modal": null
-        },
-        {
-          "Id": "av_repeat_dwell",
-          "Label": "Repeat Dwell (ms)",
-          "Description": "How long to hold your gaze on a target before the locked action fires there.",
-          "Modal": null
-        },
-        {
-          "Id": "av_repeat_stop",
-          "Label": "Repeat Stop Button (ms)",
-          "Description": "How long to rest on the button that ends repeat mode.",
-          "Modal": null
-        },
-        {
           "Id": "",
           "Label": "",
           "Description": null,
@@ -952,12 +1018,6 @@
           "Id": "av_ext_enabled",
           "Label": "Enable External Dwell",
           "Description": "Let other apps trigger dwell through EyeCtrl's pipe.",
-          "Modal": null
-        },
-        {
-          "Id": "av_ext_dwell",
-          "Label": "External Dwell (ms)",
-          "Description": "Dwell length applied when an external app registers a target.",
           "Modal": null
         },
         {
@@ -1171,12 +1231,6 @@
           "Id": "",
           "Label": "Off — if EyeCtrl stops responding or crashes, it is not restarted automatically.",
           "Description": null,
-          "Modal": null
-        },
-        {
-          "Id": "g_restart_notice",
-          "Label": "Restart Notice Button (ms)",
-          "Description": "How long to rest on the restart notice's button. 0 = same as the activation dwell.",
           "Modal": null
         },
         {

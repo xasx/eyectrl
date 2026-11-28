@@ -26,8 +26,10 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                     new[] { "QWERTY", "QWERTZ", "AZERTY" },
                     () => k.ActiveLayout, v => { k.ActiveLayout = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.keyboard.layout.description"), Simple = true },
+                // Wave D D4: 0.05 steps with two decimals, so the owner's stored 1.75 is ON the
+                // grid — the old 0.1/1-decimal slider rounded one − press to 1.7 and lost it.
                 new SliderSpec("k_size",
-                    StringTable.Current.T("settings.keyboard.size.label"), 0.5, 2.0, 0.1, 1,
+                    StringTable.Current.T("settings.keyboard.size.label"), 0.5, 2.0, 0.05, 2,
                     () => k.KeySizeMultiplier, v => { k.KeySizeMultiplier = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.keyboard.size.description"), Simple = true },
                 new ToggleSpec("k_pred",

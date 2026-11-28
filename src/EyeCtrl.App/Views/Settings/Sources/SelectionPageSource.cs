@@ -46,6 +46,18 @@ internal sealed class SelectionPageSource : ISettingsPageSource
                     StringTable.Current.T("settings.selection.hold.label"), 20, 300, 5, 0,
                     () => s.ManualSelection.HoldRadiusLogical, v => { s.ManualSelection.HoldRadiusLogical = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.selection.hold.description") },
+                // Wave D D4: the other two knobs of the Lupe's commit rule, beside the hold
+                // tolerance they combine with. Both bind existing properties (defaults 5 and 3;
+                // the owner's file holds 5 and 7/10), so there is no migration and no default
+                // change. The sample-count setter lifts StabilityWindowSize to keep K <= M.
+                new SliderSpec("s_stability",
+                    StringTable.Current.T("settings.selection.stability.label"), 2, 30, 1, 0,
+                    () => s.ManualSelection.StabilitySampleCount, v => { s.ManualSelection.StabilitySampleCount = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.selection.stability.description") },
+                new SliderSpec("s_skip",
+                    StringTable.Current.T("settings.selection.skip.label"), 0, 30, 1, 0,
+                    () => s.ManualSelection.HoldOutlierSkipLimit, v => { s.ManualSelection.HoldOutlierSkipLimit = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = StringTable.Current.T("settings.selection.skip.description") },
                 new ColorPickerSpec("s_highlight",
                     StringTable.Current.T("settings.selection.highlight.label"),
                     () => s.AutoSelection.HighlightColor, v => { s.AutoSelection.HighlightColor = v; _ctx.ApplyAndSave(); },

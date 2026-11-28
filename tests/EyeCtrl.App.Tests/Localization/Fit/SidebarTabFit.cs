@@ -130,7 +130,8 @@ internal static class SidebarTabFit
         // The production face, not a copy (review-01 R3): BuildTabButtons builds every tab through
         // BuildTabFace, so its margins, type and icon size are what is measured here.
         var border = SettingsWindow.BuildTabFace("fit_probe", icon, label, new SolidColorBrush(Colors.Transparent));
-        var labelText = ((StackPanel)border.Child).Children.OfType<TextBlock>().Last();
+        var labelText = ((Grid)border.Child).Children.OfType<StackPanel>().Single()
+            .Children.OfType<TextBlock>().Last();
         panel.Children.Add(border);
 
         // FontFamily is inherited; OverlayWindow sets it on the window, the host sets it here.

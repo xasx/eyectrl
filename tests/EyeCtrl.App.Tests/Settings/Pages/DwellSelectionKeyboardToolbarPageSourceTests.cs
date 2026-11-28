@@ -11,13 +11,17 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
 {
     // No local Ctx() — use the shared TestSettingsPageContext.Build() introduced in Task 2.
     [Fact]
-    public void Dwell_TwoPagesWithCooldownAndReset()
+    public void Dwell_TwoPages_WithTheResetOnTheSecondAndTheCoreRows()
     {
         var pages = new DwellPageSource(TestSettingsPageContext.Build()).Build();
         Check.That(pages).HasSize(2);
         Check.That(pages[1].Rows.OfType<ButtonSpec>().Single().Id).IsEqualTo("d_reset");
+        // Declared pages are advisory (the shell re-chunks by height); this pins the source split
+        // the reset button's index relies on, and that the second page still carries its rows.
         Check.That(pages[1].Rows.OfType<SliderSpec>().Select(s => s.Id))
-            .Contains(new[] { "d_tool", "d_key", "d_pred", "d_rad", "d_cooldown", "d_pause_grace", "d_resume" });
+            .Contains(new[] { "d_rad", "d_cooldown", "d_pause_grace", "d_resume" });
+        Check.That(pages[0].Rows.OfType<SliderSpec>().Select(s => s.Id))
+            .Contains(new[] { "d_act", "d_menu", "d_tool", "d_key", "d_pred" });
     }
 
     [Fact]
@@ -81,19 +85,30 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
         var guards = new Dictionary<string, (double Min, double Max)>
         {
             ["d_fix"] = (100, 1000),
+            ["d_rad"] = (10, 200),
             ["d_act"] = (200, 2000),
             ["d_act_show"] = (500, 2500),
-            ["d_ts_tile"] = (500, 2500),
             ["d_menu"] = (200, 2000),
             ["d_ManualSelection"] = (200, 2000),
             ["d_manual_side"] = (200, 2000),
             ["d_tool"] = (200, 2000),
+            // Wave D D4 moved these eight look times here from Advanced/General/EyeCare.
+            ["g_restart_notice"] = (0, 3000),
+            ["av_backdrop_hide"] = (200, 2000),
+            ["d_ts_tile"] = (500, 2500),
             ["d_key"] = (300, 1500),
             ["d_pred"] = (300, 1500),
-            ["d_rad"] = (10, 200),
             ["d_cooldown"] = (100, 5000),
-            ["d_pause_grace"] = (0, 1000),
+            ["av_drag_settle"] = (200, 2000),
+            ["av_drag_release"] = (200, 2000),
+            ["av_drag_right_edge"] = (200, 2000),
+            ["av_scroll_stop"] = (200, 2000),
+            ["av_repeat_dwell"] = (200, 2000),
+            ["av_repeat_stop"] = (200, 2000),
             ["d_resume"] = (500, 3000),
+            ["d_pause_grace"] = (0, 1000),
+            ["ec_banner_dwell"] = (0, 3000),
+            ["av_ext_dwell"] = (200, 3000),
         };
 
         Check.That(sliders).HasSize(guards.Count);

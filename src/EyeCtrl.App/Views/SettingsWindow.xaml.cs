@@ -202,6 +202,21 @@ public partial class SettingsWindow : OverlayWindow
     internal const double TabButtonMargin = 4;
 
     /// <summary>
+    /// The dwell-progress bar on a sidebar tab: height, side inset and bottom inset in DIP, and the
+    /// tag the face and its readers find it by. Wave D D4 moved progress off the tab's FILL (which
+    /// now only says "selected") onto this bar, so the two states never look alike.
+    /// </summary>
+    internal const double TabProgressBarHeight = 4;
+    private const double TabProgressBarInset = 12;
+    private const double TabProgressBarBottom = 8;
+    /// <summary>
+    /// The face's progress-bar marker. An OBJECT, not a string: the bar's Tag is a reference
+    /// identity test (a string literal here would be an unbaselined screen text to the
+    /// TextLiteralRatchet), and no other element can carry it.
+    /// </summary>
+    internal static readonly object TabProgressBarTag = new();
+
+    /// <summary>
     /// The pager buttons' width, in DIP. <c>internal</c> so the headless chrome guards can pin
     /// the pager geometry without constructing the window (eight non-optional dependencies).
     /// </summary>
@@ -379,6 +394,10 @@ public partial class SettingsWindow : OverlayWindow
     // One mutable brush per button, mutated in place on dwell ticks (mirrors KeyboardWindow._keyBrushes).
     // Never allocated per-tick: UpdateXxxVisuals only sets .Color, so dwell highlight has zero GC churn.
     private readonly Dictionary<string, SolidColorBrush> _tabBrushes = new();
+    // Wave D D4: each tab's progress-bar scale. The bar is the ONLY thing a dwell tick writes on a
+    // tab; the fill brush above stays at TabInactive/TabActive so "filling" never reads as
+    // "selected".
+    private readonly Dictionary<string, ScaleTransform> _tabProgressScales = new();
     private readonly Dictionary<string, SolidColorBrush> _pagBrushes = new();
     private readonly Dictionary<string, SolidColorBrush> _modalBrushes = new();
     // Base fill per modal button id, captured at build time so UpdateModalVisuals can
@@ -808,6 +827,95 @@ public partial class SettingsWindow : OverlayWindow
         };
         System.Windows.Automation.AutomationProperties.SetAutomationId(iconText, $"Settings_Tab_{id}");
 
+        var face = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(16, 0, 16, 0),
+            Children =
+            {
+                iconText,
+                new TextBlock
+                {
+                    Text = label,
+                    Foreground = Tokens.BrushTextPrimary,
+                    FontSize = Tokens.FontSizeTitle,
+                    FontWeight = Tokens.FontWeightMedium,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    // FIXED by widening the sidebar column to 240 DIP
+                    // (SettingsWindow.xaml). **This branch caused the spill; it did not
+                    // inherit it.** Measured headlessly with the real glyphs, at the
+                    // sidebar's 220 DIP, for "Quick Actions":
+                    //
+                    //   pre-branch  (icon 30, label 22, no FontFamily override)  218.61
+                    //   post-branch (icon 32, label Tokens.FontSizeTitle = 24)   233.86
+                    //
+                    // So it sat 1.39px INSIDE the column before and 13.86px outside
+                    // after. The dominant term is this label going 22 -> 24, worth
+                    // +12.50px; the icon's 30 -> TabContainerHeight * Medium (32) adds
+                    // only +2.75px, and retargeting the family at "Segoe UI Variable
+                    // Text, Segoe UI" moves it by under 0.6px either way. An earlier
+                    // version of this comment claimed a pre-branch 231.11 and blamed
+                    // the icon alone — no configuration measures 231.11, and the label was
+                    // the larger half.
+                    //
+                    // At 240 every label clears the column, the tightest being
+                    // "Quick Actions" with 6.14px spare. It still overhangs its own tab
+                    // Border (which now ends at x=228) by 5.86px, and that is ACCEPTED:
+                    // the text stays fully legible against the sidebar's own fill, and
+                    // 240 strictly improves the highlight too — at 220 "Dwell Times" and
+                    // "Quick Actions" both overhung a Border ending at x=208.
+                    //
+                    // A TextTrimming.CharacterEllipsis was tried here and REMOVED because
+                    // it is provably inert, measured twice: this label's parent is a
+                    // horizontal StackPanel, which measures children with infinite width
+                    // in the stacking direction, so the label is never width-constrained
+                    // and has nothing to trim against — ActualWidth is 149.92 and the
+                    // right edge 233.86 with and without it. Left in place it would read,
+                    // at the call site, as if the label truncated. It does not. That is
+                    // still true and is why the attribute is still absent.
+                    //
+                    // The alternative was to make it live: a two-column Grid("Auto,*")
+                    // here plus the trimming back, which brings every right edge to
+                    // exactly 192.0 — inside the 220 column. It was REJECTED on the
+                    // measurement, because 192.0 is the slot edge, not the text's: the
+                    // constrained slots are 108.06 / 125.03 / 108.06 DIP against text
+                    // needing 131.12 / 140.22 / 149.92, so "Dwell Times", "Action Menu"
+                    // and "Quick Actions" would all render ellipsized. Trading three
+                    // unreadable tab names for 20px of a paginated, auto-sized content
+                    // column is the wrong trade for a user who navigates this window by
+                    // gaze. The robustness that fix bought is supplied instead by
+                    // SettingsTabLabelFitTests, which re-measures every label against the
+                    // column width parsed from the XAML and fails on any future resize.
+
+                }
+            }
+        };
+
+        // Wave D D4: dwell progress is a BAR along the tab's bottom edge, never a repaint of the
+        // tab's fill. Before this, an 80 % dwell had blended the inactive fill most of the way to
+        // the selected fill, so a tab that was merely filling read as selected. The fill now says
+        // only "selected" (a steady SurfaceKeySwitch), and this accent bar says only "filling"; the
+        // two channels share neither a visual channel nor a colour. ScaleX (not Width) keeps the
+        // bar out of layout, so a dwell tick cannot move the label or the tab's pitch.
+        var progressBar = new Border
+        {
+            Height = TabProgressBarHeight,
+            Margin = new Thickness(TabProgressBarInset, 0, TabProgressBarInset, TabProgressBarBottom),
+            VerticalAlignment = VerticalAlignment.Bottom,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Background = Tokens.BrushAccent,
+            CornerRadius = Tokens.StandardCornerRadius,
+            IsHitTestVisible = false,
+            RenderTransformOrigin = new Point(0, 0.5),
+            RenderTransform = new ScaleTransform(0, 1),
+            Tag = TabProgressBarTag
+        };
+
+        var content = new Grid();
+        content.Children.Add(face);
+        content.Children.Add(progressBar);
+
         return new Border
         {
             Height = TabContainerHeight,
@@ -815,71 +923,52 @@ public partial class SettingsWindow : OverlayWindow
             CornerRadius = Tokens.StandardCornerRadius,
             Background = background,
             Cursor = System.Windows.Input.Cursors.Hand,
-            Child = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(16, 0, 16, 0),
-                Children =
-                {
-                    iconText,
-                    new TextBlock
-                    {
-                        Text = label,
-                        Foreground = Tokens.BrushTextPrimary,
-                        FontSize = Tokens.FontSizeTitle,
-                        FontWeight = Tokens.FontWeightMedium,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        // FIXED by widening the sidebar column to 240 DIP
-                        // (SettingsWindow.xaml). **This branch caused the spill; it did not
-                        // inherit it.** Measured headlessly with the real glyphs, at the
-                        // sidebar's 220 DIP, for "Quick Actions":
-                        //
-                        //   pre-branch  (icon 30, label 22, no FontFamily override)  218.61
-                        //   post-branch (icon 32, label Tokens.FontSizeTitle = 24)   233.86
-                        //
-                        // So it sat 1.39px INSIDE the column before and 13.86px outside
-                        // after. The dominant term is this label going 22 -> 24, worth
-                        // +12.50px; the icon's 30 -> TabContainerHeight * Medium (32) adds
-                        // only +2.75px, and retargeting the family at "Segoe UI Variable
-                        // Text, Segoe UI" moves it by under 0.6px either way. An earlier
-                        // version of this comment claimed a pre-branch 231.11 and blamed
-                        // the icon alone — no configuration measures 231.11, and the label was
-                        // the larger half.
-                        //
-                        // At 240 every label clears the column, the tightest being
-                        // "Quick Actions" with 6.14px spare. It still overhangs its own tab
-                        // Border (which now ends at x=228) by 5.86px, and that is ACCEPTED:
-                        // the text stays fully legible against the sidebar's own fill, and
-                        // 240 strictly improves the highlight too — at 220 "Dwell Times" and
-                        // "Quick Actions" both overhung a Border ending at x=208.
-                        //
-                        // A TextTrimming.CharacterEllipsis was tried here and REMOVED because
-                        // it is provably inert, measured twice: this label's parent is a
-                        // horizontal StackPanel, which measures children with infinite width
-                        // in the stacking direction, so the label is never width-constrained
-                        // and has nothing to trim against — ActualWidth is 149.92 and the
-                        // right edge 233.86 with and without it. Left in place it would read,
-                        // at the call site, as if the label truncated. It does not. That is
-                        // still true and is why the attribute is still absent.
-                        //
-                        // The alternative was to make it live: a two-column Grid("Auto,*")
-                        // here plus the trimming back, which brings every right edge to
-                        // exactly 192.0 — inside the 220 column. It was REJECTED on the
-                        // measurement, because 192.0 is the slot edge, not the text's: the
-                        // constrained slots are 108.06 / 125.03 / 108.06 DIP against text
-                        // needing 131.12 / 140.22 / 149.92, so "Dwell Times", "Action Menu"
-                        // and "Quick Actions" would all render ellipsized. Trading three
-                        // unreadable tab names for 20px of a paginated, auto-sized content
-                        // column is the wrong trade for a user who navigates this window by
-                        // gaze. The robustness that fix bought is supplied instead by
-                        // SettingsTabLabelFitTests, which re-measures every label against the
-                        // column width parsed from the XAML and fails on any future resize.
-                    }
-                }
-            }
+            Child = content
         };
     }
+
+    /// <summary>
+    /// The tab's dwell-progress transform. Production sets its <c>ScaleX</c> from
+    /// <c>TabProgress</c>; the channel is a bottom bar rather than the fill, so "selected" (the
+    /// steady background) and "filling" (this bar) can never read alike. Exposed for the headless
+    /// channel test, which drives it exactly as the window does.
+    /// </summary>
+    /// <param name="tab">A border built by <see cref="BuildTabFace"/>.</param>
+    /// <returns>The bar's scale transform.</returns>
+    internal static ScaleTransform TabProgressScale(Border tab)
+    {
+        foreach (var child in TabFaceChildren(tab))
+            if (child is Border bar && ReferenceEquals(bar.Tag, TabProgressBarTag))
+                return (ScaleTransform)bar.RenderTransform;
+        throw new InvalidOperationException("The tab face has no progress bar.");
+    }
+
+    /// <summary>The tab's fill colour, from the face the window actually built.</summary>
+    internal static Color TabBackgroundColor(Border tab)
+    {
+        TabFaceChildren(tab);
+        return ((SolidColorBrush)tab.Background).Color;
+    }
+
+    /// <summary>The progress bar's colour, from the face the window actually built.</summary>
+    internal static Color TabProgressColor(Border tab)
+    {
+        foreach (var child in TabFaceChildren(tab))
+            if (child is Border bar && ReferenceEquals(bar.Tag, TabProgressBarTag))
+                return ((SolidColorBrush)bar.Background).Color;
+        throw new InvalidOperationException("The tab face has no progress bar.");
+    }
+
+    /// <summary>
+    /// The face's children, failing loudly when the shape moved: SidebarTabFit and the progress
+    /// channel test both read this Grid, and a silent default would measure the wrong element.
+    /// </summary>
+    private static System.Windows.Controls.UIElementCollection TabFaceChildren(Border tab) =>
+        tab.Child is Grid grid
+            ? grid.Children
+            : throw new InvalidOperationException(
+                "The tab face's child is no longer the Grid that carries the progress bar. "
+                + "SidebarTabFit and SettingsTabProgressChannelTests read this shape.");
 
     private void BuildTabButtons()
     {
@@ -896,6 +985,7 @@ public partial class SettingsWindow : OverlayWindow
             // updates throw and are swallowed, and their targets are unregistered.
             _tabButtons[id] = border;
             _tabBrushes[id] = tabBrush;
+            _tabProgressScales[id] = TabProgressScale(border);
         }
 
         // The whole sidebar layout — page size, page count, the page holding the current tab —
@@ -2437,6 +2527,12 @@ public partial class SettingsWindow : OverlayWindow
 
     // ────── Dwell visual feedback ──────
 
+    /// <summary>
+    /// Pushes tab dwell progress onto each tab's bottom bar. The tab fill is deliberately NOT
+    /// touched: it carries "selected"/"not selected" only (see <see cref="UpdateActiveTabHighlight"/>),
+    /// so a partially filled tab cannot read as selected. The close button keeps its own wash — a
+    /// destructive disc has no selected state to be confused with.
+    /// </summary>
     private void UpdateTabVisuals()
     {
         foreach (var (id, progress) in _viewModel.TabProgress)
@@ -2449,11 +2545,29 @@ public partial class SettingsWindow : OverlayWindow
                 continue;
             }
 
-            if (_tabBrushes.TryGetValue(id, out var brush) && id != _viewModel.ActiveTabId)
-            {
-                brush.Color = ColorBlend.Blend(TabInactive, TabActive, progress);
-            }
+            if (_tabProgressScales.TryGetValue(id, out var scale)
+                && _tabBrushes.TryGetValue(id, out var fill))
+                ApplyTabProgress(id, progress, _viewModel.ActiveTabId, fill, scale);
         }
+    }
+
+    /// <summary>
+    /// The whole tab-progress rule in one place: a dwell tick moves the BAR only. The fill is a
+    /// state channel ("selected" is the steady active surface, "not selected" the steady inactive
+    /// one) and must never be blended by progress — that is what made an 80 % tab read as
+    /// selected. The selected tab carries no bar at all.
+    /// </summary>
+    /// <param name="id">The tab's dwell id.</param>
+    /// <param name="progress">Dwell progress, 0–1.</param>
+    /// <param name="activeTabId">The currently selected tab's id.</param>
+    /// <param name="fill">The tab's fill brush — read never, deliberately: a parameter so a
+    /// mutation that repainted it would be visible here rather than in a hidden instance path.</param>
+    /// <param name="bar">The tab's progress-bar scale.</param>
+    internal static void ApplyTabProgress(
+        string id, double progress, string activeTabId, SolidColorBrush fill, ScaleTransform bar)
+    {
+        if (id == activeTabId) return;
+        bar.ScaleX = Math.Clamp(progress, 0.0, 1.0);
     }
 
     private void UpdatePaginationVisuals()
@@ -2492,6 +2606,10 @@ public partial class SettingsWindow : OverlayWindow
         foreach (var (id, brush) in _tabBrushes)
         {
             brush.Color = id == _viewModel.ActiveTabId ? TabActive : TabInactive;
+            // The selected tab can never carry a progress bar: a completed dwell selects the tab,
+            // and the bar's job is over. Reset it here so no stale ScaleX survives the switch.
+            if (id == _viewModel.ActiveTabId && _tabProgressScales.TryGetValue(id, out var scale))
+                scale.ScaleX = 0;
         }
     }
 

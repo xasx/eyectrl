@@ -149,67 +149,157 @@ public class CrashDialogWiringRatchetTests
     }
 
     /// <summary>
-    /// Review-02 n2 of #380: the constructor-body ratchet above only sees what runs in that body —
-    /// a <c>static App()</c> constructor would run BEFORE it, with every static field initializer
-    /// running before the static constructor in turn. Anything user code does there happens while
-    /// the WER crash dialog is still on, invisible to the first-statement rule. Fail on the
-    /// construct itself: App must not grow a static constructor.
+    /// Review-02 n2 of #380, review-01 F1c of D2: the constructor-body ratchet only sees what
+    /// runs in that body — a <c>static App()</c> constructor would run BEFORE it, with every
+    /// static field initializer running before the static constructor in turn — and App is
+    /// partial, so the construct can hide in ANY of its files, not just App.xaml.cs (#380
+    /// review-02's "single partial file" is now pinned by the scan itself). Fail on the
+    /// construct itself: no App partial may declare a static constructor.
     /// </summary>
     [Fact]
     public void App_HasNoStaticConstructor_BeforeTheDialogIsDisabled()
     {
-        string source = SourceScanner.StripComments(RepoFile("src", "EyeCtrl.App", "App.xaml.cs"));
+        var offenders = AppPartialSources()
+            .Where(f => SourceScanner.StripComments(File.ReadAllText(f))
+                .Contains("static App(", StringComparison.Ordinal))
+            .Select(Path.GetFileName)
+            .ToList();
 
         Check.WithCustomMessage(
-                "a static App constructor exists: it (and every static field initializer) runs "
-                + "BEFORE the instance constructor body the Disable() ratchet pins, so user code "
-                + "would run while the WER crash dialog is still on.")
-            .That(source.Contains("static App(", StringComparison.Ordinal)).IsFalse();
+                $"a static App constructor exists (in: {string.Join(", ", offenders)}): it (and "
+                + "every static field initializer) runs BEFORE the instance constructor body the "
+                + "Disable() ratchet pins, so user code would run while the WER crash dialog is "
+                + "still on.")
+            .That(offenders).IsEmpty();
     }
 
     /// <summary>
-    /// Review-02 n1 of #380: every field initializer on the class level — instance or static —
-    /// runs BEFORE the constructor body, so the first-statement ratchet is blind to them (its own
-    /// mutant, <c>Assembly.Load</c> in an initializer, survived the whole review). Anything with a
-    /// call or a <c>new</c> is a side effect and must be on the allow-list. Today's one allocation
-    /// is <c>RollingFaultBudget</c> (a struct holding two ints); <c>() =&gt; false</c> needs no
-    /// entry — creating a delegate invokes nothing. Extending the list is a deliberate edit, like
-    /// moving a statement past the Disable call. The scan reads comment-stripped source as text —
-    /// a false flag (a string literal that looks like a call) fails visibly here and is a prompt
-    /// to refine, never a silent pass.
+    /// Review-01 F1 of D2, seen-by-reading: a constructor initializer runs before the body —
+    /// <c>public App() : this(Early())</c> executes while the WER crash dialog is still on —
+    /// and <see cref="AssertFirstStatement"/> starts at the brace, so it cannot see it. No App
+    /// constructor may carry a <c>: this(...)</c> / <c>: base(...)</c> chain.
+    /// </summary>
+    [Fact]
+    public void App_ConstructorInitializers_DoNotRunCode_BeforeTheConstructorBody()
+    {
+        var offenders = AppPartialSources()
+            .Select(f => (File: f, Text: SourceScanner.StripComments(File.ReadAllText(f))))
+            .SelectMany(p => CtorInitializerUses(p.File, p.Text))
+            .ToList();
+
+        Check.WithCustomMessage(
+                $"an App constructor initializer runs code before the constructor body the "
+                + $"Disable() ratchet pins: {string.Join("; ", offenders)} — remove the chain or "
+                + "move its work below the constructor's first statement.")
+            .That(offenders).IsEmpty();
+    }
+
+    /// <summary>
+    /// Review-02 n1 of #380, review-01 F1a/F1b/F1c of D2: every field initializer on the class
+    /// level — instance or static, in ANY <c>partial class App</c> file — runs BEFORE the
+    /// constructor body, so the first-statement ratchet is blind to them (its own mutant,
+    /// <c>Assembly.Load</c> in an initializer, survived the whole review). The flagged set must
+    /// equal EXACTLY the one known trivial initializer — a substring/type allow-list let
+    /// <c>RollingFaultBudget _e2 = new(File.ReadAllText(...).Length, ...)</c>, real I/O, slip
+    /// through (F1a) — so any addition is a deliberate edit of that single equality, like
+    /// moving the statement below the Disable call. Detection: any '(' in the initializer
+    /// counts as a call (an identifier call, a typed or target-typed <c>new</c>, and the
+    /// generic form <c>Foo&lt;T&gt;()</c> — e.g. <c>Log.ForContext&lt;App&gt;()</c> — alike,
+    /// F1b), except the parameter parens of a leading <c>() =&gt;</c> lambda whose body is
+    /// still scanned; and a '.' counts as a member read, so the no-paren
+    /// <c>= Some.SideEffectingProperty;</c> getter invocation is caught too. The one known
+    /// statement: <see cref="RollingFaultBudget"/>'s budget — a sealed class holding an int, a
+    /// long, a <c>Func&lt;long&gt;</c> and a <c>Queue&lt;long&gt;</c> it allocates; its
+    /// constructor only assigns those fields, does no I/O, and lives in EyeCtrl.Core, the same
+    /// assembly <c>CrashDialogPolicy</c> needs anyway (review-02 of #380 under F1; D2 review-01
+    /// F2). The scan reads comment-stripped source as text — a false flag (a string literal
+    /// that looks like a call) fails visibly here and is a prompt to refine, never a silent
+    /// pass.
     /// </summary>
     [Fact]
     public void App_FieldInitializers_ThatRunBeforeTheConstructorBody_StayTrivial()
     {
-        string source = SourceScanner.StripComments(RepoFile("src", "EyeCtrl.App", "App.xaml.cs"));
-
-        string[] allowList =
-        [
-            // The dispatcher-fault budget: allocation only, no I/O, no window, nothing that can
-            // realistically throw before the WER flag is set (review-02 of #380, under F1).
-            "RollingFaultBudget",
-        ];
-
-        var flagged = ClassLevelStatements(source, "public partial class App")
-            .Where(s => IsSideEffectingInitializer(s))
+        var flagged = AppPartialSources()
+            .Select(f => SourceScanner.StripComments(File.ReadAllText(f)))
+            .SelectMany(source => ClassLevelStatements(source, "partial class App"))
+            .Where(IsSideEffectingInitializer)
+            .Select(Normalize)
             .ToList();
 
-        foreach (var statement in flagged)
+        Check.WithCustomMessage(
+                $"the class-level initializers that run before the WER no-UI flag are not exactly "
+                + $"the one known trivial statement — got [{string.Join("; ", flagged)}] — move "
+                + "anything else below the constructor's first statement, or edit this equality "
+                + "deliberately.")
+            .That(flagged).ContainsExactly(KnownTrivialInitializer);
+    }
+
+    /// <summary>
+    /// The only class-level initializer with side effects today, normalized whitespace and
+    /// WITHOUT the trailing semicolon (the scan captures up to it): the dispatcher-fault budget.
+    /// The ratchet asserts the flagged set equals exactly this.
+    /// </summary>
+    private const string KnownTrivialInitializer =
+        "private readonly RollingFaultBudget _dispatcherFaultBudget = new(10, TimeSpan.FromSeconds(60))";
+
+    /// <summary>
+    /// Every .cs file under src/EyeCtrl.App (obj/ and bin/ excluded) whose comment-stripped
+    /// source declares <c>partial class App</c> — today exactly App.xaml.cs, and this scan is
+    /// what pins "App is a single partial file" instead of assuming it (review-01 F1c).
+    /// </summary>
+    private static List<string> AppPartialSources()
+    {
+        string root = Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App");
+        var files = Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
+                && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+            .Select(f => (Path: f, Text: SourceScanner.StripComments(File.ReadAllText(f))))
+            .Where(p => p.Text.Contains("partial class App", StringComparison.Ordinal))
+            .Select(p => p.Path)
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .ToList();
+
+        Check.WithCustomMessage(
+                "no .cs file under src/EyeCtrl.App declares 'partial class App' — the ratchet's "
+                + "anchor (class shape or project layout) has moved; refine the scan.")
+            .That(files).Not.IsEmpty();
+        return files;
+    }
+
+    /// <summary>Collapses every whitespace run to one space, trims both ends.</summary>
+    private static string Normalize(string statement) =>
+        string.Join(' ', statement.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    /// <summary>
+    /// The ': this(...)' / ': base(...)' chains of any App constructor in the file, with the
+    /// file name — each one runs code before the body the first-statement ratchet pins.
+    /// </summary>
+    private static List<string> CtorInitializerUses(string file, string source)
+    {
+        var offenders = new List<string>();
+        int index = 0;
+        while ((index = source.IndexOf("App(", index, StringComparison.Ordinal)) >= 0)
         {
-            Check.WithCustomMessage(
-                    $"a field initializer with a call or 'new' runs before the WER no-UI flag and "
-                    + $"is not on the allow-list: << {statement.Trim()} >> — move it below the "
-                    + $"constructor's first statement or allow-list it here deliberately.")
-                .That(allowList.Any(statement.Contains)).IsTrue();
+            if (index == 0 || !char.IsLetterOrDigit(source[index - 1]))
+            {
+                int openParen = index + "App(".Length - 1;
+                int closeParen = source.IndexOf(')', openParen);
+                int brace = source.IndexOf('{', openParen);
+                if (closeParen >= 0 && brace >= 0 && closeParen < brace)
+                {
+                    string between = source[closeParen..brace];
+                    if (between.Contains(": this(", StringComparison.Ordinal)
+                        || between.Contains(": base(", StringComparison.Ordinal))
+                    {
+                        offenders.Add($"{Path.GetFileName(file)}: {Normalize(between)}");
+                    }
+                }
+            }
+
+            index += "App(".Length;
         }
 
-        // The scan must not silently degrade into scanning nothing (a renamed class declaration
-        // would do exactly that): today exactly one initializer is flagged and it is the known one.
-        Check.WithCustomMessage(
-                "the field-initializer scan did not see the RollingFaultBudget initializer it is "
-                + "known to flag — its anchor or the scan is broken.")
-            .That(flagged.Any(s => s.Contains("RollingFaultBudget", StringComparison.Ordinal)))
-            .IsTrue();
+        return offenders;
     }
 
     /// <summary>
@@ -220,7 +310,9 @@ public class CrashDialogWiringRatchetTests
     private static List<string> ClassLevelStatements(string source, string classDeclaration)
     {
         int classIndex = source.IndexOf(classDeclaration, StringComparison.Ordinal);
-        Check.WithCustomMessage("App.xaml.cs no longer declares the class this ratchet scans.")
+        Check.WithCustomMessage(
+                "a partial App file no longer declares the class this ratchet scans (or lost the "
+                + "declaration's opening brace).")
             .That(classIndex).IsStrictlyGreaterThan(-1);
 
         int brace = source.IndexOf('{', classIndex);
@@ -278,7 +370,7 @@ public class CrashDialogWiringRatchetTests
 
     /// <summary>
     /// True for a class-level statement whose initializer has side effects: an assignment (not
-    /// <c>=&gt;</c>, <c>==</c>, …) whose right-hand side allocates or calls something, skipping
+    /// <c>=&gt;</c>, <c>==</c>, …) whose right-hand side invokes or reads a member, skipping
     /// <c>const</c> (compile-time only), <c>extern</c> declarations (an attribute's named
     /// arguments are not runtime code), and expression-bodied members (<c>=&gt;</c> before the
     /// assignment).
@@ -296,11 +388,13 @@ public class CrashDialogWiringRatchetTests
         if (arrow >= 0 && arrow < assignment)
             return false;
 
-        if (statement.TrimStart().StartsWith("const", StringComparison.Ordinal))
+        // 'const' sits among the declaration modifiers (statement text never contains it
+        // otherwise): a const initializer is compile-time, not runtime code.
+        if (statement.Contains("const ", StringComparison.Ordinal))
             return false;
 
         string initializer = statement[(assignment + 1)..];
-        return initializer.Contains("new ", StringComparison.Ordinal) || HasCall(initializer);
+        return HasCall(initializer) || HasMemberRead(initializer);
     }
 
     /// <summary>The first '=' that is an assignment: not '=>' and not part of '==', '+=', … .</summary>
@@ -323,18 +417,36 @@ public class CrashDialogWiringRatchetTests
         return -1;
     }
 
-    /// <summary>True if any <c>(</c> directly follows an identifier char — a call or a typed <c>new(</c>.</summary>
-    private static bool HasCall(string text)
+    /// <summary>
+    /// True if the initializer invokes anything: every <c>(</c> counts — an identifier call, a
+    /// typed or target-typed <c>new</c>, and the <c>(</c> of a generic call like
+    /// <c>Foo&lt;T&gt;()</c> or <c>Log.ForContext&lt;App&gt;()</c> (review-01 F1b: the old
+    /// identifier-before-paren rule could not see <c>&gt;(</c>) — except the parameter parens
+    /// of a leading <c>() =&gt;</c> lambda, whose body is still scanned.
+    /// </summary>
+    private static bool HasCall(string initializer)
     {
-        for (int i = 1; i < text.Length; i++)
+        string trimmed = initializer.TrimStart();
+
+        // A parameterless '() =>' lambda creation invokes nothing when created; skip its
+        // parameter parens but scan the body: '() => Something()' must still be flagged.
+        if (trimmed.StartsWith("()", StringComparison.Ordinal))
         {
-            if (text[i] == '('
-                && (char.IsLetterOrDigit(text[i - 1]) || text[i - 1] == '_'))
-            {
-                return true;
-            }
+            int arrow = trimmed.IndexOf("=>", StringComparison.Ordinal);
+            if (arrow >= 0 && trimmed[2..arrow].All(char.IsWhiteSpace))
+                return trimmed.IndexOf('(', arrow + 2) >= 0;
         }
 
-        return false;
+        return trimmed.IndexOf('(') >= 0;
     }
+
+    /// <summary>
+    /// True if the initializer allocates explicitly or READS a member: a '.' covers the
+    /// no-paren getter invocation <c>= Some.SideEffectingProperty;</c> (review-01 F1,
+    /// seen-by-reading), 'new ' the explicit allocation (target-typed 'new(' is caught by
+    /// <see cref="HasCall"/>'s paren rule).
+    /// </summary>
+    private static bool HasMemberRead(string initializer) =>
+        initializer.Contains("new ", StringComparison.Ordinal)
+        || initializer.Contains('.', StringComparison.Ordinal);
 }

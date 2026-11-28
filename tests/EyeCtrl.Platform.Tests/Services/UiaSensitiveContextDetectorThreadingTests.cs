@@ -24,11 +24,13 @@ public class UiaSensitiveContextDetectorThreadingTests
         // The 20.11 sitting measured 621 ms of hook removal; 1 s left too little headroom on a
         // slow box, and the VALUE must be pinned so a revert to 1 s cannot slide through while
         // the hung-remove test merely tracks whatever the constant says (fixup-01 F5 / r6).
-        // Pinned == 2 s, not merely >= 2 s: this budget is one part of the exit chain's total —
-        // the exit watchdog's own 15 s budget (ExitWatchdog.DefaultBudget) plus WER and the dump
-        // it writes must all stay under the 30 s restart-handoff wait (RestartHandoff.cs,
-        // MutexWait/ReadyWait) — so every second added here is a second taken from that margin.
-        // Raising it must be a conscious edit of both numbers, not a silent slide.
+        // Pinned == 2 s, not merely >= 2 s: Stop() is one step INSIDE the exit watchdog's 15 s
+        // (ExitWatchdog.DefaultBudget, ExitWatchdog.cs:44) — every second added here brings a
+        // slow-but-healthy exit closer to being FailFast-ed as stuck (a crash report and a
+        // "stuck" step the investigation has to explain). The watchdog frees the mutex BEFORE
+        // FailFast/WER/dump (ExitWatchdog.cs:32-36), so this budget does not eat
+        // RestartHandoff's 30 s MutexWait/ReadyWait — keeping a restart inside those is the
+        // watchdog's job, not this pin's. Raising it must be a conscious edit.
         Check.That(UiaSensitiveContextDetector.StopBudget).IsEqualTo(TimeSpan.FromSeconds(2));
     }
 

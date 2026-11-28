@@ -169,8 +169,10 @@ public sealed class SingleInstanceGuard : IDisposable
             owned = false;
             // Best-effort trace (review-02 N3 of #378): the sink appends to the day's log file, and
             // when another instance's Serilog sink holds that file the append loses to the sharing
-            // violation and is swallowed here too. Losing the trace is the accepted cost — it must
-            // never delay the startup verdict or change the exit.
+            // violation and is swallowed here too. Losing the trace is the accepted cost, and the
+            // sink should not delay the startup verdict either — though it still runs BEFORE
+            // Set() below (review-02 N2 of #378, deliberately left: harmless while the App's sink
+            // is a local append that fails fast). It must never change the exit.
             try { _logUnexpectedAcquireFailure?.Invoke(ex); } catch { }
         }
 

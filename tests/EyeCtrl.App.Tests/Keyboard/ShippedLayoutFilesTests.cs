@@ -288,23 +288,25 @@ public class ShippedLayoutFilesTests
     [Fact]
     public void Qwertz_Letters_IsVariantA_ExactlyAsApproved()
     {
-        // T6 variant A (owner-approved 2026-11-11), revised by F6 (owner choice 2026-11-14): the
-        // letters page, exactly as the ticket pins it. Wort löschen takes the top-left slot at
-        // Win's old 2.0 width (today's label, frame and accessible name), ß takes the third row's
-        // right end at 1.2 (today's output/shiftOutput), and F6 swaps ⌫ and `?`: ⌫ keeps its
-        // `backspace` action, glyph, label frame and "Rücktaste" name and takes row 0's right end
-        // at 0.8 (the owner types backspace with the upper right), while `?` becomes a plain text
-        // key at ⌫'s old third-row slot, width 1.2. The footer is the owner's exact ten-key row:
-        // Win Strg ⇥ 123 Fn #+= , ⌴ . ↵. Rows are centred, so the R1–R3 sums 12.8/12.2/12.8 keep
-        // every letter at its pre-edit position (see Letters_NoLetterMoves_ByUnitOffset).
+        // T6 variant A (owner-approved 2026-11-11), revised by F6 (owner choice 2026-11-14) and
+        // F21 (owner pick 2026-11-28): the letters page, exactly as the ticket pins it. Wort
+        // löschen takes the top-left slot (today's label, frame and accessible name), ß takes the
+        // third row's right end at 1.2 (today's output/shiftOutput), and F6 swaps ⌫ and `?`: ⌫
+        // keeps its `backspace` action, glyph, label frame and "Rücktaste" name and takes row 0's
+        // right end (the owner types backspace with the upper right), while `?` becomes a plain
+        // text key at ⌫'s old third-row slot, width 1.2. F21 grows both row ends outward — Wort
+        // löschen 2.0 -> 2.6 and ⌫ 0.8 -> 1.4 — so the row becomes 14 units and the keyboard's
+        // width standard becomes 14 (see EveryPage_WidestRowStaysWithinTheStandard); rows stay
+        // centred, so every letter keeps its screen position within 0.4 DIP (see
+        // Letters_NoLetterMoves_ByUnitOffset and Qwertz_Letters_LetterCentres_MatchD6dbdc70).
         var layout = Load("qwertz.json");
         var letters = layout.SubLayouts["letters"];
 
-        // Row 0: Aa 2.0 | Q..P | ⌫ 0.8 = 12.8.
+        // Row 0: Aa 2.6 | Q..P | ⌫ 1.4 = 14.0.
         var row0 = letters.Rows[0];
         var delWd = row0[0];
         Check.That(delWd.SpecialAction).IsEqualTo("deleteWord");
-        Check.That(delWd.Width).IsCloseTo(2.0, 0.01);
+        Check.That(delWd.Width).IsCloseTo(2.6, 0.01);
         Check.That(delWd.Label).IsEqualTo("Aa");
         Check.That(delWd.LabelFrame).IsEqualTo("eraseLeft");
         Check.That(delWd.AccessibleName).IsEqualTo("Wort löschen");
@@ -313,8 +315,8 @@ public class ShippedLayoutFilesTests
         Check.That(backspace.Output).IsEqualTo("");
         Check.That(backspace.SpecialAction).IsEqualTo("backspace");
         Check.That(backspace.AccessibleName).IsEqualTo("Rücktaste");
-        Check.That(backspace.Width).IsCloseTo(0.8, 0.01);
-        Check.That(row0.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
+        Check.That(backspace.Width).IsCloseTo(1.4, 0.01);
+        Check.That(row0.Sum(k => k.Width)).IsCloseTo(14.0, 0.01);
 
         // Row 2: Alt ⇧ | Y..Ü | ? 1.2 (⌫'s old slot) | ß 1.2 = 12.8.
         var row2 = letters.Rows[2];
@@ -357,6 +359,93 @@ public class ShippedLayoutFilesTests
                 .That(key.Width).IsCloseTo(width, 0.01);
         }
         Check.That(footer.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
+    }
+
+    [Fact]
+    public void Qwertz_Backspace_Is1_4Wide_AtTheTopRightCorner()
+    {
+        // F21 (owner pick 28.11): the ⌫ grows from 0.8 to 1.4 units and stays the letters page's
+        // top-right key. Being the last key of row 0 is the corner: rows are centred and this key
+        // owns the row's right edge.
+        var layout = Load("qwertz.json");
+        var row0 = layout.SubLayouts["letters"].Rows[0];
+
+        var backspace = row0[^1];
+        Check.That(backspace.SpecialAction).IsEqualTo("backspace");
+        Check.That(backspace.Label).IsEqualTo("⌫");
+        Check.That(backspace.Width).IsCloseTo(1.4, 0.001);
+    }
+
+    [Fact]
+    public void Qwertz_WortLoeschen_Is2_6Wide_AtTheTopLeft()
+    {
+        // F21's other row-end growth: Wort löschen 2.0 -> 2.6. Its label, frame and accessible
+        // name are unchanged (pinned above).
+        var layout = Load("qwertz.json");
+        var row0 = layout.SubLayouts["letters"].Rows[0];
+
+        var deleteWord = row0[0];
+        Check.That(deleteWord.SpecialAction).IsEqualTo("deleteWord");
+        Check.That(deleteWord.Width).IsCloseTo(2.6, 0.001);
+    }
+
+    /// <summary>
+    /// The absolute letter positions at 1.75x, in DIP from the window centre, captured from
+    /// <c>d6dbdc70</c> (the pre-F21 12.8-unit row 0). The window is centred on the screen and
+    /// the rows are centred on the page, so this is the letter's absolute screen X up to the
+    /// screen-centre constant. F21 grows only the row's two ends; the top-row letters shift by
+    /// 0.4 DIP (the gutter arithmetic of the two wider keys), everything below row 0 by 0.
+    /// </summary>
+    private static readonly Dictionary<string, double> D6dbdc70LetterCentresAt1_75 = new()
+    {
+        ["q"] = -493.75, ["w"] = -367.25, ["e"] = -240.75, ["r"] = -114.25, ["t"] = 12.25,
+        ["z"] = 138.75, ["u"] = 265.25, ["i"] = 391.75, ["o"] = 518.25, ["p"] = 644.75,
+        ["a"] = -556.60, ["s"] = -430.10, ["d"] = -303.60, ["f"] = -177.10,
+        ["g"] = -50.60, ["h"] = 75.90, ["j"] = 202.40, ["k"] = 328.90, ["l"] = 455.40,
+        ["ö"] = 581.90, ["ä"] = 708.40,
+        ["y"] = -442.75, ["x"] = -316.25, ["c"] = -189.75, ["v"] = -63.25,
+        ["b"] = 63.25, ["n"] = 189.75, ["m"] = 316.25, ["ü"] = 442.75,
+        ["ß"] = 733.70,
+    };
+
+    [Fact]
+    public void Qwertz_Letters_LetterCentres_MatchD6dbdc70_At1_75x()
+    {
+        // The owner's rule (F20/F21): no letter moves. This pins the REAL key arithmetic (the
+        // window's own width formula, shared with the fit cap) at the owner's 1.75x, letter by
+        // letter, against the absolute positions d6dbdc70 had. Mutants: restore Wort löschen to
+        // 2.0 or ⌫ to 0.8 (the top row moves ~38 DIP), or change any letter's width.
+        const double keySize = 70 * 1.75;
+        var letters = Load("qwertz.json").SubLayouts["letters"];
+        var found = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var row in letters.Rows)
+        {
+            var rowWidth = KeyboardFitCap.RowWidthDip(row, keySize);
+            var x = -rowWidth / 2;
+            foreach (var key in row)
+            {
+                var slot = keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0) + 4;
+                if (key.SpecialAction is null
+                    && D6dbdc70LetterCentresAt1_75.TryGetValue(key.Output, out var before))
+                {
+                    found.Add(key.Output);
+                    var now = x + slot / 2;
+                    Check.WithCustomMessage(
+                            $"'{key.Output}' now sits at {now:0.##} DIP from the window centre at 1.75x; " +
+                            $"on d6dbdc70 it sat at {before:0.##}. F21 grows only the row's two ends - a " +
+                            $"letter moved {Math.Abs(now - before):0.##} DIP.")
+                        .That(Math.Abs(now - before)).IsStrictlyLessThan(0.5);
+                }
+
+                x += slot;
+            }
+        }
+
+        Check.WithCustomMessage(
+                $"the pin table covers {D6dbdc70LetterCentresAt1_75.Count} letters, the walk found " +
+                $"{found.Count} - a letter was added, removed or stopped being a plain key.")
+            .That(found).HasSize(D6dbdc70LetterCentresAt1_75.Count);
     }
 
     [Fact]
@@ -558,11 +647,12 @@ public class ShippedLayoutFilesTests
     // window's DIP layout, because key slots are laid out left to right in width order and each
     // row is centred in the page's widest row.
     //
-    //   - No letter moves: every letter's (row, offset) is pinned to its pre-edit value. Rows are
-    //     centred, so "the row sums stay 12.8/12.2/12.8" and "no width before a letter changes"
-    //     are the same statement as "no letter moves by a single DIP" — this theory states it in
-    //     data instead of prose. ß (QWERTZ) and ç/à (AZERTY) are deliberately absent: their move
-    //     IS the ticket.
+    //   - No letter moves: every letter's (row, offset) is pinned to its pre-edit value, and the
+    //     theory compares that pin's ABSOLUTE position from the page centre with today's. F21
+    //     widens the QWERTZ letters page to 14 units, so rows 1-2 gain a 0.6-unit centring margin
+    //     relative to the page — their absolute position is what must not move. A letter that
+    //     changes the widths before it, or its row's sum, MOVES. ß (QWERTZ) and ç/à (AZERTY) are
+    //     deliberately absent: their move IS the T6 ticket.
     //   - Tab is never adjacent to Enter, and no app-escaping key is adjacent to Space, on every
     //     letters page. Adjacency is KeyboardE1Slip's own rule (boxes inflated by 5 % of the key
     //     pitch — corner contact included), evaluated in unit space against pitch measured the
@@ -573,12 +663,19 @@ public class ShippedLayoutFilesTests
     // Mutants: (a) put Tab back beside Enter (the old `… ⌴ ↵ ⇥` footer ending) → the adjacency
     // theory red; (b) widen one key 0.1 anywhere left of a letter → the offsets theory red.
 
+    /// <summary>
+    /// The page width the T6-era pins were measured against (all letters pages were 12.8 units
+    /// then). F21 made the QWERTZ letters page 14 units, so today's row centring differs; the pin
+    /// table below stores the OLD row-relative offset and the theory converts it to an absolute
+    /// position with this constant.
+    /// </summary>
     private const double PageStandardUnits = 12.8;
 
     /// <summary>
     /// The pinned (row, unit offset) of every letter that must not move, captured from the
     /// pre-edit files (the layout this ticket was cut from). Offsets are the centring margin
-    /// plus the widths of the keys before the letter in its row.
+    /// within the then-standard 12.8-unit page plus the widths of the keys before the letter in
+    /// its row.
     /// </summary>
     private static readonly Dictionary<string, Dictionary<string, (int Row, double Offset)>> LetterPositions = new()
     {
@@ -645,25 +742,35 @@ public class ShippedLayoutFilesTests
             if (subId != "letters") continue;
             for (var r = 0; r < sub.Rows.Count; r++)
             {
-                var offset = (PageStandardUnits - sub.Rows[r].Sum(k => k.Width)) / 2.0;
+                // F21: the QWERTZ letters page is 14 units wide now, so rows 1-2 gain a centring
+                // margin relative to the page. The invariant is the ABSOLUTE position — the row's
+                // centring margin plus the widths before the key is the same distance from the
+                // page centre as it was from the pre-edit page's centre. (The window is centred
+                // on the screen, so page-relative is screen-relative.) x is the key's left edge
+                // within its row; x - rowSum/2 puts it relative to the row's centre, which is the
+                // page's centre.
+                var rowSum = sub.Rows[r].Sum(k => k.Width);
+                var x = 0.0;
                 foreach (var key in sub.Rows[r])
                 {
                     if (key.SpecialAction is null && expected.TryGetValue(key.Output, out var want))
                     {
+                        var before = want.Offset - (PageStandardUnits / 2);
+                        var now = x - (rowSum / 2);
                         Check.WithCustomMessage(
-                                $"'{key.Output}' sits at row {r}, offset {offset:0.###}; before the T6 edit "
-                                + $"it sat at row {want.Row}, offset {want.Offset:0.###}. Rows are centred, so "
-                                + "this letter MOVED — restore the widths before it (or the row sum), or make "
-                                + "the move a deliberate, owner-reviewed pin change.")
+                                $"'{key.Output}' sits at row {r}, {now:0.###} units from the page centre; "
+                                + $"before the T6/F21 edits it sat at row {want.Row}, {before:0.###} from the "
+                                + "centre. Rows are centred, so this letter MOVED — restore the widths before "
+                                + "it (or the row sum), or make the move a deliberate, owner-reviewed pin change.")
                             .That(r).IsEqualTo(want.Row);
                         Check.WithCustomMessage(
-                                $"'{key.Output}' sits at row {r}, offset {offset:0.###}; before the T6 edit "
-                                + $"it sat at row {want.Row}, offset {want.Offset:0.###}. Rows are centred, so "
-                                + "this letter MOVED — restore the widths before it (or the row sum), or make "
-                                + "the move a deliberate, owner-reviewed pin change.")
-                            .That(offset).IsCloseTo(want.Offset, 0.001);
+                                $"'{key.Output}' sits at row {r}, {now:0.###} units from the page centre; "
+                                + $"before the T6/F21 edits it sat at row {want.Row}, {before:0.###} from the "
+                                + "centre. Rows are centred, so this letter MOVED — restore the widths before "
+                                + "it (or the row sum), or make the move a deliberate, owner-reviewed pin change.")
+                            .That(now).IsCloseTo(before, 0.001);
                     }
-                    offset += key.Width;
+                    x += key.Width;
                 }
             }
         }
@@ -754,9 +861,12 @@ public class ShippedLayoutFilesTests
     {
         var boxes = new List<(string Id, PhysicalRect Box)>();
         var centres = new List<PhysicalPoint>();
+        // The page's widest row, not a fixed 12.8: F21's QWERTZ letters page is 14 units, and the
+        // window centres every row on the page's grid width (KeyboardFitCap.PageWidthDip).
+        var pageWidth = sub.Rows.Count == 0 ? 0 : sub.Rows.Max(r => r.Sum(k => k.Width));
         for (var r = 0; r < sub.Rows.Count; r++)
         {
-            var offset = (PageStandardUnits - sub.Rows[r].Sum(k => k.Width)) / 2.0;
+            var offset = (pageWidth - sub.Rows[r].Sum(k => k.Width)) / 2.0;
             foreach (var key in sub.Rows[r])
             {
                 boxes.Add((key.SpecialAction ?? $"key_{r}_{offset:0.###}", new PhysicalRect(offset, r, key.Width, 1.0)));
@@ -927,7 +1037,9 @@ public class ShippedLayoutFilesTests
     // setting maximum only ~76 DIP of a 1920-DIP work area are spare, so ANY widened row on ANY
     // page overflows the window off-screen for a gaze user who cannot scroll to it. These
     // theories pin the whole budget, per page, over the three shipped files:
-    //   - widest row <= 12.8 units (the row standard, everywhere);
+    //   - widest row <= 14.0 units (the row standard, everywhere; F21 grew the QWERTZ letters
+    //     page's row 0 from 12.8 to exactly 14.0 — ⌫ 1.4, Wort löschen 2.6 — and set the standard
+    //     to that row, not to a looser bound);
     //   - rows <= 5 (the height half of the budget);
     //   - every page can be LEFT: switchSub:letters, autoReturn, or it IS the default page
     //     (a page without a way back is a one-way trap, since ActiveSubLayoutId survives hide/show);
@@ -939,12 +1051,14 @@ public class ShippedLayoutFilesTests
     // `size*w + (w>1 ? (w-1)*4 : 0) + 4` per key with key size 70 × multiplier (:22, :589), and
     // the SizeToContent window is the widest row PLUS the window chrome — Padding="8" and
     // BorderThickness="3" per side (KeyboardWindow.xaml:12-13), 22 DIP on top of the grid. The
-    // work area is 1920 DIP. The corrected spare at 2.0x is 54 DIP (1920 − 1844 − 22), not the
-    // 76 the debate's table quotes for the grid alone (review 01 F4). Mutants: widen the widest
-    // row to 13+ units (row standard AND 2.0× fit), add a 6th row, delete a page's switch-back
-    // key, add a fourth text row.
+    // work area is 1920 DIP. Since F21 the effective key size is the requested size or the fit
+    // cap (KeyboardFitCap), whichever is smaller: the 14-unit QWERTZ letters page at the 2.0x
+    // setting is 2038 DIP wide, so the cap reduces the key size to (1920 − 22 − 56) / 14 =
+    // 131.571 DIP (≈1.88x). At the owner's 1.75x the cap is a no-op (1793 DIP). Mutants: widen
+    // any page's widest row past the standard, add a 6th row, delete a page's switch-back key,
+    // add a fourth text row.
 
-    private const double MaxRowUnits = 12.8;
+    private const double MaxRowUnits = 14.0;
     private const int MaxRowsPerPage = 5;
     private const double WorkAreaWidthDip = 1920;
 
@@ -957,15 +1071,6 @@ public class ShippedLayoutFilesTests
     private const double WindowChromeWidthDip = 2 * (8 + 3);
 
     private static readonly double[] BudgetKeyMultipliers = [1.5, 2.0];
-
-    /// <summary>The window's own row arithmetic, verbatim from KeyboardWindow.xaml.cs:589.</summary>
-    private static double RowWidthDip(IEnumerable<KeyDefinition> row, double keySize)
-    {
-        double width = 0;
-        foreach (var key in row)
-            width += keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0) + 4;
-        return width;
-    }
 
     /// <summary>A TEXT row in E1's sense: at least <see cref="KeyboardE1Slip.MinTextKeysPerTextRow"/>
     /// plain keys, so it takes part in the slip-line's row banding.</summary>
@@ -1062,19 +1167,41 @@ public class ShippedLayoutFilesTests
     {
         var layout = Load(file);
 
-        foreach (var (page, sub) in layout.SubLayouts)
+        foreach (var multiplier in BudgetKeyMultipliers)
         {
-            foreach (var multiplier in BudgetKeyMultipliers)
+            var requested = 70 * multiplier;
+            var effective = KeyboardFitCap.EffectiveKeySizeDip(
+                layout, requested, WorkAreaWidthDip - WindowChromeWidthDip);
+
+            if (multiplier == 2.0 && file == "qwertz.json")
             {
-                var keySize = 70 * multiplier;
-                var gridWidth = sub.Rows.Max(r => RowWidthDip(r, keySize));
+                // The 14-unit letters row is what the cap exists for: 14 * 140 + 56 + 22 = 2038
+                // DIP on a 1920 DIP work area. The reduced size is the exact largest that fits.
+                Check.WithCustomMessage(
+                        "qwertz at 2.0x: the 14-unit letters row must exercise the fit cap " +
+                        $"(requested {requested} DIP, effective {effective:0.###})")
+                    .That(effective).IsStrictlyLessThan(requested);
+                Check.That(effective).IsCloseTo(
+                    (WorkAreaWidthDip - WindowChromeWidthDip - 56) / 14.0, 1e-9);
+            }
+            else
+            {
+                Check.WithCustomMessage(
+                        $"{file} at {multiplier}x: the requested size already fits, so the cap must " +
+                        $"be a no-op (requested {requested} DIP, effective {effective:0.###})")
+                    .That(effective).IsCloseTo(requested, 1e-9);
+            }
+
+            foreach (var (page, sub) in layout.SubLayouts)
+            {
+                var gridWidth = KeyboardFitCap.PageWidthDip(sub, effective);
                 var windowWidth = gridWidth + WindowChromeWidthDip;
                 Check.WithCustomMessage(
-                        $"{file}/{page} at {multiplier}x needs a {windowWidth:0.#} DIP window (grid " +
-                        $"{gridWidth:0.#} + {WindowChromeWidthDip} chrome), over a {WorkAreaWidthDip} " +
-                        "DIP work area: the SizeToContent window would run off-screen, and a gaze user cannot " +
-                        "scroll to the keys that left it.")
-                    .That(windowWidth).IsLessOrEqualThan(WorkAreaWidthDip);
+                        $"{file}/{page} at {multiplier}x (effective key {effective:0.###} DIP) needs a " +
+                        $"{windowWidth:0.#} DIP window (grid {gridWidth:0.#} + {WindowChromeWidthDip} " +
+                        $"chrome), over a {WorkAreaWidthDip} DIP work area: the SizeToContent window would " +
+                        "run off-screen, and a gaze user cannot scroll to the keys that left it.")
+                    .That(windowWidth).IsLessOrEqualThan(WorkAreaWidthDip + 1e-6);
             }
         }
     }

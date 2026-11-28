@@ -798,6 +798,10 @@
     "text": "Vorhersagen werden geladen",
     "src": "d6ac5d2c"
   },
+  "overlays.keyboard.predictionsLocked": {
+    "text": "Geschütztes Feld: keine Vorschläge",
+    "src": "9a7e2a01"
+  },
   "overlays.lagmark.label": {
     "text": "Hängt",
     "src": "197595ea"

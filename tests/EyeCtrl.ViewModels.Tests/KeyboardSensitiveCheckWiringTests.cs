@@ -11,8 +11,9 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// D4's wiring into the keyboard: the show/hide check logs the EVENT-DRIVEN verdict beside the one-shot
-/// poll, reads the foreground process name, runs off the caller's thread, and — the pin that matters most —
-/// <b>never changes the verdict</b>. The detector stays the sole authority.
+/// poll, reads the foreground process name and runs off the caller's thread. D3 turned the poll from evidence
+/// into the DECIDER: it can raise the sensitive state, and it can never be cleared by the event path (see
+/// <c>KeyboardPollDecidesTests</c>).
 /// </summary>
 public class KeyboardSensitiveCheckWiringTests
 {
@@ -85,20 +86,21 @@ public class KeyboardSensitiveCheckWiringTests
     }
 
     [Fact]
-    public async Task ThePollNeverChangesTheVerdict_InEitherDirection()
+    public async Task ThePollRaisesTheVerdict_AndTheEventPathStillRaisesIt()
     {
-        // MUTANT PIN: feeding the poll's answer into the verdict must turn this RED.
+        // D3 replaced "the poll never changes the verdict": the poll now DECIDES the password case. The
+        // event path can still raise (event says password, poll says not: still sensitive).
         var sensitive = new FakeSensitive { IsSensitiveActive = true };
         var vm = New(new Capture(), sensitive, new FakePoll { Read = () => false });
         await vm.BeginSensitiveCheck("show").WaitAsync(TimeSpan.FromSeconds(30),
             TestContext.Current.CancellationToken);
-        Check.That(vm.IsSensitiveContext).IsTrue();      // event said password, poll said not: event wins
+        Check.That(vm.IsSensitiveContext).IsTrue();      // event said password, poll said not: raised
 
         var notSensitive = new FakeSensitive { IsSensitiveActive = false };
         var vm2 = New(new Capture(), notSensitive, new FakePoll { Read = () => true });
         await vm2.BeginSensitiveCheck("hide").WaitAsync(TimeSpan.FromSeconds(30),
             TestContext.Current.CancellationToken);
-        Check.That(vm2.IsSensitiveContext).IsFalse();    // event said not, poll said password: event wins
+        Check.That(vm2.IsSensitiveContext).IsTrue();     // event said not, poll said password: the poll decides
     }
 
     [Fact]

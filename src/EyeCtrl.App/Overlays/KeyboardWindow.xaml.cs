@@ -1220,9 +1220,15 @@ public partial class KeyboardWindow : OverlayWindow
         }
     }
 
-    // True once the bar was emptied because a password field has focus: the first sample after the
-    // focus leaves rebuilds it, so the normal bar comes back without waiting for a key.
+    // True once the bar was emptied because a password field has focus (or the password poll could not
+    // answer): the first sample after the lock ends rebuilds it, so the normal bar comes back without
+    // waiting for a key.
     private bool _barEmptiedForSensitiveContext;
+
+    // D3: whether the last render put the lock sign in the bar's place. The lock must also appear when the
+    // bar was ALREADY empty (nothing typed yet) at the moment the lock starts, which the "words on screen"
+    // test alone would miss.
+    private bool _lockSignShown;
 
     /// <summary>
     /// The detector has no change event, so the window watches the cached verdict on every gaze sample.
@@ -1232,15 +1238,17 @@ public partial class KeyboardWindow : OverlayWindow
     private void RefreshBarOnSensitivityChange()
     {
         if (_viewModel is null) return;
-        if (_viewModel.IsSensitiveContext)
+        // D3: "locked" is a password field (either detection path) OR a poll that could not answer.
+        if (_viewModel.IsSuggestionsLocked)
         {
             _barEmptiedForSensitiveContext = true;
             // The loading hint must go with the suggestions: a hint over a password field
             // reads as if predictions were being prepared for it. The count check alone
             // leaves it standing — the hint is never IN _renderedPredictions.
             if (HasRenderedWords
-                || _predictionLoadingHint.Visibility == Visibility.Visible)
-                UpdatePredictions();          // renders nothing while sensitive
+                || _predictionLoadingHint.Visibility == Visibility.Visible
+                || !_lockSignShown)
+                UpdatePredictions();          // renders no word while locked, and the lock sign
         }
         else if (_barEmptiedForSensitiveContext)
         {
@@ -1266,7 +1274,7 @@ public partial class KeyboardWindow : OverlayWindow
         && (_settings?.Keyboard.PredictionEnabled ?? true)
         && (_settings?.Keyboard.ShowLMLoadingIndicator ?? true)
         && _viewModel.IsEmojiMode != true
-        && _viewModel.IsSensitiveContext != true;
+        && _viewModel.IsSuggestionsLocked != true;
 
     /// <summary>
     /// Whether a stack swap should refresh the bar NOW (review 01 Q1, owner decision
@@ -1301,6 +1309,9 @@ public partial class KeyboardWindow : OverlayWindow
         var slotCount = Math.Clamp(_settings?.Keyboard.MaxSuggestions ?? KeyboardSettings.MaxSuggestionsCeiling,
             1, MaxRenderedSuggestionSlots);
         var suggestions = _viewModel?.GetSuggestionsWithContext() ?? [];
+        // D3: read once, BEFORE any early return, so _lockSignShown never goes stale across the hint branch.
+        var locked = _viewModel?.IsSuggestionsLocked == true;
+        _lockSignShown = locked;
 
         _predictionDwellDetector.ClearTargets();
         _registeredPredictionSlots.Clear();
@@ -1369,6 +1380,8 @@ public partial class KeyboardWindow : OverlayWindow
         var slotWidth = _keyGridWidth > 0 ? _keyGridWidth / slotCount : 0;
         var labelMaxWidth = Math.Max(0, slotWidth - 38); // minus 3+3 margin and 16+16 padding
 
+        // D3: while the bar is locked (a password field, or a poll that could not answer) slot 0 carries a
+        // steady lock sign next to the otherwise empty slots; it is not a target and cannot be picked.
         for (int i = 0; i < slotCount; i++)
         {
             if (i < _renderedPredictions.Count && _renderedPredictions[i] is { } result)
@@ -1377,7 +1390,9 @@ public partial class KeyboardWindow : OverlayWindow
             }
             else
             {
-                PredictionBar.Children.Add(CreateEmptyPredictionCell(i));
+                PredictionBar.Children.Add(locked && i == 0
+                    ? CreateLockedPredictionCell()
+                    : CreateEmptyPredictionCell(i));
                 // Empty slots keep the outlines list aligned with the slot index.
                 _predictionOutlines.Add(null);
             }
@@ -1569,6 +1584,46 @@ public partial class KeyboardWindow : OverlayWindow
         });
     }
 
+    /// <summary>
+    /// D3: the lock sign — slot 0 of the empty bar while the bar is locked. A drawn padlock (no icon font, no
+    /// emoji font) in the secondary text colour, steady, with no dwell wash and no target: it is a sign,
+    /// not a key. Its UIA name is the localized "protected" text.
+    /// </summary>
+    private Border CreateLockedPredictionCell()
+    {
+        var size = Math.Max(_keySize * SuggestionScale * 0.5, Legibility.MinimumGlyphFontSize);
+        // Shackle (open arc over the body) + body, on a 24 x 24 grid; Uniform keeps the proportions.
+        var lockPath = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M 7,11 V 7 A 5,5 0 0 1 17,7 V 11 M 4,11 H 20 V 22 H 4 Z"),
+            Stroke = Tokens.BrushTextSecondary,
+            StrokeThickness = 2,
+            StrokeLineJoin = PenLineJoin.Round,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            Stretch = Stretch.Uniform,
+            Height = size,
+            Width = size,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false
+        };
+        var cell = new Border
+        {
+            Height = _keySize * SuggestionScale,
+            Margin = new Thickness(3),
+            Background = new SolidColorBrush(PredictionBarColor),
+            CornerRadius = Tokens.StandardCornerRadius,
+            ClipToBounds = true,
+            IsHitTestVisible = false,
+            Child = lockPath
+        };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(cell, "Keyboard_PredictionsLocked");
+        System.Windows.Automation.AutomationProperties.SetName(cell,
+            EyeCtrl.Core.Localization.StringTable.Current.T("overlays.keyboard.predictionsLocked"));
+        return cell;
+    }
+
     private Border CreateEmptyPredictionCell(int index)
     {
         var cell = new Border
@@ -1667,7 +1722,7 @@ public partial class KeyboardWindow : OverlayWindow
 
         // A stale list from before a password field took focus: a pick on it must do nothing, and the
         // bar is emptied. Then the sensitivity guard, BEFORE E1's pick line reads CurrentInput.
-        if (_viewModel.IsSensitiveContext)
+        if (_viewModel.IsSuggestionsLocked)
         {
             UpdatePredictions();
             return;

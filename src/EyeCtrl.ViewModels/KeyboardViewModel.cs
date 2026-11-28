@@ -188,6 +188,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private readonly IKeyboardContextProbe? _contextProbe;
     private readonly ISensitiveContextDetector? _sensitiveContext;
     private readonly KeyboardSensitiveCheck _sensitiveCheck;
+    private readonly KeyboardPollVerdict _pollVerdict = new();
+    private readonly ISensitiveContextDetector _combinedSensitive;
     private readonly Action _onEffectiveSettingsChanged;
 
     [ObservableProperty] private bool _isVisible;
@@ -227,6 +229,12 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // recorder (in memory only too); this flag says whether a word is being typed at all.
     private bool _wordOpen;
     private string _wordText = "";
+
+    // D3: the open word was OPENED while the field was sensitive, so the mirror was cut at its first letter
+    // (see ActivateKey). The poll that describes the new field lands one key later by design; without this
+    // the late "not sensitive" would end the session again and drop that first letter from the mirror.
+    private bool _wordOpenedWhileSensitive;
+    private int _wordOpenVerdictGeneration;
 
     private const int RecentTextLimit = 100;
 
@@ -322,11 +330,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _effectiveSettings = effectiveSettings;
         _contextProbe = contextProbe;
         _sensitiveContext = sensitiveContext;
+        _combinedSensitive = new CombinedSensitiveContext(this);
         E1 = new KeyboardE1Recorder(logger) { IsSensitive = SensitiveNow };
-        _mirrorChecker = new KeyboardMirrorChecker(E1, contextProbe, sensitiveContext);
-        // D4 diagnostics: one read-only IsPassword poll beside the event-driven verdict at show/hide. It has
-        // no path back into the verdict — evidence only.
-        _sensitiveCheck = new KeyboardSensitiveCheck(logger, sensitivePoll);
+        _mirrorChecker = new KeyboardMirrorChecker(E1, contextProbe, _combinedSensitive);
+        // D3: the direct IsPassword poll (show/hide, and the start and commit of every typed word) DECIDES
+        // the poll half of the sensitive state; the UIA event path can only raise it (SensitiveNow ORs them).
+        // A timeout, busy slot or error is UNKNOWN and fails closed for learning, the bar and the LM prompt.
+        _sensitiveCheck = new KeyboardSensitiveCheck(logger, sensitivePoll, verdict: _pollVerdict);
         if (_effectiveSettings is not null)
         {
             _onEffectiveSettingsChanged = ApplyEffectiveKeyDwell;
@@ -343,14 +353,62 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         E1 = recorder;
         E1.IsSensitive ??= SensitiveNow;
-        _mirrorChecker = new KeyboardMirrorChecker(recorder, _contextProbe, _sensitiveContext);
+        _mirrorChecker = new KeyboardMirrorChecker(recorder, _contextProbe, _combinedSensitive);
     }
 
     // Whether a password-like field has focus: E1 then logs nothing per key (see KeyboardE1Recorder).
-    private bool SensitiveNow() => _sensitiveContext?.IsSensitiveActive == true;
+    // D3: the event path may RAISE it, the poll's "sensitive" verdict raises it too and only a NEWER poll
+    // clears that half — so a late or wrong focus event can never clear what the poll found.
+    private bool SensitiveNow() =>
+        _sensitiveContext?.IsSensitiveActive == true || _pollVerdict.IsSensitive;
 
-    /// <summary>Whether a password-like field has focus right now (the window reads it to keep the bar empty).</summary>
+    /// <summary>
+    /// D3: the fail-closed predicate — a password field (either path) OR a poll that could not answer
+    /// (timeout, busy, error). Learning, the suggestion bar and the LM prompt use THIS; every other consumer
+    /// of the sensitive state (E1's per-key mute, the re-open guard, the session end) keeps
+    /// <see cref="SensitiveNow"/>. It never touches what is typed or sent.
+    /// </summary>
+    private bool LearningBlocked() => SensitiveNow() || _pollVerdict.IsUnknown;
+
+    /// <summary>Whether a password-like field has focus right now.</summary>
     internal bool IsSensitiveContext => SensitiveNow();
+
+    /// <summary>
+    /// D3: whether the bar must stay empty and show the lock sign — a password field OR an unknown poll.
+    /// Steady, never pickable.
+    /// </summary>
+    internal bool IsSuggestionsLocked => LearningBlocked();
+
+    /// <summary>The detector's verdict OR'd with the poll's, for consumers that take an <see cref="ISensitiveContextDetector"/>.</summary>
+    private sealed class CombinedSensitiveContext(KeyboardViewModel owner) : ISensitiveContextDetector
+    {
+        public bool IsSensitiveActive => owner.SensitiveNow();
+        public void Start() { }
+        public void Stop() { }
+        public void Dispose() { }
+    }
+
+    /// <summary>Test seam: the task of the poll the typing path started last (completes after its outcome is applied).</summary>
+    internal Task LastSensitivePoll { get; private set; } = Task.CompletedTask;
+
+    /// <summary>
+    /// D3: starts one poll at a typing moment (<c>word</c>: a word was opened, <c>commit</c>: it was
+    /// finished). Returns at once; the UIA read runs on the thread pool under the 300 ms box and its outcome
+    /// reaches <see cref="SensitiveNow"/> / <see cref="LearningBlocked"/> only when it lands — typing never
+    /// waits for it. No process lookup and no counters here: this is on the typing path.
+    /// </summary>
+    private void PollSensitiveAt(string at)
+    {
+        try
+        {
+            LastSensitivePoll = _sensitiveCheck.Begin(at, _sensitiveContext?.IsSensitiveActive == true, "-",
+                FocusEventCounts.Unknown);
+        }
+        catch (Exception)
+        {
+            // A poll that cannot start must never break typing.
+        }
+    }
 
     /// <summary>
     /// F16: characters typed for the open word (0 at a word boundary). The bar renders are stamped
@@ -400,7 +458,14 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     internal void EndSessionOnSensitivityChange()
     {
         var sensitive = SensitiveNow();
-        if (_wasSensitive != sensitive)
+        // D3: leaving a sensitive field is normally a session end. Not for the word that OPENED while it was
+        // still sensitive: its session was already cut at its first letter, and the poll answering for its
+        // own field lands one key later, so ending the session now would drop that first letter.
+        // Only when it is the POLL that cleared it: a poll newer than the word's opening decided. A focus
+        // event that flips the detector mid-word (no newer poll) still ends the session.
+        var wordStartedUnderTheOldVerdict = _wordOpen && _wordOpenedWhileSensitive && _wasSensitive && !sensitive
+            && _pollVerdict.Generation > _wordOpenVerdictGeneration;
+        if (_wasSensitive != sensitive && !wordStartedUnderTheOldVerdict)
             EndEditingSession();
         _wasSensitive = sensitive;
     }
@@ -1535,6 +1600,17 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             var continuesWord = actualOutput.Length > 0
                 && (char.IsLetterOrDigit(actualOutput[0])
                     || (_wordOpen && IsWordInterior(actualOutput[0])));
+            if (continuesWord && !_wordOpen)
+            {
+                _wordOpenVerdictGeneration = _pollVerdict.Generation;
+                PollSensitiveAt("word");   // D3: re-ask the field at the start of every word (off-thread, never waits)
+                // D3: a word that starts while the field is (still) sensitive starts a clean session: whatever
+                // the mirror holds belongs to the password field, and the poll about THIS word's field lands
+                // only after this key. The first letter itself is kept (see _wordOpenedWhileSensitive).
+                _wordOpenedWhileSensitive = SensitiveNow();
+                if (_wordOpenedWhileSensitive)
+                    EndEditingSession();
+            }
             if (continuesWord)
                 _wordText = _wordOpen ? _wordText + actualOutput : actualOutput;
             else
@@ -1671,6 +1747,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             E1.ClearWordTracking();
             return;
         }
+        PollSensitiveAt("commit");   // D3: a word was finished - re-ask the field for the next one (off-thread)
         var finalWord = pick ? pickedWord : TrimWordBoundaries(_wordText);
         _wordOpen = false;
         _wordText = "";
@@ -1699,6 +1776,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
         _wordText = CurrentInput[start..];
         _wordOpen = _wordText.Length > 0;
+        _wordOpenedWhileSensitive = false;
         if (!_wordOpen) E1.ClearWordTracking();
     }
 
@@ -1830,7 +1908,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     private void LearnPair(string? previousWord, string word)
     {
-        if (SensitiveNow()) return;   // never learn from a password field
+        if (LearningBlocked()) return;   // never learn from a password field (or while the poll is unknown)
         if (previousWord is null || BigramModel.NormalizeWord(previousWord) is null) return;
         if (BigramModel.NormalizeWord(word) is null) return;
         if (EndsWithSentencePunctuation(previousWord)) return;
@@ -1886,7 +1964,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     private string? LearnCommittedWord(string rawWord)
     {
-        if (SensitiveNow()) return null;   // never learn from a password field
+        if (LearningBlocked()) return null;   // never learn from a password field (or while the poll is unknown)
         if (TrimLearnedWord(rawWord) is not { } word) return null;
         _orchestrator?.LearnWord(word);
         return word;
@@ -1898,7 +1976,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     private void LearnCommittedSequence(IReadOnlyList<string> rawWords)
     {
-        if (SensitiveNow()) return;   // never learn from a password field
+        if (LearningBlocked()) return;   // never learn from a password field (or while the poll is unknown)
         var learnedWords = new List<string>(rawWords.Count);
         foreach (var rawWord in rawWords)
             if (TrimLearnedWord(rawWord) is { } word)
@@ -2438,8 +2516,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
         // The bar stays EMPTY in a password field and no dictionary, bigram or LM query is made with
         // what is typed there: completions of a password's prefix would be shown on screen and fed
-        // to the language model's prompt.
-        if (SensitiveNow())
+        // to the language model's prompt. D3: an UNKNOWN poll (timeout, busy, error) fails closed here too.
+        if (LearningBlocked())
         {
             _orchestrator.ClearNextWord();
             return new List<PredictionResult>();
@@ -2474,9 +2552,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         if (_orchestrator == null) return null;
 
-        if (SensitiveNow())
+        if (LearningBlocked())
         {
-            // No next word may arrive for a password field, and the pending request is dropped.
+            // No next word may arrive for a password field (or an unknown poll), and the pending request is dropped.
             _orchestrator.ClearNextWord();
             return null;
         }

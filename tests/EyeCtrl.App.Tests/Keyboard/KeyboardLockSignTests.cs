@@ -98,7 +98,7 @@ public class KeyboardLockSignTests
         }
 
         /// <summary>The keyboard shows: the poll's outcome is applied before this returns.</summary>
-        public void Show(string at = "show") => Vm.BeginSensitiveCheck(at).GetAwaiter().GetResult();
+        public void PollAt(string at = "show") => Vm.BeginSensitiveCheck(at).GetAwaiter().GetResult();
 
         public List<string> Rendered() =>
             ((IEnumerable<PredictionResult>)typeof(KeyboardWindow)
@@ -122,7 +122,7 @@ public class KeyboardLockSignTests
         try
         {
             p.Poll.Read = () => true;
-            p.Show();
+            p.PollAt();
 
             p.Window.UpdatePredictions();
             p.Content.UpdateLayout();
@@ -149,7 +149,7 @@ public class KeyboardLockSignTests
         try
         {
             p.Poll.Read = () => throw new InvalidOperationException("UIA fault");
-            p.Show();
+            p.PollAt();
 
             p.Window.UpdatePredictions();
 
@@ -166,7 +166,7 @@ public class KeyboardLockSignTests
         try
         {
             p.Poll.Read = () => false;
-            p.Show();
+            p.PollAt();
             foreach (var ch in new[] { "h", "e", "l" }) { p.Vm.ActivateKey(ch, null); p.Window.UpdatePredictions(); }
 
             Check.That(p.LockCells()).IsEmpty();
@@ -184,13 +184,13 @@ public class KeyboardLockSignTests
         try
         {
             p.Poll.Read = () => false;
-            p.Show();
+            p.PollAt();
             p.Window.UpdatePredictions();
             p.Gaze(1_000_000);
             Check.That(p.LockCells()).IsEmpty();
 
             p.Poll.Read = () => true;
-            p.Show("hide");
+            p.PollAt("hide");
             p.Gaze(2_000_000);
             Check.WithCustomMessage("the lock appears at the next gaze sample").That(p.LockCells().Count).IsEqualTo(1);
 
@@ -198,7 +198,7 @@ public class KeyboardLockSignTests
             Check.WithCustomMessage("steady: still exactly one").That(p.LockCells().Count).IsEqualTo(1);
 
             p.Poll.Read = () => false;
-            p.Show();
+            p.PollAt();
             p.Gaze(4_000_000);
             Check.WithCustomMessage("a newer poll lifts it").That(p.LockCells()).IsEmpty();
         }
@@ -212,12 +212,12 @@ public class KeyboardLockSignTests
         try
         {
             p.Poll.Read = () => false;
-            p.Show();
+            p.PollAt();
             foreach (var ch in new[] { "h", "e", "l" }) { p.Vm.ActivateKey(ch, null); p.Window.UpdatePredictions(); }
             Check.That(p.Rendered()).Contains("hello");
 
             p.Poll.Read = () => true;
-            p.Show("hide");
+            p.PollAt("hide");
             p.Gaze(1_000_000);
 
             Check.That(p.Rendered()).IsEmpty();
@@ -233,7 +233,7 @@ public class KeyboardLockSignTests
         try
         {
             p.Poll.Read = () => true;
-            p.Show();
+            p.PollAt();
             p.Window.UpdatePredictions();
 
             p.Window.OnPredictionDwelled("pred_0");

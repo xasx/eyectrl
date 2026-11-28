@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services.Coordinators;
 
 using System.IO;
+using System.Windows;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App;
 using EyeCtrl.App.Overlays;
@@ -172,7 +173,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
                     settings.Keyboard.KeySizeMultiplier,
                     settings.Dwell.KeyboardKeyDwellMs,
                     settings.Dwell.KeyboardPredictionDwellMs,
-                    settings.Dwell.DwellCooldownMs);
+                    settings.Dwell.DwellCooldownMs,
+                    // F21's runtime fit cap: the owner's 1.75x is a no-op on 1920 DIP, and the
+                    // 2.0x setting is reduced to the largest size at which every page fits.
+                    SystemParameters.WorkArea.Width);
                 // E1 step 0a: name the layout on every shown/layout line — name, file hash, app version —
                 // so a before/after layout comparison groups the log by lv instead of by date. A reload
                 // (a settings apply, possibly switching ActiveLayout) re-stamps here.
